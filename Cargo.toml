@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = ["crates/*", "crates/plugins/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[workspace.dependencies]
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+rmp-serde = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+termwiz = "0.23"
