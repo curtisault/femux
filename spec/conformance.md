@@ -26,11 +26,11 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-QRY-001 | femux-vt `query::tests::*`; femux-test `query::qry_001_daemon_answers_queries` | pass |
 | REQ-QRY-002 | femux-vt `query::tests::answers_from_host_caps`; femux-test `query::qry_002_answers_follow_the_attached_client` | pass |
 | REQ-QRY-003 | femux-test `query::qry_003_panes_get_encoded_input_only` | pass |
-| REQ-SESS-001 | – | pending |
-| REQ-SESS-002 | – | pending |
-| REQ-SESS-003 | – | pending |
-| REQ-SESS-004 | – | pending |
-| REQ-SESS-005 | – | pending |
+| REQ-SESS-001 | femux-test `session::sess_001_hierarchy_and_unique_names` | pass |
+| REQ-SESS-002 | femux-daemon `layout::tests::*`; femux-test `session::sess_002_layout_tree_nodes` | pass |
+| REQ-SESS-003 | femux-test `session::sess_003_one_event_per_mutation` | pass |
+| REQ-SESS-004 | femux-test `session::sess_004_marks` | pass |
+| REQ-SESS-005 | femux-test `session::sess_005_zoom_shows_only_focused_pane` | pass |
 | REQ-VIEW-001 | – | pending |
 | REQ-VIEW-002 | – | pending |
 | REQ-VIEW-003 | – | pending |
