@@ -31,10 +31,10 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-SESS-003 | femux-test `session::sess_003_one_event_per_mutation` | pass |
 | REQ-SESS-004 | femux-test `session::sess_004_marks` | pass |
 | REQ-SESS-005 | femux-test `session::sess_005_zoom_shows_only_focused_pane` | pass |
-| REQ-VIEW-001 | – | pending |
-| REQ-VIEW-002 | – | pending |
-| REQ-VIEW-003 | – | pending |
-| REQ-VIEW-004 | – | pending |
+| REQ-VIEW-001 | femux-test `view::view_001_each_client_has_its_own_tab_and_size` | pass |
+| REQ-VIEW-002 | femux-test `view::view_002_tab_size_is_minimum_of_viewers` | pass |
+| REQ-VIEW-003 | femux-test `view::view_003_other_tabs_do_not_constrain` | pass |
+| REQ-VIEW-004 | femux-test `view::view_004_resizes_are_debounced` | pass |
 | REQ-EVT-001 | – | pending |
 | REQ-EVT-002 | – | pending |
 | REQ-EVT-003 | – | pending |
