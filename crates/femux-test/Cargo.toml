@@ -1,6 +1,13 @@
 [package]
 name = "femux-test"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 
 [dependencies]
+femux-proto = { path = "../femux-proto" }
+femux-daemon = { path = "../femux-daemon" }
+tokio.workspace = true
+serde.workspace = true
+serde_json = "1"
+tempfile = "3"
