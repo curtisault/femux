@@ -1,6 +1,13 @@
 [package]
 name = "femux-vt"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+links = "ghostty-vt"
 
 [dependencies]
+smol_str = "0.3"
+
+[[bench]]
+name = "diff"
+harness = false
