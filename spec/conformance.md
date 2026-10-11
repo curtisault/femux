@@ -40,7 +40,7 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-EVT-003 | femux-daemon `bus::tests::late_subscriber_replays_since`; femux-test `events::evt_003_replay_since` | pass |
 | REQ-EVT-004 | femux-test `events::evt_004_pane_metadata` | pass |
 | REQ-LIFE-001 | – | pending |
-| REQ-LIFE-002 | – | pending |
+| REQ-LIFE-002 | femux-test `lifecycle::life_002_exit_with_last_session`, `lifecycle::life_002_keep_alive` | pass |
 | REQ-PROTO-001 | femux-test `protocol::proto_001_socket_and_directory_modes`; femux-proto `tests::socket_dirs` | pass |
 | REQ-PROTO-002 | femux-daemon `server::tests::other_uids_are_refused`; femux-test `protocol::proto_002_same_uid_peer_is_served` | pass |
 | REQ-PROTO-003 | femux-test `protocol::proto_003_no_tcp_listener` (Linux) | pass |
