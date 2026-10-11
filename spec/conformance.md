@@ -35,10 +35,10 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-VIEW-002 | femux-test `view::view_002_tab_size_is_minimum_of_viewers` | pass |
 | REQ-VIEW-003 | femux-test `view::view_003_other_tabs_do_not_constrain` | pass |
 | REQ-VIEW-004 | femux-test `view::view_004_resizes_are_debounced` | pass |
-| REQ-EVT-001 | – | pending |
-| REQ-EVT-002 | – | pending |
-| REQ-EVT-003 | – | pending |
-| REQ-EVT-004 | – | pending |
+| REQ-EVT-001 | femux-daemon `bus::tests::seq_is_monotonic_and_stamped`; femux-test `events::evt_001_seq_ts_kind` | pass |
+| REQ-EVT-002 | femux-daemon `bus::tests::filters_by_kind_session_and_pane`, `bus::tests::slow_subscriber_gets_events_lost_and_continues`; femux-test `events::evt_002_filters_and_loss`, `protocol::proto_041_full_frame_after_attach_and_events_lost` | pass |
+| REQ-EVT-003 | femux-daemon `bus::tests::late_subscriber_replays_since`; femux-test `events::evt_003_replay_since` | pass |
+| REQ-EVT-004 | femux-test `events::evt_004_pane_metadata` | pass |
 | REQ-LIFE-001 | – | pending |
 | REQ-LIFE-002 | – | pending |
 | REQ-PROTO-001 | femux-test `protocol::proto_001_socket_and_directory_modes`; femux-proto `tests::socket_dirs` | pass |
