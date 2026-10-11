@@ -41,18 +41,18 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-EVT-004 | – | pending |
 | REQ-LIFE-001 | – | pending |
 | REQ-LIFE-002 | – | pending |
-| REQ-PROTO-001 | – | pending |
-| REQ-PROTO-002 | – | pending |
-| REQ-PROTO-003 | – | pending |
-| REQ-PROTO-004 | femux-proto `tests::frame_roundtrip_and_classification`, `tests::oversized_frames_rejected` | pass |
+| REQ-PROTO-001 | femux-test `protocol::proto_001_socket_and_directory_modes`; femux-proto `tests::socket_dirs` | pass |
+| REQ-PROTO-002 | femux-daemon `server::tests::other_uids_are_refused`; femux-test `protocol::proto_002_same_uid_peer_is_served` | pass |
+| REQ-PROTO-003 | femux-test `protocol::proto_003_no_tcp_listener` (Linux) | pass |
+| REQ-PROTO-004 | femux-proto `tests::frame_roundtrip_and_classification`, `tests::oversized_frames_rejected`; femux-test `protocol::proto_004_oversized_frame_closes_connection` | pass |
 | REQ-PROTO-010 | femux-proto `schema::generated_kinds_match_schema` | pass |
-| REQ-PROTO-011 | femux-proto `tests::frame_roundtrip_and_classification` | pass |
-| REQ-PROTO-012 | femux-proto `tests::unknown_kind_and_fields` (decoder); daemon `error{unknown_kind}` reply pending | partial |
-| REQ-PROTO-020 | – | pending |
-| REQ-PROTO-021 | – | pending |
+| REQ-PROTO-011 | femux-proto `tests::frame_roundtrip_and_classification`; femux-test `protocol::proto_011_ids_and_kinds` | pass |
+| REQ-PROTO-012 | femux-proto `tests::unknown_kind_and_fields`; femux-test `protocol::proto_012_unknown_kinds_and_fields` | pass |
+| REQ-PROTO-020 | femux-test `protocol::proto_020_missing_feature_loses_action_not_connection` | pass |
+| REQ-PROTO-021 | femux-test `protocol::proto_021_major_version_mismatch_closes` | pass |
 | REQ-PROTO-030 | femux-vt `input::tests::*`; `pane.input` pending | partial |
-| REQ-PROTO-040 | – | pending |
-| REQ-PROTO-041 | – | pending |
+| REQ-PROTO-040 | femux-test `protocol::proto_040_one_unacked_frame_coalesces` | pass |
+| REQ-PROTO-041 | femux-test `protocol::proto_041_full_frame_after_attach_and_events_lost` | pass |
 | REQ-BUILD-001 | – | pending |
 | REQ-BUILD-002 | – | pending |
 | REQ-BUILD-003 | – | pending |
