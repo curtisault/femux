@@ -1,0 +1,4 @@
+/target
+/crates/femux-vt/zig/zig-pkg/
+.zig-cache/
+zig-out/
