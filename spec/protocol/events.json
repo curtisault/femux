@@ -1,0 +1,639 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://femux.dev/protocol/events.json",
+  "title": "femux protocol: event bus",
+  "description": "Events are pushed with envelope id 0. Every event body carries seq (monotonic per daemon) and ts.",
+  "$defs": {
+    "EventsSubscribe": {
+      "type": "object",
+      "properties": {
+        "kinds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "session": {
+          "$ref": "common.json#/$defs/SessionName"
+        },
+        "pane": {
+          "$ref": "common.json#/$defs/PaneId"
+        },
+        "since": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "Replay retained events with seq > since first."
+        }
+      }
+    },
+    "EventsUnsubscribe": {
+      "type": "object",
+      "description": "No fields."
+    },
+    "SessionCreated": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "ts": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch"
+        },
+        "name": {
+          "$ref": "common.json#/$defs/SessionName"
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "name"
+      ]
+    },
+    "SessionRenamed": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "ts": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch"
+        },
+        "name": {
+          "$ref": "common.json#/$defs/SessionName"
+        },
+        "new": {
+          "$ref": "common.json#/$defs/SessionName"
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "name",
+        "new"
+      ]
+    },
+    "SessionClosed": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "ts": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch"
+        },
+        "name": {
+          "$ref": "common.json#/$defs/SessionName"
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "name"
+      ]
+    },
+    "TabCreated": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "ts": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch"
+        },
+        "session": {
+          "$ref": "common.json#/$defs/SessionName"
+        },
+        "tab_id": {
+          "$ref": "common.json#/$defs/TabId"
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "session",
+        "tab_id"
+      ]
+    },
+    "TabSelected": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "ts": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch"
+        },
+        "view_id": {
+          "$ref": "common.json#/$defs/ViewId"
+        },
+        "tab_id": {
+          "$ref": "common.json#/$defs/TabId"
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "view_id",
+        "tab_id"
+      ]
+    },
+    "TabClosed": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "ts": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch"
+        },
+        "session": {
+          "$ref": "common.json#/$defs/SessionName"
+        },
+        "tab_id": {
+          "$ref": "common.json#/$defs/TabId"
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "session",
+        "tab_id"
+      ]
+    },
+    "TabMoved": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "ts": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch"
+        },
+        "tab_id": {
+          "$ref": "common.json#/$defs/TabId"
+        },
+        "index": {
+          "$ref": "common.json#/$defs/U32"
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "tab_id",
+        "index"
+      ]
+    },
+    "TabRenamed": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "ts": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch"
+        },
+        "tab_id": {
+          "$ref": "common.json#/$defs/TabId"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "tab_id",
+        "title"
+      ]
+    },
+    "LayoutChanged": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "ts": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch"
+        },
+        "tab_id": {
+          "$ref": "common.json#/$defs/TabId"
+        },
+        "tree": {
+          "$ref": "common.json#/$defs/LayoutNode"
+        },
+        "floats": {
+          "type": "array",
+          "items": {
+            "$ref": "common.json#/$defs/FloatNode"
+          }
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "tab_id",
+        "tree",
+        "floats"
+      ]
+    },
+    "PaneSpawned": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "ts": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch"
+        },
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        },
+        "tab_id": {
+          "$ref": "common.json#/$defs/TabId"
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "pane_id",
+        "tab_id"
+      ]
+    },
+    "PaneExited": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "ts": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch"
+        },
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        },
+        "code": {
+          "$ref": "common.json#/$defs/I32"
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "pane_id",
+        "code"
+      ]
+    },
+    "PaneFgChanged": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "ts": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch"
+        },
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        },
+        "pid": {
+          "$ref": "common.json#/$defs/U32"
+        },
+        "cmd": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "pane_id",
+        "pid",
+        "cmd"
+      ]
+    },
+    "PaneCwdChanged": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "ts": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch"
+        },
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        },
+        "cwd": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "pane_id",
+        "cwd"
+      ]
+    },
+    "PaneTitleChanged": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "ts": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch"
+        },
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "pane_id",
+        "title"
+      ]
+    },
+    "PaneMetaChanged": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "ts": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch"
+        },
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        },
+        "set": {
+          "$ref": "pane.json#/$defs/Meta"
+        },
+        "unset": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "pane_id",
+        "set",
+        "unset"
+      ]
+    },
+    "PaneBell": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "ts": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch"
+        },
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "pane_id"
+      ]
+    },
+    "ViewAttached": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "ts": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch"
+        },
+        "view_id": {
+          "$ref": "common.json#/$defs/ViewId"
+        },
+        "session": {
+          "$ref": "common.json#/$defs/SessionName"
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "view_id",
+        "session"
+      ]
+    },
+    "ViewDetached": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "ts": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch"
+        },
+        "view_id": {
+          "$ref": "common.json#/$defs/ViewId"
+        },
+        "session": {
+          "$ref": "common.json#/$defs/SessionName"
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "view_id",
+        "session"
+      ]
+    },
+    "ViewResized": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "ts": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch"
+        },
+        "view_id": {
+          "$ref": "common.json#/$defs/ViewId"
+        },
+        "cols": {
+          "$ref": "common.json#/$defs/U16"
+        },
+        "rows": {
+          "$ref": "common.json#/$defs/U16"
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "view_id",
+        "cols",
+        "rows"
+      ]
+    },
+    "StoreSnapshotted": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "ts": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch"
+        }
+      },
+      "required": [
+        "seq",
+        "ts"
+      ]
+    },
+    "EventsLost": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "ts": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch"
+        },
+        "from": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "First lost seq."
+        },
+        "to": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "Last lost seq."
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "from",
+        "to"
+      ]
+    }
+  },
+  "x-messages": [
+    {
+      "kind": "events.subscribe",
+      "request": "EventsSubscribe",
+      "response": "Empty"
+    },
+    {
+      "kind": "events.unsubscribe",
+      "request": "EventsUnsubscribe",
+      "response": "Empty"
+    }
+  ],
+  "x-events": [
+    {
+      "kind": "session.created",
+      "body": "SessionCreated"
+    },
+    {
+      "kind": "session.renamed",
+      "body": "SessionRenamed"
+    },
+    {
+      "kind": "session.closed",
+      "body": "SessionClosed"
+    },
+    {
+      "kind": "tab.created",
+      "body": "TabCreated"
+    },
+    {
+      "kind": "tab.selected",
+      "body": "TabSelected"
+    },
+    {
+      "kind": "tab.closed",
+      "body": "TabClosed"
+    },
+    {
+      "kind": "tab.moved",
+      "body": "TabMoved"
+    },
+    {
+      "kind": "tab.renamed",
+      "body": "TabRenamed"
+    },
+    {
+      "kind": "layout.changed",
+      "body": "LayoutChanged"
+    },
+    {
+      "kind": "pane.spawned",
+      "body": "PaneSpawned"
+    },
+    {
+      "kind": "pane.exited",
+      "body": "PaneExited"
+    },
+    {
+      "kind": "pane.fg_changed",
+      "body": "PaneFgChanged"
+    },
+    {
+      "kind": "pane.cwd_changed",
+      "body": "PaneCwdChanged"
+    },
+    {
+      "kind": "pane.title_changed",
+      "body": "PaneTitleChanged"
+    },
+    {
+      "kind": "pane.meta_changed",
+      "body": "PaneMetaChanged"
+    },
+    {
+      "kind": "pane.bell",
+      "body": "PaneBell"
+    },
+    {
+      "kind": "view.attached",
+      "body": "ViewAttached"
+    },
+    {
+      "kind": "view.detached",
+      "body": "ViewDetached"
+    },
+    {
+      "kind": "view.resized",
+      "body": "ViewResized"
+    },
+    {
+      "kind": "store.snapshot",
+      "body": "StoreSnapshotted"
+    },
+    {
+      "kind": "events_lost",
+      "body": "EventsLost"
+    }
+  ]
+}

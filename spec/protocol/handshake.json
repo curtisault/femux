@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://femux.dev/protocol/handshake.json",
+  "title": "femux protocol: handshake",
+  "$defs": {
+    "ColorDepth": {
+      "type": "string",
+      "enum": [
+        "truecolor",
+        "256",
+        "16"
+      ]
+    },
+    "TermCaps": {
+      "type": "object",
+      "properties": {
+        "cols": {
+          "$ref": "common.json#/$defs/U16"
+        },
+        "rows": {
+          "$ref": "common.json#/$defs/U16"
+        },
+        "colors": {
+          "$ref": "#/$defs/ColorDepth"
+        },
+        "kitty_graphics": {
+          "type": "boolean"
+        },
+        "kitty_keyboard": {
+          "type": "boolean"
+        },
+        "sixel": {
+          "type": "boolean"
+        },
+        "sync_output": {
+          "type": "boolean"
+        },
+        "fg": {
+          "$ref": "common.json#/$defs/Rgb",
+          "description": "Host default foreground, if the client queried it."
+        },
+        "bg": {
+          "$ref": "common.json#/$defs/Rgb",
+          "description": "Host default background, if the client queried it."
+        },
+        "cursor": {
+          "$ref": "common.json#/$defs/Rgb",
+          "description": "Host cursor color, if the client queried it."
+        },
+        "name": {
+          "type": "string",
+          "description": "Host terminal name and version from XTVERSION, if known."
+        }
+      },
+      "required": [
+        "cols",
+        "rows",
+        "colors",
+        "kitty_graphics",
+        "kitty_keyboard",
+        "sixel",
+        "sync_output"
+      ]
+    },
+    "Hello": {
+      "type": "object",
+      "description": "First message on every connection. term is absent for clients without a terminal (CLI, plugins).",
+      "properties": {
+        "proto": {
+          "$ref": "common.json#/$defs/U32",
+          "description": "Protocol major version."
+        },
+        "client": {
+          "type": "string",
+          "description": "e.g. femux-tui/0.1.0"
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Message families the client uses."
+        },
+        "term": {
+          "$ref": "#/$defs/TermCaps"
+        }
+      },
+      "required": [
+        "proto",
+        "client",
+        "features"
+      ]
+    },
+    "HelloOk": {
+      "type": "object",
+      "properties": {
+        "proto": {
+          "$ref": "common.json#/$defs/U32"
+        },
+        "server": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "seq": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "Current event sequence number."
+        }
+      },
+      "required": [
+        "proto",
+        "server",
+        "version",
+        "features",
+        "seq"
+      ]
+    }
+  },
+  "x-messages": [
+    {
+      "kind": "hello",
+      "request": "Hello",
+      "response": "HelloOk",
+      "response_kind": "hello_ok"
+    }
+  ]
+}

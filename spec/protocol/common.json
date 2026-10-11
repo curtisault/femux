@@ -1,0 +1,496 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://femux.dev/protocol/common.json",
+  "title": "femux protocol: shared types",
+  "$defs": {
+    "U8": {
+      "type": "integer",
+      "format": "uint8",
+      "minimum": 0,
+      "maximum": 255
+    },
+    "U16": {
+      "type": "integer",
+      "format": "uint16",
+      "minimum": 0,
+      "maximum": 65535
+    },
+    "U32": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "U64": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0,
+      "maximum": 18446744073709551615
+    },
+    "I32": {
+      "type": "integer",
+      "format": "int32",
+      "minimum": -2147483648,
+      "maximum": 2147483647
+    },
+    "I64": {
+      "type": "integer",
+      "format": "int64",
+      "minimum": -9223372036854775808,
+      "maximum": 9223372036854775807
+    },
+    "Ulid": {
+      "type": "string",
+      "description": "A ULID in Crockford base32.",
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "PaneId": {
+      "$ref": "#/$defs/Ulid"
+    },
+    "TabId": {
+      "$ref": "#/$defs/Ulid"
+    },
+    "ViewId": {
+      "$ref": "#/$defs/Ulid"
+    },
+    "SessionName": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Session name, unique per server."
+    },
+    "Empty": {
+      "type": "object",
+      "description": "A body with no fields."
+    },
+    "DefaultColor": {
+      "const": "default",
+      "description": "The terminal's default color for that slot."
+    },
+    "Rgb": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/U8"
+      },
+      "minItems": 3,
+      "maxItems": 3,
+      "description": "[r, g, b]"
+    },
+    "Color": {
+      "description": "\"default\", a 256-color palette index, or [r, g, b].",
+      "oneOf": [
+        {
+          "title": "Default",
+          "$ref": "#/$defs/DefaultColor"
+        },
+        {
+          "title": "Indexed",
+          "$ref": "#/$defs/U8"
+        },
+        {
+          "title": "Rgb",
+          "$ref": "#/$defs/Rgb"
+        }
+      ]
+    },
+    "Cell": {
+      "type": "object",
+      "properties": {
+        "ch": {
+          "type": "string",
+          "description": "Grapheme cluster; empty for a blank cell."
+        },
+        "fg": {
+          "$ref": "#/$defs/Color"
+        },
+        "bg": {
+          "$ref": "#/$defs/Color"
+        },
+        "ul": {
+          "$ref": "#/$defs/Color",
+          "description": "Underline color; absent means fg."
+        },
+        "attrs": {
+          "$ref": "#/$defs/U16",
+          "description": "Bits: 0 bold, 1 italic, 2 faint, 3 blink, 4 inverse, 5 invisible, 6 strikethrough, 7 overline; bits 8-10 underline style (0 none, 1 single, 2 double, 3 curly, 4 dotted, 5 dashed)."
+        },
+        "width": {
+          "type": "integer",
+          "format": "uint8",
+          "enum": [
+            1,
+            2
+          ],
+          "description": "Columns this cell occupies: 1, or 2 for a wide character. The column after a wide character is not sent."
+        }
+      },
+      "required": [
+        "ch",
+        "fg",
+        "bg",
+        "attrs",
+        "width"
+      ]
+    },
+    "Rect": {
+      "type": "object",
+      "description": "A rectangle in cells.",
+      "properties": {
+        "x": {
+          "$ref": "#/$defs/U16"
+        },
+        "y": {
+          "$ref": "#/$defs/U16"
+        },
+        "w": {
+          "$ref": "#/$defs/U16"
+        },
+        "h": {
+          "$ref": "#/$defs/U16"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "w",
+        "h"
+      ]
+    },
+    "CursorShape": {
+      "type": "string",
+      "enum": [
+        "block",
+        "bar",
+        "underline",
+        "block_hollow"
+      ]
+    },
+    "Cursor": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "$ref": "#/$defs/U16"
+        },
+        "y": {
+          "$ref": "#/$defs/U16"
+        },
+        "shape": {
+          "$ref": "#/$defs/CursorShape"
+        },
+        "visible": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "shape",
+        "visible"
+      ]
+    },
+    "Mod": {
+      "type": "string",
+      "enum": [
+        "ctrl",
+        "alt",
+        "shift",
+        "super"
+      ]
+    },
+    "KeyEventKind": {
+      "type": "string",
+      "enum": [
+        "press",
+        "repeat",
+        "release"
+      ]
+    },
+    "KeyEvent": {
+      "type": "object",
+      "properties": {
+        "t": {
+          "const": "key"
+        },
+        "key": {
+          "type": "string",
+          "description": "Key name: a single unshifted character for text keys, else one of enter, tab, backspace, escape, space, up, down, left, right, home, end, pageup, pagedown, insert, delete, f1-f24."
+        },
+        "mods": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Mod"
+          }
+        },
+        "text": {
+          "type": "string",
+          "description": "Text the key produces, if any (e.g. \"A\" for shift+a)."
+        },
+        "event": {
+          "$ref": "#/$defs/KeyEventKind"
+        }
+      },
+      "required": [
+        "t",
+        "key",
+        "mods",
+        "event"
+      ]
+    },
+    "MouseButton": {
+      "type": "string",
+      "enum": [
+        "left",
+        "middle",
+        "right"
+      ]
+    },
+    "MouseEventKind": {
+      "type": "string",
+      "enum": [
+        "press",
+        "release",
+        "move",
+        "wheel_up",
+        "wheel_down"
+      ]
+    },
+    "MouseEvent": {
+      "type": "object",
+      "properties": {
+        "t": {
+          "const": "mouse"
+        },
+        "x": {
+          "$ref": "#/$defs/U16",
+          "description": "Pane-relative column."
+        },
+        "y": {
+          "$ref": "#/$defs/U16",
+          "description": "Pane-relative row."
+        },
+        "button": {
+          "$ref": "#/$defs/MouseButton"
+        },
+        "mods": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Mod"
+          }
+        },
+        "event": {
+          "$ref": "#/$defs/MouseEventKind"
+        }
+      },
+      "required": [
+        "t",
+        "x",
+        "y",
+        "mods",
+        "event"
+      ]
+    },
+    "Paste": {
+      "type": "object",
+      "properties": {
+        "t": {
+          "const": "paste"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "t",
+        "text"
+      ]
+    },
+    "InputEvent": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/KeyEvent"
+        },
+        {
+          "$ref": "#/$defs/MouseEvent"
+        },
+        {
+          "$ref": "#/$defs/Paste"
+        }
+      ]
+    },
+    "Ratio": {
+      "type": "object",
+      "description": "A rational in [0, 1]: the first child's share of a split.",
+      "properties": {
+        "num": {
+          "$ref": "#/$defs/U32"
+        },
+        "den": {
+          "$ref": "#/$defs/U32"
+        }
+      },
+      "required": [
+        "num",
+        "den"
+      ]
+    },
+    "SplitDir": {
+      "type": "string",
+      "enum": [
+        "h",
+        "v"
+      ],
+      "description": "h: children side by side (new pane to the right); v: stacked (new pane below)."
+    },
+    "Direction": {
+      "type": "string",
+      "enum": [
+        "h",
+        "j",
+        "k",
+        "l"
+      ],
+      "description": "Vim directions: left, down, up, right."
+    },
+    "Scheme": {
+      "type": "string",
+      "enum": [
+        "bsp",
+        "master",
+        "scroll"
+      ]
+    },
+    "SplitNode": {
+      "type": "object",
+      "properties": {
+        "t": {
+          "const": "split"
+        },
+        "dir": {
+          "$ref": "#/$defs/SplitDir"
+        },
+        "ratio": {
+          "$ref": "#/$defs/Ratio"
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LayoutNode"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        }
+      },
+      "required": [
+        "t",
+        "dir",
+        "ratio",
+        "children"
+      ]
+    },
+    "PaneNode": {
+      "type": "object",
+      "properties": {
+        "t": {
+          "const": "pane"
+        },
+        "id": {
+          "$ref": "common.json#/$defs/PaneId"
+        }
+      },
+      "required": [
+        "t",
+        "id"
+      ]
+    },
+    "FloatNode": {
+      "type": "object",
+      "description": "A floating pane. Floats are listed beside the tiled tree, never inside it.",
+      "properties": {
+        "id": {
+          "$ref": "common.json#/$defs/PaneId"
+        },
+        "rect": {
+          "$ref": "#/$defs/Rect"
+        }
+      },
+      "required": [
+        "id",
+        "rect"
+      ]
+    },
+    "LayoutNode": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/SplitNode"
+        },
+        {
+          "$ref": "#/$defs/PaneNode"
+        }
+      ],
+      "description": "The tiled layout tree of a tab."
+    },
+    "TabSnapshot": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "common.json#/$defs/TabId"
+        },
+        "title": {
+          "type": "string"
+        },
+        "index": {
+          "$ref": "common.json#/$defs/U32"
+        },
+        "tree": {
+          "$ref": "#/$defs/LayoutNode"
+        },
+        "floats": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FloatNode"
+          }
+        },
+        "zoomed": {
+          "type": "boolean"
+        },
+        "focus": {
+          "$ref": "common.json#/$defs/PaneId"
+        },
+        "scheme": {
+          "$ref": "#/$defs/Scheme"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "index",
+        "tree",
+        "floats",
+        "zoomed",
+        "focus",
+        "scheme"
+      ]
+    },
+    "SessionSnapshot": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "$ref": "common.json#/$defs/SessionName"
+        },
+        "tabs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TabSnapshot"
+          }
+        },
+        "current_tab": {
+          "$ref": "common.json#/$defs/TabId"
+        }
+      },
+      "required": [
+        "session",
+        "tabs",
+        "current_tab"
+      ]
+    }
+  }
+}

@@ -94,6 +94,7 @@ Layer rules:
 
 - REQ-SESS-001: Hierarchy is server → sessions → tabs → layout tree → panes. A session has a name (unique per server), root dir, creation time.
 - REQ-SESS-002: Layout tree nodes are `split{dir, ratio, children}`, `pane{id}`, `float{id, rect}`. Ratios are rationals in [0,1].
+  Note: floats are listed beside the tiled tree in the tab's `floats`, not as tree nodes; splits are binary with `ratio = {num, den}` (ADR-015 #6, #7).
 - REQ-SESS-003: Every mutation MUST emit exactly one event (§4.6) after the mutation is applied.
 - REQ-SESS-004: Marks: a pane may carry up to 26 single-letter marks per session (`a`–`z`), used by `jump_to_mark`.
 - REQ-SESS-005: Zoom is a per-tab flag; a zoomed tab renders only its focused pane and the tab strip.
@@ -139,7 +140,9 @@ Layer rules:
 ### 4.2 Schema
 
 - REQ-PROTO-010: Message schemas live in `spec/protocol/*.json` (JSON Schema draft 2020-12). Rust types in `femux-proto` are generated from them at build time; hand-edited types are a build failure.
+  Note: types are generated into `OUT_DIR` by `crates/femux-proto/build.rs`, so there is no checked-in type to hand-edit; the supported JSON Schema subset is documented there and anything outside it fails the build.
 - REQ-PROTO-011: Every message is `{id: u64, kind: string, body: map}`. Requests get a response with the same `id`; events have `id = 0`.
+  Note: a response's kind is its request's kind (`hello` → `hello_ok`); failures use kind `error`. See ADR-015 for the other catalog refinements.
 - REQ-PROTO-012: Unknown fields MUST be ignored; unknown `kind` MUST return `error{code: "unknown_kind"}`.
 
 ### 4.3 Handshake
@@ -150,6 +153,7 @@ daemon → hello_ok {proto: 1, server: "name", version: "0.2.0", features: [...]
 ```
 
 - REQ-PROTO-020: A client missing a feature loses that action; the connection is kept.
+  Note: features are message families (kind prefixes); a request outside the intersection of client and daemon features gets `feature_missing` (ADR-015 #10).
 - REQ-PROTO-021: Protocol major version mismatch returns `error{code: "proto_version"}` and closes.
 
 ### 4.4 Message catalog

@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://femux.dev/protocol/tab.json",
+  "title": "femux protocol: tabs",
+  "$defs": {
+    "TabCreate": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "$ref": "common.json#/$defs/SessionName"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "cmd": {
+          "type": "string",
+          "description": "Run with $SHELL -c; default is a login shell."
+        },
+        "title": {
+          "type": "string"
+        },
+        "index": {
+          "$ref": "common.json#/$defs/U32"
+        }
+      },
+      "required": [
+        "session"
+      ]
+    },
+    "TabCreateOk": {
+      "type": "object",
+      "properties": {
+        "tab_id": {
+          "$ref": "common.json#/$defs/TabId"
+        },
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        }
+      },
+      "required": [
+        "tab_id",
+        "pane_id"
+      ]
+    },
+    "TabSelect": {
+      "type": "object",
+      "properties": {
+        "view_id": {
+          "$ref": "common.json#/$defs/ViewId"
+        },
+        "tab_id": {
+          "$ref": "common.json#/$defs/TabId"
+        }
+      },
+      "required": [
+        "view_id",
+        "tab_id"
+      ]
+    },
+    "TabClose": {
+      "type": "object",
+      "properties": {
+        "tab_id": {
+          "$ref": "common.json#/$defs/TabId"
+        }
+      },
+      "required": [
+        "tab_id"
+      ]
+    },
+    "TabMove": {
+      "type": "object",
+      "properties": {
+        "tab_id": {
+          "$ref": "common.json#/$defs/TabId"
+        },
+        "index": {
+          "$ref": "common.json#/$defs/U32"
+        }
+      },
+      "required": [
+        "tab_id",
+        "index"
+      ]
+    },
+    "TabRename": {
+      "type": "object",
+      "properties": {
+        "tab_id": {
+          "$ref": "common.json#/$defs/TabId"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tab_id",
+        "title"
+      ]
+    }
+  },
+  "x-messages": [
+    {
+      "kind": "tab.create",
+      "request": "TabCreate",
+      "response": "TabCreateOk"
+    },
+    {
+      "kind": "tab.select",
+      "request": "TabSelect",
+      "response": "Empty"
+    },
+    {
+      "kind": "tab.close",
+      "request": "TabClose",
+      "response": "Empty"
+    },
+    {
+      "kind": "tab.move",
+      "request": "TabMove",
+      "response": "Empty"
+    },
+    {
+      "kind": "tab.rename",
+      "request": "TabRename",
+      "response": "Empty"
+    }
+  ]
+}

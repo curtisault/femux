@@ -1,0 +1,198 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://femux.dev/protocol/frame.json",
+  "title": "femux protocol: frames",
+  "$defs": {
+    "FrameSubscribe": {
+      "type": "object",
+      "properties": {
+        "view_id": {
+          "$ref": "common.json#/$defs/ViewId"
+        }
+      },
+      "required": [
+        "view_id"
+      ]
+    },
+    "FrameAck": {
+      "type": "object",
+      "properties": {
+        "view_id": {
+          "$ref": "common.json#/$defs/ViewId"
+        },
+        "frame_seq": {
+          "$ref": "common.json#/$defs/U64"
+        }
+      },
+      "required": [
+        "view_id",
+        "frame_seq"
+      ]
+    },
+    "CellRun": {
+      "type": "object",
+      "description": "Cells starting at (x, y), pane-relative; x advances by each cell's width.",
+      "properties": {
+        "x": {
+          "$ref": "common.json#/$defs/U16"
+        },
+        "y": {
+          "$ref": "common.json#/$defs/U16"
+        },
+        "run": {
+          "type": "array",
+          "items": {
+            "$ref": "common.json#/$defs/Cell"
+          }
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "run"
+      ]
+    },
+    "PaneFrame": {
+      "type": "object",
+      "properties": {
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        },
+        "rect": {
+          "$ref": "common.json#/$defs/Rect",
+          "description": "Pane area within the view."
+        },
+        "cells": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CellRun"
+          }
+        },
+        "cursor": {
+          "$ref": "common.json#/$defs/Cursor"
+        },
+        "scroll_offset": {
+          "$ref": "common.json#/$defs/U32",
+          "description": "Rows scrolled back from the bottom."
+        }
+      },
+      "required": [
+        "pane_id",
+        "rect",
+        "cells",
+        "cursor",
+        "scroll_offset"
+      ]
+    },
+    "TabInfo": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "common.json#/$defs/TabId"
+        },
+        "title": {
+          "type": "string"
+        },
+        "index": {
+          "$ref": "common.json#/$defs/U32"
+        },
+        "count": {
+          "$ref": "common.json#/$defs/U32"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "index",
+        "count"
+      ]
+    },
+    "ImagePlacement": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "common.json#/$defs/U32"
+        },
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        },
+        "x": {
+          "$ref": "common.json#/$defs/I32"
+        },
+        "y": {
+          "$ref": "common.json#/$defs/I32"
+        },
+        "cols": {
+          "$ref": "common.json#/$defs/U16"
+        },
+        "rows": {
+          "$ref": "common.json#/$defs/U16"
+        }
+      },
+      "required": [
+        "id",
+        "pane_id",
+        "x",
+        "y",
+        "cols",
+        "rows"
+      ]
+    },
+    "Frame": {
+      "type": "object",
+      "properties": {
+        "view_id": {
+          "$ref": "common.json#/$defs/ViewId"
+        },
+        "frame_seq": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "full": {
+          "type": "boolean",
+          "description": "Every visible pane with every row; otherwise only changed rows of changed panes."
+        },
+        "panes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PaneFrame"
+          }
+        },
+        "tab": {
+          "$ref": "#/$defs/TabInfo"
+        },
+        "images": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ImagePlacement"
+          }
+        }
+      },
+      "required": [
+        "view_id",
+        "frame_seq",
+        "full",
+        "panes",
+        "tab",
+        "images"
+      ]
+    }
+  },
+  "x-messages": [
+    {
+      "kind": "frame.subscribe",
+      "request": "FrameSubscribe",
+      "response": "Empty"
+    },
+    {
+      "kind": "frame.ack",
+      "request": "FrameAck",
+      "response": "Empty"
+    }
+  ],
+  "x-pushes": [
+    {
+      "kind": "frame",
+      "body": "Frame"
+    }
+  ]
+}
