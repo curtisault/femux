@@ -22,3 +22,6 @@ forced the decisions below. Each is the simplest reading that keeps the catalog'
 | 13 | `pane.resize` applies to floating panes; tiled panes are sized by the layout. | Tiled sizes are derived (VIEW-002); a direct resize would fight the layout. |
 | 14 | `ImagePlacement` is `{id, pane_id, x, y, cols, rows}`; always empty before 0.7.0. | Placeholder until GFX defines it. |
 | 15 | `pane.set_meta` `set` and `unset` are optional. | Either alone is a valid change. |
+| 16 | New events `layout.focused {tab_id, pane_id}` and `pane.marked {pane_id, mark}`; `layout.changed` also carries `zoomed` and `scheme`. | SESS-003 requires an event for every mutation; §4.6 had none for focus, marks, zoom or scheme. |
+| 17 | `clipboard.set` and `store.snapshot` are not in the 0.1.0 daemon's `features`, so they get `feature_missing`. | Their behavior arrives with the clipboard plugin (0.2.0) and the store (0.3.0). |
+| 18 | `SessionSnapshot` carries `marks` (letter → pane). | SESS-004 marks are used by the client's `jump_to_mark`, which needs to read them. |

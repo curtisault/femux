@@ -470,6 +470,13 @@
         "scheme"
       ]
     },
+    "Marks": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "common.json#/$defs/PaneId"
+      },
+      "description": "Mark letter (a-z) to pane."
+    },
     "SessionSnapshot": {
       "type": "object",
       "properties": {
@@ -484,12 +491,16 @@
         },
         "current_tab": {
           "$ref": "common.json#/$defs/TabId"
+        },
+        "marks": {
+          "$ref": "#/$defs/Marks"
         }
       },
       "required": [
         "session",
         "tabs",
-        "current_tab"
+        "current_tab",
+        "marks"
       ]
     }
   }

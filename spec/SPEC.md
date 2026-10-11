@@ -71,7 +71,9 @@ Layer rules:
 - REQ-PTY-002: The daemon MUST track the foreground process group (`tcgetpgrp`) of each pane and expose fg pid, command name and cwd via `pane.info`.
 - REQ-PTY-003: Pane output MUST be read on a dedicated task and fed to that pane's VT without blocking other panes.
 - REQ-PTY-004: Signals (`SIGINT`, `SIGTERM`, `SIGKILL`, `SIGHUP`, `SIGWINCH`) MUST be deliverable via `pane.signal`.
+  Note: signals go to the pane's foreground process group, as if typed at the terminal.
 - REQ-PTY-005: Pane IDs are ULIDs and MUST be stable across daemon restarts when restore is enabled.
+  Note: ids are ULIDs from 0.1.0; stability across restarts arrives with restore (0.3.0).
 - REQ-PTY-006: Environment passed to a pane MUST be filtered by `[env] allow` before persistence; the live environment is unfiltered.
 - REQ-PTY-007: New panes MUST set `TERM=xterm-256color` (overridable), `TERM_PROGRAM=femux`, `TERM_PROGRAM_VERSION`, `FEMUX_PANE=<ulid>`, `FEMUX_SOCKET=<path>`.
 
@@ -89,6 +91,7 @@ Layer rules:
 
 - REQ-QRY-001: Terminal queries from pane programs (DA1, DA2, XTVERSION, OSC 10/11/12 color queries, Kitty keyboard query, DECRQM for 2026/2031/2004/1006) MUST be answered by the daemon.
 - REQ-QRY-002: Answers derive from the capabilities reported by the attached client at `hello`; with no client attached, conservative defaults apply.
+  Note: the session's panes answer with the capabilities of the most recently attached client; when its last view detaches they fall back to the defaults.
 - REQ-QRY-003: A pane program MUST never receive bytes from the host terminal directly.
 
 ### 3.4 Session model
@@ -96,7 +99,9 @@ Layer rules:
 - REQ-SESS-001: Hierarchy is server → sessions → tabs → layout tree → panes. A session has a name (unique per server), root dir, creation time.
 - REQ-SESS-002: Layout tree nodes are `split{dir, ratio, children}`, `pane{id}`, `float{id, rect}`. Ratios are rationals in [0,1].
   Note: floats are listed beside the tiled tree in the tab's `floats`, not as tree nodes; splits are binary with `ratio = {num, den}` (ADR-015 #6, #7).
+  Note: a split gives its first child `ratio` of the space left after a one-cell separator, so panes never overlap and clients draw borders in the gaps. A pane closes when its process exits; an empty tab or session closes with it.
 - REQ-SESS-003: Every mutation MUST emit exactly one event (§4.6) after the mutation is applied.
+  Note: a request that performs several mutations emits one event per mutation (e.g. `layout.split` emits `pane.spawned`, `layout.changed`, `layout.focused`).
 - REQ-SESS-004: Marks: a pane may carry up to 26 single-letter marks per session (`a`–`z`), used by `jump_to_mark`.
 - REQ-SESS-005: Zoom is a per-tab flag; a zoomed tab renders only its focused pane and the tab strip.
 
@@ -124,6 +129,7 @@ Layer rules:
 ### 3.8 Lifecycle
 
 - REQ-LIFE-001: `SIGTERM` to the daemon MUST snapshot state, then exit without killing panes if restore is enabled, or kill panes with `SIGHUP` if not.
+  Note: restore arrives in 0.3.0, so in 0.1.0 SIGTERM always SIGHUPs panes; `server.stop` behaves the same whatever `kill_panes` says.
 - REQ-LIFE-002: The daemon MUST exit when the last session is closed unless `daemon.keep_alive = true`.
 - REQ-LIFE-003: (Deferred, post-1.0) Live handoff of PTY fds to a new daemon via `SCM_RIGHTS`. Fd ownership MUST remain in the PTY manager so this stays possible.
 
@@ -135,6 +141,7 @@ Layer rules:
 
 - REQ-PROTO-001: Unix domain socket at `$XDG_RUNTIME_DIR/femux/<server>.sock`; on macOS, `$TMPDIR/femux-<uid>/<server>.sock`. Directory mode 0700, socket mode 0600.
 - REQ-PROTO-002: Peer UID MUST be checked (`SO_PEERCRED` / `LOCAL_PEERCRED`) and connections from other UIDs refused before any message is read.
+  Note: refusal of other UIDs is unit-tested; an integration test would need a second user.
 - REQ-PROTO-003: No TCP listener. Remote attach uses `ssh <host> femux attach --stdio` with the protocol on stdin/stdout, or a socket forwarded by OpenSSH.
 - REQ-PROTO-004: Framing is 4-byte big-endian length prefix followed by one MessagePack map. Max frame 16 MiB.
 

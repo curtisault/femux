@@ -143,7 +143,10 @@
        "scheme": "bsp"
       }
      ],
-     "current_tab": "01J9Z3K8M2N4P6Q8R0S2T4V6WA"
+     "current_tab": "01J9Z3K8M2N4P6Q8R0S2T4V6WA",
+     "marks": {
+      "a": "01J9Z3K8M2N4P6Q8R0S2T4V6W8"
+     }
     }
    }
   },
@@ -961,7 +964,19 @@
       }
      ]
     },
-    "floats": []
+    "floats": [],
+    "zoomed": false,
+    "scheme": "bsp"
+   }
+  },
+  {
+   "dir": "event",
+   "kind": "layout.focused",
+   "body": {
+    "seq": 42,
+    "ts": 1760140800000,
+    "tab_id": "01J9Z3K8M2N4P6Q8R0S2T4V6WA",
+    "pane_id": "01J9Z3K8M2N4P6Q8R0S2T4V6W8"
    }
   },
   {
@@ -1026,6 +1041,16 @@
      "agent.state": "done"
     },
     "unset": []
+   }
+  },
+  {
+   "dir": "event",
+   "kind": "pane.marked",
+   "body": {
+    "seq": 42,
+    "ts": 1760140800000,
+    "pane_id": "01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+    "mark": "a"
    }
   },
   {

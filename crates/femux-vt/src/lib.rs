@@ -192,6 +192,7 @@ pub struct Terminal {
     grid: Grid,
     generation: u64,
     utf8: Vec<u8>,
+    host_set: bool,
 }
 
 // SAFETY: libghostty-vt handles have no thread affinity; all access goes through `&mut self`.
@@ -246,6 +247,7 @@ impl Terminal {
             grid: Grid::default(),
             generation: 0,
             utf8: Vec::with_capacity(32),
+            host_set: false,
         };
         t.effects.cell_px = DEFAULT_CELL_PX;
         t.effects.size = (cols, rows);

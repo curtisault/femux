@@ -135,6 +135,11 @@ impl Terminal {
 
     /// Updates what queries report about the host terminal (REQ-QRY-002).
     pub fn set_host(&mut self, caps: &HostCaps) -> Result<(), Error> {
+        // Setting colors marks the whole screen dirty; skip it when nothing changed.
+        if self.host_set && self.effects.host == *caps {
+            return Ok(());
+        }
+        self.host_set = true;
         use ffi::GhosttyTerminalOption as O;
         let (fg, bg) = (rgb(caps.fg), rgb(caps.bg));
         let cursor = caps.cursor.map(rgb);

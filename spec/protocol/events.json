@@ -234,6 +234,12 @@
           "items": {
             "$ref": "common.json#/$defs/FloatNode"
           }
+        },
+        "zoomed": {
+          "type": "boolean"
+        },
+        "scheme": {
+          "$ref": "common.json#/$defs/Scheme"
         }
       },
       "required": [
@@ -241,7 +247,58 @@
         "ts",
         "tab_id",
         "tree",
-        "floats"
+        "floats",
+        "zoomed",
+        "scheme"
+      ]
+    },
+    "LayoutFocused": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "ts": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch"
+        },
+        "tab_id": {
+          "$ref": "common.json#/$defs/TabId"
+        },
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "tab_id",
+        "pane_id"
+      ]
+    },
+    "PaneMarked": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "ts": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch"
+        },
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        },
+        "mark": {
+          "type": "string",
+          "pattern": "^[a-z]$"
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "pane_id",
+        "mark"
       ]
     },
     "PaneSpawned": {
@@ -588,6 +645,10 @@
       "body": "LayoutChanged"
     },
     {
+      "kind": "layout.focused",
+      "body": "LayoutFocused"
+    },
+    {
       "kind": "pane.spawned",
       "body": "PaneSpawned"
     },
@@ -610,6 +671,10 @@
     {
       "kind": "pane.meta_changed",
       "body": "PaneMetaChanged"
+    },
+    {
+      "kind": "pane.marked",
+      "body": "PaneMarked"
     },
     {
       "kind": "pane.bell",

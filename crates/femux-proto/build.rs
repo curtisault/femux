@@ -442,6 +442,20 @@ impl Gen {
             "An event body (envelope id 0), by kind.",
             &evs,
         );
+        // Every event body carries seq and ts (REQ-EVT-001); the bus stamps them.
+        writeln!(out, "impl Event {{\n    pub fn stamp(&mut self, seq: u64, ts: u64) {{\n        match self {{").unwrap();
+        for (v, _, _) in &evs {
+            writeln!(out, "            Self::{v}(b) => {{\n                b.seq = seq;\n                b.ts = ts;\n            }}").unwrap();
+        }
+        writeln!(
+            out,
+            "        }}\n    }}\n\n    pub fn seq(&self) -> u64 {{\n        match self {{"
+        )
+        .unwrap();
+        for (v, _, _) in &evs {
+            writeln!(out, "            Self::{v}(b) => b.seq,").unwrap();
+        }
+        writeln!(out, "        }}\n    }}\n}}\n").unwrap();
         emit_kind_enum(
             out,
             "Push",
