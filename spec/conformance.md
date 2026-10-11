@@ -23,9 +23,9 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-VT-003 | femux-vt `history::tests::scrollback_is_capped`; femux-test `vt::vt_003_scrollback_default_and_configurable` | pass |
 | REQ-VT-004 | femux-test `vt::vt_004_slow_client_gets_newest_state_not_backlog`, `protocol::proto_040_one_unacked_frame_coalesces` | pass |
 | REQ-VT-005 | femux-vt `history::tests::records_prompt_marks`; femux-test `vt::vt_005_prompt_marks` | pass |
-| REQ-QRY-001 | femux-vt `query::tests::answers_identity_queries`, `query::tests::answers_mode_and_keyboard_queries`; daemon pending | partial |
-| REQ-QRY-002 | femux-vt `query::tests::answers_from_host_caps`; wiring to `hello` pending | partial |
-| REQ-QRY-003 | – | pending |
+| REQ-QRY-001 | femux-vt `query::tests::*`; femux-test `query::qry_001_daemon_answers_queries` | pass |
+| REQ-QRY-002 | femux-vt `query::tests::answers_from_host_caps`; femux-test `query::qry_002_answers_follow_the_attached_client` | pass |
+| REQ-QRY-003 | femux-test `query::qry_003_panes_get_encoded_input_only` | pass |
 | REQ-SESS-001 | – | pending |
 | REQ-SESS-002 | – | pending |
 | REQ-SESS-003 | – | pending |
@@ -50,7 +50,7 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-PROTO-012 | femux-proto `tests::unknown_kind_and_fields`; femux-test `protocol::proto_012_unknown_kinds_and_fields` | pass |
 | REQ-PROTO-020 | femux-test `protocol::proto_020_missing_feature_loses_action_not_connection` | pass |
 | REQ-PROTO-021 | femux-test `protocol::proto_021_major_version_mismatch_closes` | pass |
-| REQ-PROTO-030 | femux-vt `input::tests::*`; `pane.input` pending | partial |
+| REQ-PROTO-030 | femux-vt `input::tests::*`; femux-test `query::qry_003_panes_get_encoded_input_only`, `acceptance::create_split_ls_detach_reattach` | pass |
 | REQ-PROTO-040 | femux-test `protocol::proto_040_one_unacked_frame_coalesces` | pass |
 | REQ-PROTO-041 | femux-test `protocol::proto_041_full_frame_after_attach_and_events_lost` | pass |
 | REQ-BUILD-001 | – | pending |
