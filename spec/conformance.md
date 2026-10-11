@@ -7,9 +7,9 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 
 | Requirement | Tests | Status |
 | --- | --- | --- |
-| REQ-ARCH-001 | – | pending |
-| REQ-ARCH-002 | – | pending |
-| REQ-ARCH-003 | – | pending |
+| REQ-ARCH-001 | femux-test `repo::arch_001_daemon_has_no_ui_dependencies` | pass |
+| REQ-ARCH-002 | femux-test `repo::arch_002_clients_and_plugins_use_the_protocol_only` | pass |
+| REQ-ARCH-003 | femux-test `repo::arch_003_client_restart_keeps_panes` | pass |
 | REQ-ARCH-004 | – | pending |
 | REQ-PTY-001 | femux-test `pty::pty_001_own_session_and_group` (Linux) | pass |
 | REQ-PTY-002 | femux-test `pty::pty_002_foreground_process_and_cwd` | pass |
@@ -53,8 +53,9 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-PROTO-030 | femux-vt `input::tests::*`; femux-test `query::qry_003_panes_get_encoded_input_only`, `acceptance::create_split_ls_detach_reattach` | pass |
 | REQ-PROTO-040 | femux-test `protocol::proto_040_one_unacked_frame_coalesces` | pass |
 | REQ-PROTO-041 | femux-test `protocol::proto_041_full_frame_after_attach_and_events_lost` | pass |
-| REQ-BUILD-001 | – | pending |
-| REQ-BUILD-002 | – | pending |
-| REQ-BUILD-003 | – | pending |
+| REQ-BUILD-001 | femux-test `repo::build_001_pinned_zig_build`; CI `cargo build` | pass |
+| REQ-BUILD-002 | femux-test `repo::build_002_rust_is_pinned` | pass |
+| REQ-BUILD-003 | femux-test `repo::build_003_ci_runs_lint_and_tests_on_both_platforms` | pass |
 | REQ-TEST-003 | femux-proto `schema::every_message_matches_its_schema_both_ways`, `schema::invalid_bodies_are_rejected_by_schema_and_decoder` | pass |
+| REQ-TEST-001 | femux-test `acceptance::create_split_ls_detach_reattach` (uses `screen` and `screen_text`) | pass |
 | Acceptance (0.1.0) | – | pending |
