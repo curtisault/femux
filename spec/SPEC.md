@@ -543,6 +543,8 @@ Each minor version is one feature set and one GitButler branch named `v0.N.0`. P
 | 013 | `femux reload` over file watching | Explicit, scriptable, no half-applied configs |
 | 014 | 0.1.0 ships a bare viewer | A human can sanity-check the daemon before the real client exists |
 
+Note (ADR-007): termwiz has no Kitty graphics output. `Change::Image` emits only iTerm2 images and panics on cropped or raw RGBA images; `escape::apc::KittyImage` omits the `ESC \` terminator and does not chunk payloads. The client writes Kitty APCs itself (termwiz encodes the keys; the client appends ST and chunks at 4096 bytes). Spike §16-2 confirmed clipping on resize this way.
+
 ---
 
 ## 16. Risks and spikes (0.1.0)
