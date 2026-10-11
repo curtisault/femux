@@ -11,13 +11,13 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-ARCH-002 | – | pending |
 | REQ-ARCH-003 | – | pending |
 | REQ-ARCH-004 | – | pending |
-| REQ-PTY-001 | – | pending |
-| REQ-PTY-002 | – | pending |
-| REQ-PTY-003 | – | pending |
-| REQ-PTY-004 | – | pending |
-| REQ-PTY-005 | – | pending |
-| REQ-PTY-006 | – | pending |
-| REQ-PTY-007 | – | pending |
+| REQ-PTY-001 | femux-test `pty::pty_001_own_session_and_group` (Linux) | pass |
+| REQ-PTY-002 | femux-test `pty::pty_002_foreground_process_and_cwd` | pass |
+| REQ-PTY-003 | femux-test `pty::pty_003_busy_pane_does_not_block_others` | pass |
+| REQ-PTY-004 | femux-test `pty::pty_004_signals` | pass |
+| REQ-PTY-005 | femux-test `pty::pty_005_pane_ids_are_ulids`; restart stability with restore (0.3.0) | pass |
+| REQ-PTY-006 | femux-daemon `pty::tests::env_filter_matches_names_and_prefixes`; femux-test `pty::pty_006_live_environment_is_unfiltered` | pass |
+| REQ-PTY-007 | femux-test `pty::pty_007_pane_environment` | pass |
 | REQ-VT-001 | – | pending |
 | REQ-VT-002 | femux-vt `tests::only_dirty_rows_are_copied`, `tests::resize_reshapes_grid`; daemon frames pending | partial |
 | REQ-VT-003 | femux-vt `history::tests::scrollback_is_capped`; per-pane config pending | partial |
