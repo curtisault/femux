@@ -1,0 +1,14 @@
+# femux
+
+Rust terminal multiplexer. `spec/SPEC.md` is the single source of truth; `spec/ARCHITECTURE.md`
+has the rationale; `spec/design/` has the visual targets.
+
+## Rules
+- Follow SPEC.md §17 (agent instructions) exactly.
+- Current branch is the only branch you touch. Never create, switch or rebase branches; the user manages GitButler.
+- Commit messages start with the requirement ID: `REQ-PTY-002: track foreground process group`.
+- Before marking a requirement done, its test is listed in `spec/conformance.md` and passes.
+- Tooling via mise: `mise exec -- cargo test --workspace`, `mise exec -- cargo clippy -D warnings`.
+- Never add terminal, UI or agent libraries to `femux-daemon`.
+- Ambiguity: pick the simplest reading, implement, add a `Note:` under the requirement in SPEC.md.
+- Do not run `femux attach` in this terminal; use `femux-test` for anything interactive.
