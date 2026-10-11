@@ -18,11 +18,11 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-PTY-005 | femux-test `pty::pty_005_pane_ids_are_ulids`; restart stability with restore (0.3.0) | pass |
 | REQ-PTY-006 | femux-daemon `pty::tests::env_filter_matches_names_and_prefixes`; femux-test `pty::pty_006_live_environment_is_unfiltered` | pass |
 | REQ-PTY-007 | femux-test `pty::pty_007_pane_environment` | pass |
-| REQ-VT-001 | – | pending |
-| REQ-VT-002 | femux-vt `tests::only_dirty_rows_are_copied`, `tests::resize_reshapes_grid`; daemon frames pending | partial |
-| REQ-VT-003 | femux-vt `history::tests::scrollback_is_capped`; per-pane config pending | partial |
-| REQ-VT-004 | – | pending |
-| REQ-VT-005 | femux-vt `history::tests::records_prompt_marks`; `scrollback.marks` pending | partial |
+| REQ-VT-001 | femux-test `vt::vt_001_each_pane_has_its_own_terminal` | pass |
+| REQ-VT-002 | femux-vt `tests::only_dirty_rows_are_copied`, `tests::resize_reshapes_grid`; femux-test `vt::vt_002_frames_carry_cell_diffs` | pass |
+| REQ-VT-003 | femux-vt `history::tests::scrollback_is_capped`; femux-test `vt::vt_003_scrollback_default_and_configurable` | pass |
+| REQ-VT-004 | femux-test `vt::vt_004_slow_client_gets_newest_state_not_backlog`, `protocol::proto_040_one_unacked_frame_coalesces` | pass |
+| REQ-VT-005 | femux-vt `history::tests::records_prompt_marks`; femux-test `vt::vt_005_prompt_marks` | pass |
 | REQ-QRY-001 | femux-vt `query::tests::answers_identity_queries`, `query::tests::answers_mode_and_keyboard_queries`; daemon pending | partial |
 | REQ-QRY-002 | femux-vt `query::tests::answers_from_host_caps`; wiring to `hello` pending | partial |
 | REQ-QRY-003 | – | pending |
