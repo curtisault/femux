@@ -80,6 +80,7 @@ Layer rules:
 - REQ-VT-001: Each pane has one libghostty-vt instance holding screen grid, scrollback, modes and cursor.
 - REQ-VT-002: The daemon MUST emit cell diffs per frame (changed cells, cursor, scroll regions) and MUST NOT send raw escape bytes to clients.
 - REQ-VT-003: Default scrollback is 10,000 lines per pane, configurable.
+  Note: the limit is passed to libghostty-vt, which prunes whole pages, so retained history stays within one page of it (measured: up to ~2,300 lines under at 20 columns, ~600 at 80).
 - REQ-VT-004: Frames MUST be coalesced per client: if a client cannot keep up, it receives the newest full state, never a backlog.
 - REQ-VT-005: OSC 133 prompt marks MUST be recorded per line so clients can jump between commands.
 - REQ-VT-006: OSC 2 (title) and OSC 7 (cwd) MUST be captured into pane info.

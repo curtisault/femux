@@ -8,10 +8,18 @@
 #[allow(unsafe_op_in_unsafe_fn)]
 pub mod ffi;
 
+mod cell;
+mod history;
+mod input;
+mod query;
+
 use std::ffi::c_void;
 use std::ptr;
 
 use smol_str::SmolStr;
+
+pub use input::{Key, KeyAction, Mods, MouseAction, MouseButton, MouseInput};
+pub use query::HostCaps;
 
 /// Error returned by a libghostty-vt call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,6 +89,20 @@ impl Default for Cell {
     }
 }
 
+/// Plain text of a row of cells, trailing blanks trimmed.
+pub fn line_text(cells: &[Cell]) -> String {
+    let mut line = String::new();
+    for c in cells {
+        match c.width {
+            0 => {}
+            _ if c.text.is_empty() => line.push(' '),
+            _ => line.push_str(&c.text),
+        }
+    }
+    line.truncate(line.trim_end().len());
+    line
+}
+
 /// One viewport row and the generation at which it last changed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Row {
@@ -111,6 +133,8 @@ pub struct Grid {
     pub cols: u16,
     pub rows: Vec<Row>,
     pub cursor: Cursor,
+    /// Generation of the last cursor change.
+    pub cursor_generation: u64,
     /// Bumped whenever the grid is reshaped; a reader holding an older value needs a full frame.
     pub shape_generation: u64,
 }
@@ -118,22 +142,11 @@ pub struct Grid {
 impl Grid {
     /// Plain text of the grid, rows joined by `\n`, trailing blanks trimmed. For debugging.
     pub fn text(&self) -> String {
-        let mut out = String::new();
-        for (i, row) in self.rows.iter().enumerate() {
-            if i > 0 {
-                out.push('\n');
-            }
-            let mut line = String::new();
-            for c in &row.cells {
-                match c.width {
-                    0 => {}
-                    _ if c.text.is_empty() => line.push(' '),
-                    _ => line.push_str(&c.text),
-                }
-            }
-            out.push_str(line.trim_end());
-        }
-        out
+        self.rows
+            .iter()
+            .map(|r| line_text(&r.cells))
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 }
 
@@ -144,13 +157,25 @@ pub struct SyncStats {
     pub full: bool,
 }
 
-/// Side effects reported by libghostty-vt callbacks, drained by the owner.
+/// Things the terminal reported since they were last taken.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Changes {
+    pub bells: u32,
+    pub title: Option<String>,
+    pub pwd: Option<String>,
+}
+
+/// State shared with libghostty-vt callbacks through the terminal's userdata pointer.
 #[derive(Default)]
 struct Effects {
     pty_out: Vec<u8>,
     bells: u32,
     title_changed: bool,
     pwd_changed: bool,
+    host: HostCaps,
+    xtversion: String,
+    cell_px: (u32, u32),
+    size: (u16, u16),
 }
 
 /// One libghostty-vt terminal with its render state and viewport mirror.
@@ -159,6 +184,10 @@ pub struct Terminal {
     render: ffi::GhosttyRenderState,
     rows_iter: ffi::GhosttyRenderStateRowIterator,
     cells: ffi::GhosttyRenderStateRowCells,
+    keys: ffi::GhosttyKeyEncoder,
+    key_event: ffi::GhosttyKeyEvent,
+    mouse: ffi::GhosttyMouseEncoder,
+    mouse_event: ffi::GhosttyMouseEvent,
     effects: Box<Effects>,
     grid: Grid,
     generation: u64,
@@ -168,30 +197,38 @@ pub struct Terminal {
 // SAFETY: libghostty-vt handles have no thread affinity; all access goes through `&mut self`.
 unsafe impl Send for Terminal {}
 
+fn effects<'a>(ud: *mut c_void) -> &'a mut Effects {
+    // SAFETY: userdata is always the terminal's boxed Effects, which outlives the terminal.
+    unsafe { &mut *(ud as *mut Effects) }
+}
+
 unsafe extern "C" fn on_write_pty(
     _t: ffi::GhosttyTerminal,
     ud: *mut c_void,
     data: *const u8,
     len: usize,
 ) {
-    let fx = unsafe { &mut *(ud as *mut Effects) };
     if len > 0 {
-        fx.pty_out
+        effects(ud)
+            .pty_out
             .extend_from_slice(unsafe { std::slice::from_raw_parts(data, len) });
     }
 }
 
 unsafe extern "C" fn on_bell(_t: ffi::GhosttyTerminal, ud: *mut c_void) {
-    unsafe { (*(ud as *mut Effects)).bells += 1 };
+    effects(ud).bells += 1;
 }
 
 unsafe extern "C" fn on_title(_t: ffi::GhosttyTerminal, ud: *mut c_void) {
-    unsafe { (*(ud as *mut Effects)).title_changed = true };
+    effects(ud).title_changed = true;
 }
 
 unsafe extern "C" fn on_pwd(_t: ffi::GhosttyTerminal, ud: *mut c_void) {
-    unsafe { (*(ud as *mut Effects)).pwd_changed = true };
+    effects(ud).pwd_changed = true;
 }
+
+/// Virtual cell size used until a client reports a real one; keeps pixel reports sane.
+const DEFAULT_CELL_PX: (u32, u32) = (10, 20);
 
 impl Terminal {
     /// Creates a terminal of `cols`×`rows` keeping at most `scrollback_lines` of history.
@@ -201,11 +238,17 @@ impl Terminal {
             render: ptr::null_mut(),
             rows_iter: ptr::null_mut(),
             cells: ptr::null_mut(),
+            keys: ptr::null_mut(),
+            key_event: ptr::null_mut(),
+            mouse: ptr::null_mut(),
+            mouse_event: ptr::null_mut(),
             effects: Box::default(),
             grid: Grid::default(),
             generation: 0,
             utf8: Vec::with_capacity(32),
         };
+        t.effects.cell_px = DEFAULT_CELL_PX;
+        t.effects.size = (cols, rows);
         // SAFETY: out-pointers are valid; on error `Drop` frees whatever was created.
         unsafe {
             check(ffi::ghostty_terminal_new(
@@ -223,13 +266,24 @@ impl Terminal {
                 ptr::null(),
                 &mut t.cells,
             ))?;
+            check(ffi::ghostty_key_encoder_new(ptr::null(), &mut t.keys))?;
+            check(ffi::ghostty_key_event_new(ptr::null(), &mut t.key_event))?;
+            check(ffi::ghostty_mouse_encoder_new(ptr::null(), &mut t.mouse))?;
+            check(ffi::ghostty_mouse_event_new(
+                ptr::null(),
+                &mut t.mouse_event,
+            ))?;
+            check(ffi::ghostty_terminal_resize(
+                t.raw,
+                cols,
+                rows,
+                DEFAULT_CELL_PX.0,
+                DEFAULT_CELL_PX.1,
+            ))?;
 
-            let ud = &mut *t.effects as *mut Effects as *const c_void;
-            t.set_opt(
-                ffi::GhosttyTerminalOption::GHOSTTY_TERMINAL_OPT_USERDATA,
-                ud,
-            )?;
             use ffi::GhosttyTerminalOption as O;
+            let ud = &mut *t.effects as *mut Effects as *const c_void;
+            t.set_opt(O::GHOSTTY_TERMINAL_OPT_USERDATA, ud)?;
             // Callback options take the function pointer itself as the value.
             let callbacks: [(O, *const c_void); 4] = [
                 (
@@ -251,7 +305,11 @@ impl Terminal {
                 O::GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_LINES,
                 &lines as *const usize as *const c_void,
             )?;
+            // Scrollback is bounded by lines only (REQ-VT-003); NULL removes the byte limit.
+            t.set_opt(O::GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES, ptr::null())?;
+            t.install_query_callbacks()?;
         }
+        t.set_host(&HostCaps::default())?;
         Ok(t)
     }
 
@@ -263,16 +321,27 @@ impl Terminal {
         check(unsafe { ffi::ghostty_terminal_set(self.raw, opt, value) })
     }
 
+    unsafe fn get<T>(&self, key: ffi::GhosttyTerminalData, out: *mut T) -> Result<(), Error> {
+        check(unsafe { ffi::ghostty_terminal_get(self.raw, key, out as *mut c_void) })
+    }
+
     /// Feeds bytes read from the pane's PTY.
     pub fn write(&mut self, bytes: &[u8]) {
         // SAFETY: `raw` is a live terminal and `bytes` is a valid slice.
         unsafe { ffi::ghostty_terminal_vt_write(self.raw, bytes.as_ptr(), bytes.len()) }
     }
 
-    /// Resizes the terminal. Cell pixel sizes are zero until a client reports them.
+    /// Resizes the terminal, keeping the current cell pixel size.
     pub fn resize(&mut self, cols: u16, rows: u16) -> Result<(), Error> {
+        let (w, h) = self.effects.cell_px;
+        self.effects.size = (cols, rows);
         // SAFETY: `raw` is a live terminal.
-        check(unsafe { ffi::ghostty_terminal_resize(self.raw, cols, rows, 0, 0) })
+        check(unsafe { ffi::ghostty_terminal_resize(self.raw, cols, rows, w, h) })
+    }
+
+    /// Current size in cells.
+    pub fn size(&self) -> (u16, u16) {
+        self.effects.size
     }
 
     /// Bytes the terminal wants written back to the PTY (query responses, mode reports).
@@ -280,9 +349,57 @@ impl Terminal {
         std::mem::take(&mut self.effects.pty_out)
     }
 
-    /// Number of BEL characters seen since the last call.
-    pub fn take_bells(&mut self) -> u32 {
-        std::mem::take(&mut self.effects.bells)
+    /// Bells, title and cwd changes since the last call.
+    pub fn take_changes(&mut self) -> Changes {
+        let fx = &mut self.effects;
+        let (title, pwd) = (
+            std::mem::take(&mut fx.title_changed),
+            std::mem::take(&mut fx.pwd_changed),
+        );
+        let bells = std::mem::take(&mut fx.bells);
+        Changes {
+            bells,
+            title: title.then(|| self.title()),
+            pwd: pwd.then(|| self.pwd()),
+        }
+    }
+
+    fn string(&self, key: ffi::GhosttyTerminalData) -> String {
+        let mut s = ffi::GhosttyString {
+            ptr: ptr::null(),
+            len: 0,
+        };
+        // SAFETY: the string is borrowed from the terminal and copied before any mutation.
+        unsafe {
+            if self.get(key, &mut s).is_err() || s.ptr.is_null() {
+                return String::new();
+            }
+            String::from_utf8_lossy(std::slice::from_raw_parts(s.ptr, s.len)).into_owned()
+        }
+    }
+
+    /// Window title set by OSC 0/2 (REQ-VT-006).
+    pub fn title(&self) -> String {
+        self.string(ffi::GhosttyTerminalData::GHOSTTY_TERMINAL_DATA_TITLE)
+    }
+
+    /// Working directory reported by OSC 7 (REQ-VT-006), as sent (usually a file:// URL).
+    pub fn pwd(&self) -> String {
+        self.string(ffi::GhosttyTerminalData::GHOSTTY_TERMINAL_DATA_PWD)
+    }
+
+    /// Whether DEC private mode `mode` is set.
+    pub fn dec_mode(&self, mode: u16) -> bool {
+        let mut m = ffi::GhosttyTerminalModeConfig {
+            mode: mode & 0x7fff,
+            value: false,
+        };
+        // SAFETY: m is a valid in/out struct.
+        unsafe {
+            self.get(ffi::GhosttyTerminalData::GHOSTTY_TERMINAL_DATA_MODE, &mut m)
+                .is_ok()
+                && m.value
+        }
     }
 
     /// The viewport mirror as of the last [`Terminal::sync`].
@@ -305,10 +422,10 @@ impl Terminal {
             let (mut cols, mut rows) = (0u16, 0u16);
             self.rs_get(D::GHOSTTY_RENDER_STATE_DATA_COLS, &mut cols)?;
             self.rs_get(D::GHOSTTY_RENDER_STATE_DATA_ROWS, &mut rows)?;
-            let full = dirty == ffi::GhosttyRenderStateDirty::GHOSTTY_RENDER_STATE_DIRTY_FULL
-                || cols != self.grid.cols
-                || rows as usize != self.grid.rows.len();
-            if cols != self.grid.cols || rows as usize != self.grid.rows.len() {
+            let reshaped = cols != self.grid.cols || rows as usize != self.grid.rows.len();
+            let full =
+                dirty == ffi::GhosttyRenderStateDirty::GHOSTTY_RENDER_STATE_DIRTY_FULL || reshaped;
+            if reshaped {
                 self.grid.cols = cols;
                 self.grid.rows = vec![
                     Row {
@@ -350,7 +467,7 @@ impl Terminal {
             };
             self.rs_get(D::GHOSTTY_RENDER_STATE_DATA_CURSOR, &mut cur)?;
             use ffi::GhosttyRenderStateCursorVisualStyle as S;
-            self.grid.cursor = Cursor {
+            let cursor = Cursor {
                 x: cur.viewport_x,
                 y: cur.viewport_y,
                 visible: cur.visible && cur.viewport_has_value,
@@ -363,6 +480,10 @@ impl Terminal {
                     _ => CursorShape::Block,
                 },
             };
+            if cursor != self.grid.cursor || full {
+                self.grid.cursor = cursor;
+                self.grid.cursor_generation = generation;
+            }
             check(ffi::ghostty_render_state_clean(self.render))?;
         }
         Ok(stats)
@@ -384,7 +505,7 @@ impl Terminal {
             let row = &mut self.grid.rows[y];
             row.generation = generation;
             let mut x = 0usize;
-            while ffi::ghostty_render_state_row_cells_next(self.cells) && x < row.cells.len() {
+            while x < row.cells.len() && ffi::ghostty_render_state_row_cells_next(self.cells) {
                 let mut raw: ffi::GhosttyCell = 0;
                 let mut glen: u32 = 0;
                 let mut keys = [
@@ -402,8 +523,26 @@ impl Terminal {
                     vals.as_mut_ptr(),
                     ptr::null_mut(),
                 ))?;
-                let cell = &mut row.cells[x];
-                decode_cell(raw, glen, self.cells, &mut self.utf8, cell)?;
+                let out = &mut row.cells[x];
+                let styled = cell::decode_raw(raw, out)?;
+                let cells = self.cells;
+                out.text = cell::text_from(raw, glen, &mut self.utf8, |buf| {
+                    ffi::ghostty_render_state_row_cells_get(
+                        cells,
+                        C::GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_UTF8,
+                        buf as *mut _ as *mut c_void,
+                    )
+                })?;
+                if styled {
+                    let mut st = cell::new_style();
+                    check(ffi::ghostty_render_state_row_cells_get(
+                        cells,
+                        C::GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_STYLE,
+                        &mut st as *mut _ as *mut c_void,
+                    ))?;
+                    cell::apply_style(&st, out);
+                }
+                cell::apply_bg_content(raw, out)?;
                 x += 1;
             }
             for cell in &mut row.cells[x..] {
@@ -414,168 +553,18 @@ impl Terminal {
     }
 }
 
-/// Fills `out` from a raw libghostty-vt cell at the current cells-iterator position.
-unsafe fn decode_cell(
-    raw: ffi::GhosttyCell,
-    glen: u32,
-    cells: ffi::GhosttyRenderStateRowCells,
-    utf8: &mut Vec<u8>,
-    out: &mut Cell,
-) -> Result<(), Error> {
-    use ffi::GhosttyCellData as CD;
-    unsafe {
-        let mut wide = ffi::GhosttyCellWide::GHOSTTY_CELL_WIDE_NARROW;
-        let mut tag = ffi::GhosttyCellContentTag::GHOSTTY_CELL_CONTENT_CODEPOINT;
-        let mut styled = false;
-        let mut keys = [
-            CD::GHOSTTY_CELL_DATA_WIDE,
-            CD::GHOSTTY_CELL_DATA_CONTENT_TAG,
-            CD::GHOSTTY_CELL_DATA_HAS_STYLING,
-        ];
-        let mut vals = [
-            &mut wide as *mut _ as *mut c_void,
-            &mut tag as *mut _ as *mut c_void,
-            &mut styled as *mut _ as *mut c_void,
-        ];
-        check(ffi::ghostty_cell_get_multi(
-            raw,
-            keys.len(),
-            keys.as_mut_ptr(),
-            vals.as_mut_ptr(),
-            ptr::null_mut(),
-        ))?;
-
-        out.width = match wide {
-            ffi::GhosttyCellWide::GHOSTTY_CELL_WIDE_WIDE => 2,
-            ffi::GhosttyCellWide::GHOSTTY_CELL_WIDE_SPACER_TAIL => 0,
-            _ => 1,
-        };
-
-        out.text = if glen == 0 {
-            SmolStr::default()
-        } else if glen == 1 {
-            let mut cp: u32 = 0;
-            check(ffi::ghostty_cell_get(
-                raw,
-                CD::GHOSTTY_CELL_DATA_CODEPOINT,
-                &mut cp as *mut _ as *mut c_void,
-            ))?;
-            let ch = char::from_u32(cp).unwrap_or('\u{fffd}');
-            let mut b = [0u8; 4];
-            SmolStr::new(ch.encode_utf8(&mut b))
-        } else {
-            utf8.clear();
-            utf8.resize(utf8.capacity().max(32), 0);
-            loop {
-                let mut buf = ffi::GhosttyBuffer {
-                    ptr: utf8.as_mut_ptr(),
-                    cap: utf8.len(),
-                    len: 0,
-                };
-                let r = ffi::ghostty_render_state_row_cells_get(
-                    cells,
-                    ffi::GhosttyRenderStateRowCellsData::GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_UTF8,
-                    &mut buf as *mut _ as *mut c_void,
-                );
-                if r == ffi::GhosttyResult::GHOSTTY_OUT_OF_SPACE {
-                    utf8.resize(buf.len, 0);
-                    continue;
-                }
-                check(r)?;
-                break SmolStr::new(String::from_utf8_lossy(&utf8[..buf.len]));
-            }
-        };
-
-        out.fg = Color::Default;
-        out.bg = Color::Default;
-        out.ul = None;
-        out.attrs = 0;
-        if styled {
-            let mut st: ffi::GhosttyStyle = std::mem::zeroed();
-            st.size = std::mem::size_of::<ffi::GhosttyStyle>();
-            check(ffi::ghostty_render_state_row_cells_get(
-                cells,
-                ffi::GhosttyRenderStateRowCellsData::GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_STYLE,
-                &mut st as *mut _ as *mut c_void,
-            ))?;
-            out.fg = style_color(&st.fg_color);
-            out.bg = style_color(&st.bg_color);
-            out.ul = match style_color(&st.underline_color) {
-                Color::Default => None,
-                c => Some(c),
-            };
-            let mut a = 0u16;
-            for (on, bit) in [
-                (st.bold, attrs::BOLD),
-                (st.italic, attrs::ITALIC),
-                (st.faint, attrs::FAINT),
-                (st.blink, attrs::BLINK),
-                (st.inverse, attrs::INVERSE),
-                (st.invisible, attrs::INVISIBLE),
-                (st.strikethrough, attrs::STRIKETHROUGH),
-                (st.overline, attrs::OVERLINE),
-            ] {
-                if on {
-                    a |= bit;
-                }
-            }
-            a |= ((st.underline.clamp(0, 7) as u16) << attrs::UNDERLINE_SHIFT)
-                & attrs::UNDERLINE_MASK;
-            out.attrs = a;
-        }
-        // Background-only cells (erased with a colored background) carry the color in the cell.
-        if tag == ffi::GhosttyCellContentTag::GHOSTTY_CELL_CONTENT_BG_COLOR_PALETTE {
-            let mut i: u8 = 0;
-            check(ffi::ghostty_cell_get(
-                raw,
-                CD::GHOSTTY_CELL_DATA_COLOR_PALETTE,
-                &mut i as *mut _ as *mut c_void,
-            ))?;
-            out.bg = Color::Indexed(i);
-        } else if tag == ffi::GhosttyCellContentTag::GHOSTTY_CELL_CONTENT_BG_COLOR_RGB {
-            let mut c = ffi::GhosttyColorRgb { r: 0, g: 0, b: 0 };
-            check(ffi::ghostty_cell_get(
-                raw,
-                CD::GHOSTTY_CELL_DATA_COLOR_RGB,
-                &mut c as *mut _ as *mut c_void,
-            ))?;
-            out.bg = Color::Rgb(c.r, c.g, c.b);
-        }
-    }
-    Ok(())
-}
-
-fn style_color(c: &ffi::GhosttyStyleColor) -> Color {
-    // SAFETY: the tag says which union field is active.
-    unsafe {
-        match c.tag {
-            ffi::GhosttyStyleColorTag::GHOSTTY_STYLE_COLOR_PALETTE => {
-                Color::Indexed(c.value.palette)
-            }
-            ffi::GhosttyStyleColorTag::GHOSTTY_STYLE_COLOR_RGB => {
-                Color::Rgb(c.value.rgb.r, c.value.rgb.g, c.value.rgb.b)
-            }
-            _ => Color::Default,
-        }
-    }
-}
-
 impl Drop for Terminal {
     fn drop(&mut self) {
         // SAFETY: each handle is either null (accepted by the free functions) or live.
         unsafe {
-            if !self.cells.is_null() {
-                ffi::ghostty_render_state_row_cells_free(self.cells);
-            }
-            if !self.rows_iter.is_null() {
-                ffi::ghostty_render_state_row_iterator_free(self.rows_iter);
-            }
-            if !self.render.is_null() {
-                ffi::ghostty_render_state_free(self.render);
-            }
-            if !self.raw.is_null() {
-                ffi::ghostty_terminal_free(self.raw);
-            }
+            ffi::ghostty_mouse_event_free(self.mouse_event);
+            ffi::ghostty_mouse_encoder_free(self.mouse);
+            ffi::ghostty_key_event_free(self.key_event);
+            ffi::ghostty_key_encoder_free(self.keys);
+            ffi::ghostty_render_state_row_cells_free(self.cells);
+            ffi::ghostty_render_state_row_iterator_free(self.rows_iter);
+            ffi::ghostty_render_state_free(self.render);
+            ffi::ghostty_terminal_free(self.raw);
         }
     }
 }
@@ -619,9 +608,24 @@ mod tests {
     }
 
     #[test]
-    fn answers_device_attributes() {
+    fn captures_title_and_cwd() {
         let mut t = Terminal::new(10, 5, 100).unwrap();
-        t.write(b"\x1b[c");
-        assert!(!t.take_pty_output().is_empty());
+        t.write(b"\x1b]2;hello\x07\x1b]7;file://host/tmp/x\x07\x07");
+        let c = t.take_changes();
+        assert_eq!(c.title.as_deref(), Some("hello"));
+        assert_eq!(c.pwd.as_deref(), Some("file://host/tmp/x"));
+        assert_eq!(c.bells, 1);
+        assert_eq!(t.take_changes(), Changes::default());
+    }
+
+    #[test]
+    fn resize_reshapes_grid() {
+        let mut t = Terminal::new(10, 5, 100).unwrap();
+        t.sync().unwrap();
+        let shape = t.grid().shape_generation;
+        t.resize(30, 7).unwrap();
+        assert!(t.sync().unwrap().full);
+        assert_eq!((t.grid().cols, t.grid().rows.len()), (30, 7));
+        assert!(t.grid().shape_generation > shape);
     }
 }

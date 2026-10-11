@@ -19,12 +19,12 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-PTY-006 | – | pending |
 | REQ-PTY-007 | – | pending |
 | REQ-VT-001 | – | pending |
-| REQ-VT-002 | – | pending |
-| REQ-VT-003 | – | pending |
+| REQ-VT-002 | femux-vt `tests::only_dirty_rows_are_copied`, `tests::resize_reshapes_grid`; daemon frames pending | partial |
+| REQ-VT-003 | femux-vt `history::tests::scrollback_is_capped`; per-pane config pending | partial |
 | REQ-VT-004 | – | pending |
-| REQ-VT-005 | – | pending |
-| REQ-QRY-001 | – | pending |
-| REQ-QRY-002 | – | pending |
+| REQ-VT-005 | femux-vt `history::tests::records_prompt_marks`; `scrollback.marks` pending | partial |
+| REQ-QRY-001 | femux-vt `query::tests::answers_identity_queries`, `query::tests::answers_mode_and_keyboard_queries`; daemon pending | partial |
+| REQ-QRY-002 | femux-vt `query::tests::answers_from_host_caps`; wiring to `hello` pending | partial |
 | REQ-QRY-003 | – | pending |
 | REQ-SESS-001 | – | pending |
 | REQ-SESS-002 | – | pending |
@@ -50,7 +50,7 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-PROTO-012 | femux-proto `tests::unknown_kind_and_fields` (decoder); daemon `error{unknown_kind}` reply pending | partial |
 | REQ-PROTO-020 | – | pending |
 | REQ-PROTO-021 | – | pending |
-| REQ-PROTO-030 | – | pending |
+| REQ-PROTO-030 | femux-vt `input::tests::*`; `pane.input` pending | partial |
 | REQ-PROTO-040 | – | pending |
 | REQ-PROTO-041 | – | pending |
 | REQ-BUILD-001 | – | pending |
