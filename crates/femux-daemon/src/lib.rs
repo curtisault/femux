@@ -6,15 +6,20 @@ pub mod bus;
 mod daemon;
 mod frames;
 pub mod layout;
+#[cfg(target_os = "linux")]
+mod logind;
+mod persist;
 pub mod pty;
 mod server;
 mod state;
+pub mod store;
 
 use std::io;
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
-pub use daemon::{Config, Daemon, SERVED};
+pub use daemon::{Config, Daemon, SERVED, Settings};
+pub use persist::encode_history;
 pub use server::peer_allowed;
 
 /// Binds the socket and serves until shutdown (last session closed, `server.stop`, or
@@ -26,8 +31,8 @@ pub async fn run(cfg: Config) -> io::Result<()> {
     Ok(())
 }
 
-/// Like [`run`], but also shuts down on SIGTERM (REQ-LIFE-001). Without restore (0.3.0) panes
-/// are sent SIGHUP before the daemon exits.
+/// Like [`run`], but also shuts down on SIGTERM (REQ-LIFE-001): a snapshot first, then exit;
+/// panes are sent SIGHUP unless restore is enabled.
 pub async fn run_with_signals(cfg: Config) -> io::Result<()> {
     let listener = server::bind(&cfg.socket)?;
     let d = Daemon::new(cfg);
@@ -35,6 +40,12 @@ pub async fn run_with_signals(cfg: Config) -> io::Result<()> {
     let d2 = d.clone();
     tokio::spawn(async move {
         term.recv().await;
+        // Snapshot before anything else can change, then exit (REQ-STORE-003, REQ-LIFE-001).
+        let d3 = d2.clone();
+        let _ = tokio::task::spawn_blocking(move || d3.exit_snapshot()).await;
+        let restore = d2.settings.lock().unwrap().restore.enabled;
+        d2.exit_kills_panes
+            .store(!restore, std::sync::atomic::Ordering::SeqCst);
         d2.shutdown.send_replace(true);
     });
     server::serve(d, listener).await;

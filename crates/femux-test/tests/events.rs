@@ -117,6 +117,7 @@ async fn evt_002_filters_and_loss() {
         cmd: None,
         title: None,
         index: None,
+        restore: None,
     })
     .await
     .unwrap();
@@ -183,7 +184,14 @@ async fn evt_003_replay_since() {
     };
     assert_eq!(l.from, seq0 + 1);
     assert!(l.to >= now - 5, "{l:?}");
-    let seqs: Vec<u64> = later.events[1..].iter().map(Event::seq).collect();
+    // Live events (a debounced store.snapshot, cwd changes) may follow the replay; count
+    // only what was retained when the subscriber said hello.
+    let at_hello = later.hello_ok.as_ref().unwrap().seq;
+    let seqs: Vec<u64> = later.events[1..]
+        .iter()
+        .map(Event::seq)
+        .filter(|s| *s <= at_hello)
+        .collect();
     assert_eq!(seqs.len(), 5, "replay window is 5: {seqs:?}");
     assert_eq!(seqs[0], l.to + 1);
     assert!(seqs.windows(2).all(|w| w[1] == w[0] + 1), "{seqs:?}");

@@ -104,6 +104,14 @@
           "type": "string",
           "description": "Command the pane was spawned with, if any (shell -c cmd)."
         },
+        "restore": {
+          "type": "boolean",
+          "description": "cmd is re-run on restore (REQ-STORE-004)."
+        },
+        "restored": {
+          "type": "boolean",
+          "description": "The pane came back from a snapshot as a plain shell and no command has run in it since (REQ-STORE-008)."
+        },
         "cwd": {
           "type": "string",
           "description": "Empty when unknown."
@@ -135,7 +143,9 @@
         "fg_pid",
         "fg_cmd",
         "title",
-        "meta"
+        "meta",
+        "restore",
+        "restored"
       ]
     },
     "PaneSetMeta": {

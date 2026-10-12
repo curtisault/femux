@@ -99,6 +99,27 @@ impl Bus {
         self.seq
     }
 
+    /// Retained events with their scope, oldest first (what a snapshot persists).
+    pub fn retained(&self) -> Vec<(Event, Scope)> {
+        self.replay
+            .iter()
+            .map(|r| (r.event.clone(), r.scope.clone()))
+            .collect()
+    }
+
+    /// Continues from a previous daemon's events (REQ-STORE-002 `events(ring)`): seq resumes
+    /// after the newest one, and `since` can still reach the retained ones.
+    pub fn seed(&mut self, seq: u64, events: Vec<(Event, Scope)>) {
+        let newest = events.iter().map(|(e, _)| e.seq()).max().unwrap_or(0);
+        self.seq = self.seq.max(seq).max(newest);
+        let skip = events.len().saturating_sub(self.replay_cap);
+        self.replay = events
+            .into_iter()
+            .skip(skip)
+            .map(|(event, scope)| Retained { event, scope })
+            .collect();
+    }
+
     pub fn emit(&mut self, event: impl Into<Event>, scope: Scope) {
         let mut event = event.into();
         self.seq += 1;

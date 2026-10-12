@@ -15,8 +15,8 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-PTY-002 | femux-test `pty::pty_002_foreground_process_and_cwd` | pass |
 | REQ-PTY-003 | femux-test `pty::pty_003_busy_pane_does_not_block_others` | pass |
 | REQ-PTY-004 | femux-test `pty::pty_004_signals` | pass |
-| REQ-PTY-005 | femux-test `pty::pty_005_pane_ids_are_ulids`; restart stability with restore (0.3.0) | pass |
-| REQ-PTY-006 | femux-daemon `pty::tests::env_filter_matches_names_and_prefixes`; femux-test `pty::pty_006_live_environment_is_unfiltered` | pass |
+| REQ-PTY-005 | femux-test `pty::pty_005_pane_ids_are_ulids`, `store::store_004_sessions_come_back_with_their_ids_layout_and_marks` | pass |
+| REQ-PTY-006 | femux-daemon `pty::tests::env_filter_matches_names_and_prefixes`; femux-test `pty::pty_006_live_environment_is_unfiltered`, `store::store_004_sessions_come_back_with_their_ids_layout_and_marks` (persisted env) | pass |
 | REQ-PTY-007 | femux-test `pty::pty_007_pane_environment` | pass |
 | REQ-VT-001 | femux-test `vt::vt_001_each_pane_has_its_own_terminal` | pass |
 | REQ-VT-002 | femux-vt `tests::only_dirty_rows_are_copied`, `tests::resize_reshapes_grid`; femux-test `vt::vt_002_frames_carry_cell_diffs` | pass |
@@ -95,3 +95,10 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | Requirement | Tests | Status |
 | --- | --- | --- |
 | REQ-CFG-003 | femux-config `tests::cfg_003_unknown_keys_are_errors_with_lines`, `tests::example_config_is_exactly_the_defaults`; femux-cli `cli::cfg_003_config_check_rejects_unknown_keys_with_lines` | pass |
+| REQ-STORE-001 | femux-daemon `store::tests::store_001_002_snapshot_roundtrip_wal_and_mode` | pass |
+| REQ-STORE-002 | femux-daemon `store::tests::store_001_002_snapshot_roundtrip_wal_and_mode`; femux-test `store::store_004_sessions_come_back_with_their_ids_layout_and_marks` | pass |
+| REQ-STORE-003 | femux-test `store::store_003_snapshots_follow_layout_changes_and_a_dirty_tick`; femux-daemon `logind::tests::*` (logind: best effort) | pass |
+| REQ-STORE-004 | femux-test `store::store_004_sessions_come_back_with_their_ids_layout_and_marks`, `store::store_004_restore_is_off_by_default` | pass |
+| REQ-STORE-005 | femux-test `store::store_005_reruns_are_staggered` | pass |
+| REQ-STORE-006 | femux-test `store::store_006_scrollback_is_opt_in`; femux-daemon `persist::tests::history_bytes_redraw_text_and_styles`, `store::tests::store_001_002_snapshot_roundtrip_wal_and_mode` (compressed) | pass |
+| REQ-STORE-007 | femux-daemon `store::tests::store_007_unloadable_files_are_backed_up_never_overwritten`; femux-test `store::store_007_a_bad_store_is_backed_up_and_the_daemon_starts` | pass |

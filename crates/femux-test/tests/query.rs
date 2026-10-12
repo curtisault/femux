@@ -17,6 +17,7 @@ async fn pane_running(c: &mut Client, cmd: String) -> String {
         cmd: Some(cmd),
         title: None,
         index: Some(0),
+        restore: None,
     })
     .await
     .unwrap()

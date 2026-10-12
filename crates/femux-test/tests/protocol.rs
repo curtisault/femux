@@ -211,23 +211,24 @@ async fn proto_020_missing_feature_loses_action_not_connection() {
             cmd: None,
             title: None,
             index: None,
+            restore: None,
         })
         .await
         .unwrap_err();
     assert_eq!(e.code, ErrorCode::FeatureMissing);
-    // Families the daemon does not serve yet are missing too.
-    let mut full = h.client().await;
+    // A family left out of hello is missing even though the daemon serves it.
     assert_eq!(
-        full.call(StoreSnapshot {}).await.unwrap_err().code,
+        c.call(StoreSnapshot {}).await.unwrap_err().code,
         ErrorCode::FeatureMissing
     );
+    let full = h.client().await;
     assert!(
-        !full
-            .hello_ok
+        full.hello_ok
             .as_ref()
             .unwrap()
             .features
-            .contains(&"store".to_string())
+            .contains(&"store".to_string()),
+        "the daemon serves store from 0.3.0 (ADR-017 #4)"
     );
     // Still connected.
     assert_eq!(c.call(SessionList {}).await.unwrap().sessions.len(), 1);

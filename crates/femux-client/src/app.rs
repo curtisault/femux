@@ -725,6 +725,7 @@ impl App {
                         cmd: None,
                         title: None,
                         index: None,
+                        restore: None,
                     },
                     Pending::NewTab,
                 );

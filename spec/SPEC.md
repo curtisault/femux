@@ -73,7 +73,7 @@ Layer rules:
 - REQ-PTY-004: Signals (`SIGINT`, `SIGTERM`, `SIGKILL`, `SIGHUP`, `SIGWINCH`) MUST be deliverable via `pane.signal`.
   Note: signals go to the pane's foreground process group, as if typed at the terminal.
 - REQ-PTY-005: Pane IDs are ULIDs and MUST be stable across daemon restarts when restore is enabled.
-  Note: ids are ULIDs from 0.1.0; stability across restarts arrives with restore (0.3.0).
+  Note: ids are ULIDs from 0.1.0; with restore enabled, sessions, tabs and panes come back with their saved ids (0.3.0).
 - REQ-PTY-006: Environment passed to a pane MUST be filtered by `[env] allow` before persistence; the live environment is unfiltered.
 - REQ-PTY-007: New panes MUST set `TERM=xterm-256color` (overridable), `TERM_PROGRAM=femux`, `TERM_PROGRAM_VERSION`, `FEMUX_PANE=<ulid>`, `FEMUX_SOCKET=<path>`.
 
@@ -130,7 +130,7 @@ Layer rules:
 ### 3.8 Lifecycle
 
 - REQ-LIFE-001: `SIGTERM` to the daemon MUST snapshot state, then exit without killing panes if restore is enabled, or kill panes with `SIGHUP` if not.
-  Note: restore arrives in 0.3.0, so in 0.1.0 SIGTERM always SIGHUPs panes; `server.stop` behaves the same whatever `kill_panes` says.
+  Note: the snapshot is taken first, before anything else can change. With restore enabled femux sends no SIGHUP, but the kernel still hangs up each PTY when the daemon exits, so processes survive only as restored panes; keeping them alive needs the live handoff of REQ-LIFE-003. `server.stop` SIGHUPs when `kill_panes` is true or restore is off.
 - REQ-LIFE-002: The daemon MUST exit when the last session is closed unless `daemon.keep_alive = true`.
   Note: when a request closes the last session (or is `server.stop`), its reply is written before the daemon begins to exit.
 - REQ-LIFE-003: (Deferred, post-1.0) Live handoff of PTY fds to a new daemon via `SCM_RIGHTS`. Fd ownership MUST remain in the PTY manager so this stays possible.
@@ -333,12 +333,19 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
 ## 6. Persistence
 
 - REQ-STORE-001: SQLite in WAL mode at `$XDG_STATE_HOME/femux/<server>.db` (macOS: `~/Library/Application Support/femux/`), file mode 0600, schema versioned with forward migrations.
+  Note: the directory is created 0700; the file and its WAL files are 0600. The schema version is `PRAGMA user_version`; a file from a newer femux is treated as unloadable (REQ-STORE-007). Rows are kept per server name, so servers may share a file.
 - REQ-STORE-002: Tables: `servers`, `sessions`, `tabs(layout_json)`, `panes(cwd, cmd, env_json, restore, cols, rows, marks)`, `pane_meta`, `scrollback(opt-in)`, `events(ring)`.
+  Note: `tabs.layout_json` holds the tree and floats; `panes.marks` the mark letters; `panes.env_json` the environment filtered by `[env] allow`; `scrollback` one deflated chunk per pane; `events` the bus's retained events, so `seq` continues across a restart and `since` still reaches them. A snapshot replaces every row in one transaction.
 - REQ-STORE-003: Snapshot on every layout change (debounced 500 ms), every 30 s while dirty, on `SIGTERM`, on `logind PrepareForShutdown` (Linux) and on `SIGTERM` from launchd (macOS).
+  Note: "layout change" is any session, tab, layout, spawn, exit or mark event; cwd and metadata changes, and pane output when scrollback is persisted, are saved on the 30 s tick. Snapshots are written whether or not restore is enabled. The logind trigger is best effort: it needs a system bus and logind, takes a delay inhibitor lock when granted, and is otherwise silent. On macOS, launchd's SIGTERM is handled as any SIGTERM. `store.snapshot` forces one (ADR-017 #4).
 - REQ-STORE-004: `restore.enabled` defaults to `false`. When true, saved sessions reopen with panes marked `restored` (shell in cwd, no command) unless the pane's `restore` flag is true, in which case `cmd` is re-run.
+  Note: a pane whose command is not re-run comes back as a shell and is a shell from then on (`cmd` cleared). Restored panes get their persisted environment on top of the daemon's. The `restored` mark (ADR-017 #2) clears when a process other than the shell runs.
 - REQ-STORE-005: Re-run commands start staggered by `restore.stagger_ms` (default 100).
+  Note: the n-th re-run command starts n × `stagger_ms` after the daemon opens its store; the pane exists from the start.
 - REQ-STORE-006: Persisted scrollback is opt-in and capped at `restore.scrollback_lines` (default 2,000) per pane, stored compressed.
+  Note: the pane's last `scrollback_lines` lines of history and screen are stored as text with SGR styles, deflated, and replayed into the pane before its shell starts.
 - REQ-STORE-007: A snapshot that fails to load is moved to `session-backups/<ts>.db` and never overwritten.
+  Note: the WAL and shared-memory files move with it; a name already taken gets a `-1`, `-2`, … suffix.
 - REQ-STORE-008: Restored panes render with a distinct border style until a process runs in them.
 
 ---

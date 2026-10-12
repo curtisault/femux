@@ -21,6 +21,10 @@
         },
         "index": {
           "$ref": "common.json#/$defs/U32"
+        },
+        "restore": {
+          "type": "boolean",
+          "description": "Re-run cmd when the session is restored after a daemon restart (REQ-STORE-004). Default false."
         }
       },
       "required": [

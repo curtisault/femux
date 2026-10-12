@@ -71,6 +71,10 @@
       "required": [
         "kill_panes"
       ]
+    },
+    "ServerReload": {
+      "type": "object",
+      "description": "Re-reads the daemon's config file and applies what can change while running; emits config.reloaded so clients re-read theirs. An invalid file changes nothing and answers invalid."
     }
   },
   "x-messages": [
@@ -92,6 +96,11 @@
     {
       "kind": "server.stop",
       "request": "ServerStop",
+      "response": "Empty"
+    },
+    {
+      "kind": "server.reload",
+      "request": "ServerReload",
       "response": "Empty"
     }
   ]

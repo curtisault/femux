@@ -33,6 +33,8 @@ pub struct Session {
     pub marks: BTreeMap<char, PaneId>,
     /// Host terminal of the most recently attached client (REQ-QRY-002).
     pub host: Option<HostCaps>,
+    /// The session file it was launched from, if any (`session.create.file`).
+    pub file: Option<String>,
 }
 
 pub struct Tab {
@@ -139,6 +141,14 @@ pub struct Pane {
     pub tasks: Vec<JoinHandle<()>>,
     /// Number of times the pane's PTY was resized (observable in tests for REQ-VIEW-004).
     pub resizes: u64,
+    /// Re-run `cmd` when restored (REQ-STORE-004).
+    pub restore: bool,
+    /// Came back from a snapshot as a plain shell; cleared once a command runs (REQ-STORE-008).
+    pub restored: bool,
+    /// Environment added to this pane's own (the persisted one, after a restore).
+    pub extra_env: Vec<(String, String)>,
+    /// The pane's environment filtered by `[env] allow`: what a snapshot persists (REQ-PTY-006).
+    pub saved_env: BTreeMap<String, String>,
 }
 
 impl Pane {
@@ -149,6 +159,8 @@ impl Pane {
             session: session.to_owned(),
             pid: self.pid,
             cmd: self.cmd.clone(),
+            restore: self.restore,
+            restored: self.restored,
             cwd: self.cwd.clone(),
             fg_pid: self.fg_pid,
             fg_cmd: self.fg_cmd.clone(),

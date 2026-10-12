@@ -33,6 +33,7 @@ async fn view_001_each_client_has_its_own_tab_and_size() {
             cmd: None,
             title: None,
             index: None,
+            restore: None,
         })
         .await
         .unwrap();
@@ -152,6 +153,7 @@ async fn view_003_other_tabs_do_not_constrain() {
             cmd: None,
             title: None,
             index: None,
+            restore: None,
         })
         .await
         .unwrap();

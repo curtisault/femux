@@ -533,6 +533,7 @@ fn run_cmd(cli: &Cli, cfg: &Config, socket: &Path, all_plugins: Vec<Plugin>, cmd
                             cmd: joined(cmd),
                             title: title.clone(),
                             index: *index,
+                            restore: None,
                         })
                         .or_else(err)?;
                     ok(
