@@ -126,9 +126,24 @@ fn cursor_uninstall(v: Value) -> Value {
     claude_uninstall(v)
 }
 
-/// Codex: a top-level `notify = [...]` line in config.toml.
+const SAVED: &str = "# femux saved: ";
+
+fn is_notify(l: &str) -> bool {
+    let t = l.trim_start();
+    t.starts_with("notify ") || t.starts_with("notify=")
+}
+
+/// Codex: the single top-level `notify = [...]` line in config.toml. A user's own `notify`
+/// is kept as a `# femux saved:` comment and restored by uninstall, since TOML allows one.
 fn codex_install(text: &str) -> String {
-    let mut out: Vec<String> = codex_strip(text);
+    let mut out: Vec<String> = Vec::new();
+    for l in codex_strip(text) {
+        if is_notify(&l) && !l.contains(MARK) {
+            out.push(format!("{SAVED}{l}"));
+        } else {
+            out.push(l);
+        }
+    }
     let line = format!("notify = [\"femux\", \"integration\", \"hook\", \"codex\"] # {MARK}");
     // Top-level keys must come before the first table header.
     let at = out
@@ -139,10 +154,11 @@ fn codex_install(text: &str) -> String {
     out.join("\n") + "\n"
 }
 
+/// Removes femux's line and restores a saved `notify`.
 fn codex_strip(text: &str) -> Vec<String> {
     text.lines()
-        .filter(|l| !(l.trim_start().starts_with("notify") && l.contains("femux")))
-        .map(str::to_owned)
+        .filter(|l| !(is_notify(l) && l.contains(MARK)))
+        .map(|l| l.strip_prefix(SAVED).unwrap_or(l).to_owned())
         .collect()
 }
 
@@ -280,6 +296,14 @@ mod tests {
         let again = codex_install(&t);
         assert_eq!(again.matches("notify").count(), 1);
         assert!(!codex_strip(&again).join("\n").contains("femux"));
+        // A user's own notify is saved, never duplicated, and restored by uninstall.
+        let own = "model = \"o3\"\nnotify = [\"my-notifier\"]\n";
+        let t = codex_install(own);
+        let active: Vec<&str> = t.lines().filter(|l| is_notify(l)).collect();
+        assert_eq!(active.len(), 1, "{t}");
+        assert!(active[0].contains("femux"));
+        assert!(t.contains("# femux saved: notify = [\"my-notifier\"]"));
+        assert_eq!(codex_strip(&t).join("\n") + "\n", own);
     }
 
     #[test]
