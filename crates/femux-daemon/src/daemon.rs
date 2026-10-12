@@ -927,21 +927,35 @@ impl Daemon {
             }
             Q::TabSelect(r) => {
                 let session = st.tab(&r.tab_id)?.session.clone();
-                let v = st.view_mut(&r.view_id)?;
-                if v.session != session {
-                    return Err(invalid("tab is in another session"));
+                // Without a view every view of the session switches (ADR-016 #8).
+                let views: Vec<String> = match &r.view_id {
+                    Some(v) => {
+                        if st.view(v)?.session != session {
+                            return Err(invalid("tab is in another session"));
+                        }
+                        vec![v.clone()]
+                    }
+                    None => st
+                        .views
+                        .values()
+                        .filter(|v| v.session == session)
+                        .map(|v| v.id.clone())
+                        .collect(),
+                };
+                for view_id in views {
+                    let v = st.view_mut(&view_id)?;
+                    let old = std::mem::replace(&mut v.tab, r.tab_id.clone());
+                    v.frames.need_full = true;
+                    self.emit(
+                        m::TabSelected {
+                            view_id,
+                            tab_id: r.tab_id.clone(),
+                            ..Default::default()
+                        },
+                        State::session_scope(&session),
+                    );
+                    self.schedule_resize(st, &old);
                 }
-                let old = std::mem::replace(&mut v.tab, r.tab_id.clone());
-                v.frames.need_full = true;
-                self.emit(
-                    m::TabSelected {
-                        view_id: r.view_id,
-                        tab_id: r.tab_id.clone(),
-                        ..Default::default()
-                    },
-                    State::session_scope(&session),
-                );
-                self.schedule_resize(st, &old);
                 self.schedule_resize(st, &r.tab_id);
                 Response::TabSelect(m::Empty {})
             }
@@ -1036,8 +1050,17 @@ impl Daemon {
                 Response::LayoutClose(m::Empty {})
             }
             Q::LayoutFocus(r) => {
-                let tab_id = st.view(&r.view_id)?.tab.clone();
+                // With a view, the view's tab; without one, the given pane's tab (ADR-016 #9).
+                let tab_id = match (&r.view_id, &r.pane_id) {
+                    (Some(v), _) => st.view(v)?.tab.clone(),
+                    (None, Some(p)) => st.pane(p)?.tab.clone(),
+                    (None, None) => return Err(invalid("give a view_id or a pane_id")),
+                };
                 let tab = st.tab(&tab_id)?;
+                let origin = match (&r.view_id, &r.pane_id) {
+                    (None, Some(p)) => p.clone(),
+                    _ => tab.focus.clone(),
+                };
                 let target = match (r.pane_id, r.dir) {
                     (Some(p), None) => {
                         if !tab.panes().contains(&p) {
@@ -1045,7 +1068,7 @@ impl Daemon {
                         }
                         p
                     }
-                    (None, Some(d)) => neighbor(&tab.all_rects(), &tab.focus, d)
+                    (_, Some(d)) => neighbor(&tab.all_rects(), &origin, d)
                         .or_else(|| {
                             // The scroll strip hides panes past its edge: step along the
                             // pane order instead so they can be reached (REQ-UI-010).
@@ -1053,7 +1076,7 @@ impl Daemon {
                                 return None;
                             }
                             let order = tab.tree.as_ref()?.panes();
-                            let i = order.iter().position(|p| *p == tab.focus)?;
+                            let i = order.iter().position(|p| *p == origin)?;
                             match d {
                                 m::Direction::L => order.get(i + 1).cloned(),
                                 m::Direction::H => {
@@ -1063,7 +1086,7 @@ impl Daemon {
                             }
                         })
                         .unwrap_or_else(|| tab.focus.clone()),
-                    _ => return Err(invalid("give exactly one of pane_id or dir")),
+                    (None, None) => return Err(invalid("give a pane_id or a dir")),
                 };
                 let tab = st.tabs.get_mut(&tab_id).unwrap();
                 tab.focus = target.clone();
@@ -1251,7 +1274,10 @@ impl Daemon {
                     .map_err(|e| (m::ErrorCode::Internal, e.to_string()))?;
                 Response::PaneSignal(m::Empty {})
             }
-            Q::PaneInfo(r) => Response::PaneInfo(st.pane(&r.pane_id)?.info()),
+            Q::PaneInfo(r) => {
+                let session = st.session_of_pane(&r.pane_id).unwrap_or_default();
+                Response::PaneInfo(st.pane(&r.pane_id)?.info(&session))
+            }
             Q::PaneSetMeta(r) => {
                 let scope = st.pane_scope(&r.pane_id);
                 let pane = st

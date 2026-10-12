@@ -261,7 +261,7 @@ async fn sess_003_one_event_per_mutation() {
         &mut c,
         "layout.focused",
         LayoutFocus {
-            view_id: view.clone(),
+            view_id: Some(view.clone()),
             pane_id: Some(a.clone()),
             dir: None,
         },
@@ -421,7 +421,7 @@ async fn sess_003_one_event_per_mutation() {
         &mut c,
         "tab.selected",
         TabSelect {
-            view_id: view.clone(),
+            view_id: Some(view.clone()),
             tab_id: t2.clone(),
         },
     )

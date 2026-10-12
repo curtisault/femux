@@ -230,6 +230,13 @@
    }
   },
   {
+   "dir": "request",
+   "kind": "tab.select",
+   "body": {
+    "tab_id": "01J9Z3K8M2N4P6Q8R0S2T4V6WA"
+   }
+  },
+  {
    "dir": "response",
    "kind": "tab.select",
    "body": {}
@@ -310,6 +317,14 @@
    "kind": "layout.focus",
    "body": {
     "view_id": "01J9Z3K8M2N4P6Q8R0S2T4V6WB",
+    "dir": "l"
+   }
+  },
+  {
+   "dir": "request",
+   "kind": "layout.focus",
+   "body": {
+    "pane_id": "01J9Z3K8M2N4P6Q8R0S2T4V6W8",
     "dir": "l"
    }
   },
@@ -569,6 +584,7 @@
    "body": {
     "id": "01J9Z3K8M2N4P6Q8R0S2T4V6W8",
     "tab": "01J9Z3K8M2N4P6Q8R0S2T4V6WA",
+    "session": "work",
     "pid": 4200,
     "cmd": "vim notes.md",
     "cwd": "/home/u",
@@ -586,6 +602,7 @@
    "body": {
     "id": "01J9Z3K8M2N4P6Q8R0S2T4V6W8",
     "tab": "01J9Z3K8M2N4P6Q8R0S2T4V6WA",
+    "session": "work",
     "pid": 0,
     "cwd": "",
     "fg_pid": 0,

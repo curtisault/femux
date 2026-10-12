@@ -85,7 +85,7 @@ async fn ui_010_schemes_change_the_geometry() {
     .await
     .unwrap();
     c.call(LayoutFocus {
-        view_id: view.clone(),
+        view_id: Some(view.clone()),
         pane_id: Some(order[0].clone()),
         dir: None,
     })
@@ -104,7 +104,7 @@ async fn ui_010_schemes_change_the_geometry() {
     // l twice reaches the hidden pane and scrolls it in.
     for _ in 0..2 {
         c.call(LayoutFocus {
-            view_id: view.clone(),
+            view_id: Some(view.clone()),
             pane_id: None,
             dir: Some(Direction::L),
         })

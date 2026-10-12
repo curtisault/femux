@@ -56,7 +56,7 @@
     },
     "LayoutFocus": {
       "type": "object",
-      "description": "Exactly one of pane_id or dir.",
+      "description": "Focuses a pane, or the neighbor in a direction. Without view_id, pane_id is required and dir is taken from that pane (the CLI's own pane).",
       "properties": {
         "view_id": {
           "$ref": "common.json#/$defs/ViewId"
@@ -68,9 +68,7 @@
           "$ref": "common.json#/$defs/Direction"
         }
       },
-      "required": [
-        "view_id"
-      ]
+      "required": []
     },
     "LayoutFocusOk": {
       "type": "object",

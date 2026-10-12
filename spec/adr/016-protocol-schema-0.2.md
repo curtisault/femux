@@ -15,3 +15,6 @@ are ignored (REQ-PROTO-012).
 | 4 | New event `clipboard.changed {text, source: "pane" \| "client", pane_id?}`, emitted for `clipboard.set` and for OSC 52 writes from pane programs. | The daemon owns no clipboard; the `clipboard` plugin in each attached client copies the text to its host terminal (OSC 52). Pane OSC 52 writes are allowed from any pane (REQ-SEC-002); reads are not answered. |
 | 5 | `layout.float` on a pane that already floats updates its `rect` instead of failing. | UI-011 mouse drags move and resize floats; `pane.resize` covers size only. |
 | 6 | The daemon serves the `clipboard` feature from 0.2.0 (ADR-015 #17). | The behaviour is the event above. |
+| 7 | `pane.info` gains `session`. | A CLI running inside a pane (REQ-CLI-002) needs the session for `tab new` without walking every session. |
+| 8 | `tab.select.view_id` is optional: without it every attached view of the tab's session switches, one `tab.selected` per view. | `femux tab select` has no view of its own. |
+| 9 | `layout.focus.view_id` is optional: then `pane_id` is required and `dir` is relative to that pane. | `femux pane focus l` inside a pane. |

@@ -419,7 +419,7 @@ impl App {
             (Pending::NewTab, Response::TabCreate(t)) => {
                 let view_id = self.model.view_id.clone();
                 self.quiet(m::TabSelect {
-                    view_id,
+                    view_id: Some(view_id),
                     tab_id: t.tab_id,
                 });
             }
@@ -610,12 +610,12 @@ impl App {
         let view_id = self.model.view_id.clone();
         if tab != self.model.current {
             self.quiet(m::TabSelect {
-                view_id: view_id.clone(),
+                view_id: Some(view_id.clone()),
                 tab_id: tab,
             });
         }
         self.quiet(m::LayoutFocus {
-            view_id,
+            view_id: Some(view_id),
             pane_id: Some(pane),
             dir: None,
         });
@@ -629,7 +629,7 @@ impl App {
         let focused = self.model.focused_id();
         match a {
             Action::Focus(d) => self.quiet(m::LayoutFocus {
-                view_id,
+                view_id: Some(view_id),
                 pane_id: None,
                 dir: Some(d),
             }),
@@ -749,7 +749,7 @@ impl App {
                     };
                     let target = self.model.tabs[j].id.clone();
                     self.quiet(m::TabSelect {
-                        view_id,
+                        view_id: Some(view_id),
                         tab_id: target,
                     });
                 }
@@ -759,7 +759,7 @@ impl App {
                     let target = t.id.clone();
                     if target != tab_id {
                         self.quiet(m::TabSelect {
-                            view_id,
+                            view_id: Some(view_id),
                             tab_id: target,
                         });
                     }
@@ -1140,7 +1140,10 @@ impl App {
         match (self.hit(x, y), kind) {
             (Hit::Tab(t), MouseKind::Press(_)) => {
                 let view_id = self.model.view_id.clone();
-                self.quiet(m::TabSelect { view_id, tab_id: t });
+                self.quiet(m::TabSelect {
+                    view_id: Some(view_id),
+                    tab_id: t,
+                });
             }
             (Hit::FloatMove(p), MouseKind::Press(m::MouseButton::Left))
             | (Hit::FloatResize(p), MouseKind::Press(m::MouseButton::Left)) => {
@@ -1165,7 +1168,7 @@ impl App {
                 if self.model.focused_id().as_deref() != Some(id.as_str()) {
                     let view_id = self.model.view_id.clone();
                     self.quiet(m::LayoutFocus {
-                        view_id,
+                        view_id: Some(view_id),
                         pane_id: Some(id.clone()),
                         dir: None,
                     });

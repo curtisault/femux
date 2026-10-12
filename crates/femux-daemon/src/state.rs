@@ -142,10 +142,11 @@ pub struct Pane {
 }
 
 impl Pane {
-    pub fn info(&self) -> m::PaneInfoOk {
+    pub fn info(&self, session: &str) -> m::PaneInfoOk {
         m::PaneInfoOk {
             id: self.id.clone(),
             tab: self.tab.clone(),
+            session: session.to_owned(),
             pid: self.pid,
             cmd: self.cmd.clone(),
             cwd: self.cwd.clone(),

@@ -93,6 +93,9 @@
         "tab": {
           "$ref": "common.json#/$defs/TabId"
         },
+        "session": {
+          "$ref": "common.json#/$defs/SessionName"
+        },
         "pid": {
           "$ref": "common.json#/$defs/U32",
           "description": "Pid of the pane's own process (its shell); 0 after exit."
@@ -126,6 +129,7 @@
       "required": [
         "id",
         "tab",
+        "session",
         "pid",
         "cwd",
         "fg_pid",

@@ -111,7 +111,7 @@ async fn qry_002_answers_follow_the_attached_client() {
         .tab;
     light
         .call(TabSelect {
-            view_id: att.view_id,
+            view_id: Some(att.view_id),
             tab_id: tab,
         })
         .await

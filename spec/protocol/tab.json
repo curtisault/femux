@@ -53,9 +53,9 @@
         }
       },
       "required": [
-        "view_id",
         "tab_id"
-      ]
+      ],
+      "description": "Shows a tab in a view. Without view_id, every view of the tab's session that is attached switches (the CLI has no view of its own)."
     },
     "TabClose": {
       "type": "object",
