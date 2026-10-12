@@ -29,6 +29,7 @@ pub fn script(shell: &str) -> Option<&'static str> {
 const BASH: &str = r#"# femux shell integration for bash: OSC 133 prompt marks and OSC 7 cwd.
 if [ -n "$FEMUX_PANE" ] && [ -z "$FEMUX_SHELL_INTEGRATION" ]; then
   FEMUX_SHELL_INTEGRATION=bash
+  # Runs first in PROMPT_COMMAND so $? is the user's command's status.
   __femux_precmd() {
     local code=$?
     if [ -n "$__femux_ran" ]; then
@@ -37,14 +38,23 @@ if [ -n "$FEMUX_PANE" ] && [ -z "$FEMUX_SHELL_INTEGRATION" ]; then
     fi
     printf '\e]7;file://%s%s\a' "$HOSTNAME" "$PWD"
     printf '\e]133;A\a'
+    __femux_at_prompt=1
   }
+  # DEBUG fires for every simple command, including PROMPT_COMMAND's own: only the first
+  # command after a prompt, and never one that is part of PROMPT_COMMAND, starts a run.
   __femux_preexec() {
     [ -n "$COMP_LINE" ] && return
-    [ -n "$__femux_ran" ] && return
+    [ -z "$__femux_at_prompt" ] && return
+    case ";${PROMPT_COMMAND[*]};" in *"$BASH_COMMAND"*) return ;; esac
+    unset __femux_at_prompt
     __femux_ran=1
     printf '\e]133;C\a'
   }
-  PROMPT_COMMAND="__femux_precmd${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
+  if [[ "$(declare -p PROMPT_COMMAND 2>/dev/null)" == "declare -a"* ]]; then
+    PROMPT_COMMAND=(__femux_precmd "${PROMPT_COMMAND[@]}")
+  else
+    PROMPT_COMMAND="__femux_precmd${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
+  fi
   PS1="${PS1}\[\e]133;B\a\]"
   trap '__femux_preexec' DEBUG
 fi
