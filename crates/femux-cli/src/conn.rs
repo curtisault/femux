@@ -13,6 +13,8 @@ pub struct Conn {
     next: u64,
     socket: PathBuf,
     pane: Option<String>,
+    /// Events read while waiting for a response, for `next_event`.
+    events: std::collections::VecDeque<femux_proto::Event>,
 }
 
 impl Conn {
@@ -32,6 +34,7 @@ impl Conn {
             next: 2,
             socket: socket.to_path_buf(),
             pane: std::env::var("FEMUX_PANE").ok().filter(|p| !p.is_empty()),
+            events: std::collections::VecDeque::new(),
         };
         c.wait(1).map_err(|e| io::Error::other(e.message))?;
         Ok(c)
@@ -43,6 +46,12 @@ impl Conn {
                 .map_err(|e| internal(e.to_string()))?
                 .ok_or_else(|| internal("connection closed"))?;
             let env = decode_envelope(&frame).map_err(|e| internal(e.to_string()))?;
+            if env.id == 0 {
+                if let Ok(femux_proto::ServerMsg::Event(e)) = femux_proto::ServerMsg::decode(env) {
+                    self.events.push_back(e);
+                }
+                continue;
+            }
             if env.id != id {
                 continue;
             }
@@ -105,5 +114,32 @@ impl CliCore for Conn {
     /// A `Conn` exists only when a daemon answered.
     fn start_daemon(&mut self) -> Result<(), String> {
         Ok(())
+    }
+    fn next_event(&mut self, timeout: Option<std::time::Duration>) -> Option<femux_proto::Event> {
+        let deadline = timeout.map(|t| std::time::Instant::now() + t);
+        loop {
+            if let Some(e) = self.events.pop_front() {
+                return Some(e);
+            }
+            let left = match deadline {
+                Some(d) => {
+                    let left = d.saturating_duration_since(std::time::Instant::now());
+                    if left.is_zero() {
+                        return None;
+                    }
+                    Some(left)
+                }
+                None => None,
+            };
+            self.s.set_read_timeout(left).ok()?;
+            let frame = read_frame(&mut self.s);
+            let _ = self.s.set_read_timeout(None);
+            let env = decode_envelope(&frame.ok()??).ok()?;
+            if env.id == 0
+                && let Ok(femux_proto::ServerMsg::Event(e)) = femux_proto::ServerMsg::decode(env)
+            {
+                self.events.push_back(e);
+            }
+        }
     }
 }

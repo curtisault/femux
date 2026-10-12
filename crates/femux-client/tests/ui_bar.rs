@@ -175,6 +175,7 @@ async fn ui_033_notifications_show_while_their_pane_is_hidden() {
     d.wait_pane_text(&first, "$").await;
     d.obs.call(m::EventsSubscribe::default()).await.unwrap();
     let post = |pane: Option<&str>, title: &str| m::NotifyPost {
+        event: None,
         pane_id: pane.map(str::to_owned),
         title: title.into(),
         level: Some(m::NotifyLevel::Warn),
@@ -260,6 +261,7 @@ async fn acceptance_0_4_bar_on_all_four_sides_with_every_built_in_module() {
         d.until("tab 2", |a| a.model.tabs.len() == 2).await;
         d.obs
             .call(m::NotifyPost {
+                event: None,
                 pane_id: Some(pane.clone()),
                 title: "agent done".into(),
                 level: Some(m::NotifyLevel::Done),

@@ -376,6 +376,12 @@ impl Client {
     /// Waits for an event of `kind`; returns it.
     pub async fn wait_event(&mut self, kind: &str) -> Event {
         let start = self.events.len();
+        self.wait_event_from(kind, start).await
+    }
+
+    /// Waits for an event of `kind` at or after `self.events[start]`, so events that arrived
+    /// while a request was in flight still count; returns the first.
+    pub async fn wait_event_from(&mut self, kind: &str, start: usize) -> Event {
         let k = kind.to_owned();
         self.wait_for(&format!("event {kind}"), Duration::from_secs(10), |c| {
             c.events[start..].iter().any(|e| e.kind() == k)

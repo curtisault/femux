@@ -7,17 +7,17 @@ from the `femux` CLI. Agent tracking and the other extras are built-in plugins o
 
 ## Status
 
-femux is pre-1.0 and at version 0.4: a client and CLI meant for daily local use, with sessions
-that can survive a daemon restart.
+femux is pre-1.0 and at version 0.5: a client and CLI meant for daily local use, with sessions
+that can survive a daemon restart and tracking of the coding agents running in them.
 
 Working now: tabs, BSP splits with preselection, master and scroll layouts, floating panes, zoom,
 marks, copy mode with regex search, a command palette, which-key hints, mouse support, an info
 bar on any side with cpu, memory, network, battery, git, agent and notification modules, session
 and window navigators, a side nav, themes, the `femux` CLI with `--json` output, session files
-with `femux launch`, and opt-in restore of sessions after the daemon restarts
-(`[restore] enabled = true`).
+with `femux launch`, opt-in restore of sessions after the daemon restarts
+(`[restore] enabled = true`), agent state tracking with an inbox, and notifications.
 
-Not yet: agent state tracking and notifications, SSH attach and image passthrough. The order
+Not yet: SSH attach and image passthrough. The order
 they arrive in is the milestone table in [SPEC §13](spec/SPEC.md#13-milestones-and-branches).
 
 ## Build
@@ -70,6 +70,29 @@ title = "editor"
 command = "nvim"
 restore = true      # re-run after a daemon restart when [restore] is enabled
 ```
+
+## Agents
+
+femux tracks coding agents per pane as `working`, `blocked`, `done`, `error`, `exited` or
+`idle`. Agent hooks are the most reliable source, so install them for the agents you use:
+
+```sh
+femux integration install claude-code    # or codex, opencode, cursor
+```
+
+Without hooks, femux falls back to OSC progress reports, then to the process state on Linux,
+then to output heuristics. `ctrl+space i` opens the inbox of blocked, failed and finished
+agents across sessions; `y` or `n` answers the selected one. From scripts:
+
+```sh
+femux agent list
+femux agent wait %3 --until done --timeout 600
+femux agent prompt %3 "run the tests" --wait
+femux agent explain %3    # why femux thinks the agent is in that state
+```
+
+`[notify]` in the config plays a sound, shows a desktop notification or calls a webhook
+when an agent finishes, blocks or fails. `femux notify test` tries the actions out.
 
 ## Documentation
 

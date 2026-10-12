@@ -323,6 +323,7 @@ impl Daemon {
             extra_env: opts.extra_env,
             saved_env: BTreeMap::new(),
             activity: Arc::default(),
+            output: Arc::default(),
         };
         st.panes.insert(id.clone(), pane);
         match opts.delay {
@@ -390,6 +391,7 @@ impl Daemon {
             vt,
             tx,
             pane.activity.clone(),
+            pane.output.clone(),
         )));
         pane.tasks.push(tokio::spawn(writer(master.clone(), rx)));
         pane.tasks
@@ -1591,11 +1593,21 @@ impl Daemon {
                     }
                     None => Scope::default(),
                 };
+                // REQ-NOTIFY-002 needs every attached view, which only the daemon knows.
+                let shown = r.pane_id.as_ref().is_some_and(|p| {
+                    st.views.values().any(|v| {
+                        st.tabs
+                            .get(&v.tab)
+                            .is_some_and(|t| t.visible_rects().iter().any(|(id, _)| id == p))
+                    })
+                });
                 self.emit(
                     m::NotifyPosted {
                         pane_id: r.pane_id,
                         title: r.title,
                         level: r.level.unwrap_or(m::NotifyLevel::Info),
+                        event: r.event,
+                        shown,
                         ..Default::default()
                     },
                     scope,
@@ -1737,6 +1749,7 @@ async fn reader(
     vt: Arc<Mutex<Terminal>>,
     input: mpsc::UnboundedSender<Vec<u8>>,
     activity: Arc<std::sync::atomic::AtomicU64>,
+    output: Arc<std::sync::atomic::AtomicU64>,
 ) {
     let mut buf = vec![0u8; 64 * 1024];
     loop {
@@ -1750,7 +1763,9 @@ async fn reader(
             Ok(Ok(n)) => n,
             Err(_would_block) => continue,
         };
-        activity.store(crate::bus::now_ms(), std::sync::atomic::Ordering::Relaxed);
+        let now = crate::bus::now_ms();
+        activity.store(now, std::sync::atomic::Ordering::Relaxed);
+        output.store(now, std::sync::atomic::Ordering::Relaxed);
         let (replies, changes) = {
             let mut vt = vt.lock().unwrap();
             vt.write(&buf[..n]);
@@ -1891,6 +1906,28 @@ impl Daemon {
             self.emit(
                 m::PaneBell {
                     pane_id: id.to_owned(),
+                    ..Default::default()
+                },
+                scope.clone(),
+            );
+        }
+        // Progress and private reports, passed on as they are (ADR-019 #1/#2).
+        for (state, value) in c.progress {
+            self.emit(
+                m::PaneProgress {
+                    pane_id: id.to_owned(),
+                    state,
+                    value,
+                    ..Default::default()
+                },
+                scope.clone(),
+            );
+        }
+        for data in c.reports {
+            self.emit(
+                m::PaneReport {
+                    pane_id: id.to_owned(),
+                    data,
                     ..Default::default()
                 },
                 scope.clone(),

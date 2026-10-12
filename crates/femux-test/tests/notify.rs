@@ -46,6 +46,7 @@ async fn notify_post_is_relayed_to_the_panes_session() {
         .await
         .unwrap();
     c.call(NotifyPost {
+        event: None,
         pane_id: Some(pane.clone()),
         title: "codex needs y/n".into(),
         level: Some(NotifyLevel::Warn),
@@ -61,6 +62,7 @@ async fn notify_post_is_relayed_to_the_panes_session() {
     );
     // A pane-less notification reaches every session; the level defaults to info.
     c.call(NotifyPost {
+        event: None,
         pane_id: None,
         title: "build done".into(),
         level: None,
@@ -81,6 +83,7 @@ async fn notify_post_is_relayed_to_the_panes_session() {
     );
     let bad = c
         .call(NotifyPost {
+            event: None,
             pane_id: Some("01J9Z3K8M2N4P6Q8R0S2T4V6W8".into()),
             title: "x".into(),
             level: None,
@@ -88,4 +91,92 @@ async fn notify_post_is_relayed_to_the_panes_session() {
         .await
         .unwrap_err();
     assert_eq!(bad.code, femux_proto::ErrorCode::NotFound);
+}
+
+/// ADR-019: OSC 9;4 and OSC 7777 reach subscribers as pane events; pane.info has last output.
+#[tokio::test(flavor = "multi_thread")]
+async fn progress_and_reports_become_pane_events() {
+    let h = Harness::start();
+    let mut c = h.client().await;
+    let (_, pane) = c.new_session("s").await;
+    c.call(EventsSubscribe::default()).await.unwrap();
+    c.attach("s", 80, 24).await;
+    c.wait_text(&pane, "$").await;
+    assert!(
+        c.call(PaneInfo {
+            pane_id: pane.clone()
+        })
+        .await
+        .unwrap()
+        .last_output
+            > 0
+    );
+    // The events may arrive while type_text still waits for its answer: look from here.
+    let start = c.events.len();
+    c.type_text(
+        &pane,
+        "printf '\\033]9;4;1;30\\007'; printf '\\033]7777;state=blocked\\007'\n",
+    )
+    .await;
+    let Event::PaneProgress(p) = c.wait_event_from("pane.progress", start).await else {
+        panic!()
+    };
+    assert_eq!(
+        (p.pane_id.as_str(), p.state, p.value),
+        (pane.as_str(), 1, Some(30))
+    );
+    let Event::PaneReport(r) = c.wait_event_from("pane.report", start).await else {
+        panic!()
+    };
+    assert_eq!(r.data, "state=blocked");
+}
+
+/// REQ-NOTIFY-002 groundwork: `shown` says whether any attached view showed the pane.
+#[tokio::test(flavor = "multi_thread")]
+async fn notify_posted_says_whether_the_pane_was_shown() {
+    let h = Harness::start();
+    let mut c = h.client().await;
+    let (_, pane) = c.new_session("s").await;
+    c.call(EventsSubscribe::default()).await.unwrap();
+    let post = |event: &str| NotifyPost {
+        event: Some(event.into()),
+        pane_id: Some(pane.clone()),
+        title: "t".into(),
+        level: None,
+    };
+    c.call(post("agent_done")).await.unwrap();
+    let Event::NotifyPosted(n) = c.wait_event("notify.posted").await else {
+        panic!()
+    };
+    assert!(!n.shown, "nobody attached");
+    assert_eq!(n.event.as_deref(), Some("agent_done"));
+    let view = c.attach("s", 80, 24).await.view_id;
+    c.call(post("agent_done")).await.unwrap();
+    let Event::NotifyPosted(n) = c.wait_event("notify.posted").await else {
+        panic!()
+    };
+    assert!(n.shown, "a view shows it");
+    // Another tab in front: hidden again.
+    let t = c
+        .call(TabCreate {
+            session: "s".into(),
+            cwd: None,
+            cmd: None,
+            title: None,
+            index: None,
+            restore: None,
+        })
+        .await
+        .unwrap();
+    c.call(TabSelect {
+        view_id: Some(view),
+        tab_id: t.tab_id,
+    })
+    .await
+    .unwrap();
+    c.call(post("agent_done")).await.unwrap();
+    let Event::NotifyPosted(n) = c.wait_event("notify.posted").await else {
+        panic!()
+    };
+    assert!(!n.shown);
 }

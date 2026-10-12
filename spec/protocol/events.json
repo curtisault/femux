@@ -652,6 +652,62 @@
         "seq",
         "ts"
       ]
+    },
+    "PaneProgress": {
+      "type": "object",
+      "description": "A program in the pane reported progress (OSC 9;4).",
+      "properties": {
+        "seq": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "ts": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch"
+        },
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        },
+        "state": {
+          "$ref": "common.json#/$defs/U8",
+          "description": "OSC 9;4 state: 0 remove, 1 set, 2 error, 3 indeterminate, 4 pause."
+        },
+        "value": {
+          "$ref": "common.json#/$defs/U8",
+          "description": "Percent, when the program gave one."
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "pane_id",
+        "state"
+      ]
+    },
+    "PaneReport": {
+      "type": "object",
+      "description": "A program in the pane sent the private report sequence OSC 7777.",
+      "properties": {
+        "seq": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "ts": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch"
+        },
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        },
+        "data": {
+          "type": "string",
+          "description": "What follows `7777;`, e.g. `state=blocked`."
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "pane_id",
+        "data"
+      ]
     }
   },
   "x-messages": [
@@ -738,6 +794,14 @@
     {
       "kind": "pane.bell",
       "body": "PaneBell"
+    },
+    {
+      "kind": "pane.progress",
+      "body": "PaneProgress"
+    },
+    {
+      "kind": "pane.report",
+      "body": "PaneReport"
     },
     {
       "kind": "view.attached",

@@ -189,6 +189,12 @@ pub struct Overlay {
 pub enum HostEffect {
     /// Copy text to the host clipboard (OSC 52).
     Clipboard(String),
+    /// Ring the host terminal's bell.
+    Bell,
+    /// Play a sound file on the client's machine.
+    Sound(String),
+    /// A desktop notification (OSC 777 / OSC 99 / native).
+    Desktop { title: String, body: String },
 }
 
 #[allow(unused_variables)]
@@ -232,6 +238,18 @@ pub trait DaemonPlugin: Send {
     }
     /// Requests to send in reaction to an event (typically `pane.set_meta`).
     fn on_event(&mut self, ev: &Event) -> Vec<Request>;
+    /// How often [`DaemonPlugin::tick`] runs, if at all.
+    fn tick_every(&self) -> Option<Duration> {
+        None
+    }
+    /// Periodic work; `now_ms` is ms since epoch.
+    fn tick(&mut self, now_ms: u64) -> Vec<Request> {
+        Vec::new()
+    }
+    /// The answer to a request this plugin sent (errors are dropped).
+    fn on_response(&mut self, req: &Request, resp: &Response) -> Vec<Request> {
+        Vec::new()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -301,6 +319,9 @@ pub trait CliCore {
     fn stdin(&mut self) -> String;
     /// Starts the daemon if none is running (as `femux new` does).
     fn start_daemon(&mut self) -> Result<(), String>;
+    /// The next event of the subscription made with `events.subscribe`, if one arrives within
+    /// `timeout` (`None`: wait for ever).
+    fn next_event(&mut self, timeout: Option<Duration>) -> Option<Event>;
 }
 
 pub trait CliPlugin: Send {
@@ -342,11 +363,15 @@ pub async fn run_daemon_plugin(
     let stream = tokio::net::UnixStream::connect(socket).await?;
     let (mut rd, mut wr) = stream.into_split();
     let mut next_id = 1u64;
+    // Requests awaiting an answer, by id, for on_response.
+    let mut pending: std::collections::HashMap<u64, Request> = std::collections::HashMap::new();
     let send = async |wr: &mut tokio::net::unix::OwnedWriteHalf,
                       req: Request,
-                      next_id: &mut u64|
+                      next_id: &mut u64,
+                      pending: &mut std::collections::HashMap<u64, Request>|
            -> std::io::Result<()> {
         let bytes = req.encode(*next_id)?;
+        pending.insert(*next_id, req);
         *next_id += 1;
         wr.write_all(&bytes).await
     };
@@ -365,25 +390,65 @@ pub async fn run_daemon_plugin(
             "layout",
             "scrollback",
             "clipboard",
+            "notify",
+            "server",
         ]
         .map(String::from)
         .to_vec(),
         term: None,
     };
-    send(&mut wr, hello.into(), &mut next_id).await?;
-    send(&mut wr, plugin.subscription().into(), &mut next_id).await?;
+    send(&mut wr, hello.into(), &mut next_id, &mut pending).await?;
+    send(
+        &mut wr,
+        plugin.subscription().into(),
+        &mut next_id,
+        &mut pending,
+    )
+    .await?;
     for req in plugin.start() {
-        send(&mut wr, req, &mut next_id).await?;
+        send(&mut wr, req, &mut next_id, &mut pending).await?;
     }
-    while let Some(frame) = read_frame(&mut rd).await? {
-        let Ok(msg) = decode_envelope(&frame).and_then(ServerMsg::decode) else {
-            continue;
-        };
-        if let ServerMsg::Event(ev) = msg {
-            for req in plugin.on_event(&ev) {
-                send(&mut wr, req, &mut next_id).await?;
+    // Frames are read on their own task: reading is not cancel-safe, ticks are.
+    let (frames_tx, mut frames) = tokio::sync::mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        while let Ok(Some(frame)) = read_frame(&mut rd).await {
+            if frames_tx.send(frame).is_err() {
+                return;
             }
         }
+    });
+    let every = plugin.tick_every();
+    let mut tick = tokio::time::interval(every.unwrap_or(Duration::from_secs(3600)));
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        let reqs = tokio::select! {
+            frame = frames.recv() => {
+                let Some(frame) = frame else { return Ok(()) };
+                let Ok(msg) = decode_envelope(&frame).and_then(ServerMsg::decode) else {
+                    continue;
+                };
+                match msg {
+                    ServerMsg::Event(ev) => plugin.on_event(&ev),
+                    ServerMsg::Response(id, resp) => match pending.remove(&id) {
+                        Some(req) => plugin.on_response(&req, &resp),
+                        None => Vec::new(),
+                    },
+                    ServerMsg::Error(id, _) => {
+                        pending.remove(&id);
+                        Vec::new()
+                    }
+                    ServerMsg::Push(_) => Vec::new(),
+                }
+            }
+            _ = tick.tick(), if every.is_some() => {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_millis() as u64);
+                plugin.tick(now)
+            }
+        };
+        for req in reqs {
+            send(&mut wr, req, &mut next_id, &mut pending).await?;
+        }
     }
-    Ok(())
 }

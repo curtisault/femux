@@ -1099,6 +1099,9 @@ impl CliCore for LazyCore {
         }
         spawn_daemon(&self.server, &self.socket).map_err(|e| e.to_string())
     }
+    fn next_event(&mut self, timeout: Option<Duration>) -> Option<femux_proto::Event> {
+        self.conn().ok()?.next_event(timeout)
+    }
 }
 
 /// The first positional argument (the subcommand), skipping global options and their values.

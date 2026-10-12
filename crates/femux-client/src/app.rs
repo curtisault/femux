@@ -32,6 +32,13 @@ pub enum Effect {
     Clipboard(String),
     /// The daemon reloaded its config; re-read ours ([`App::apply_config`]).
     Reload,
+    /// Notification actions (REQ-NOTIFY-001).
+    Bell,
+    Sound(String),
+    Desktop {
+        title: String,
+        body: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -129,6 +136,8 @@ pub enum Overlay {
     },
     /// The session or window navigator (REQ-UI-040/041).
     Navigator(crate::nav::NavState),
+    /// The agent inbox (REQ-UI-044).
+    Inbox(crate::inbox::InboxState),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -146,6 +155,8 @@ enum Pending {
     DirTabs(String),
     DirPane(String),
     Preview(String),
+    /// The last screen line of an inbox pane.
+    InboxLine(String),
     /// Attaching to another session; then focus a pane, then kill the old session.
     Switch {
         focus: Option<String>,
@@ -237,6 +248,7 @@ pub struct App {
     pub dir: crate::nav::Directory,
     dir_fetched: Option<Instant>,
     preview_fetched: Option<(String, Instant)>,
+    inbox_fetched: Option<Instant>,
     /// The navigator a prompt or confirmation returns to.
     return_to: Option<crate::nav::NavState>,
 }
@@ -290,6 +302,7 @@ impl App {
             dir: crate::nav::Directory::default(),
             dir_fetched: None,
             preview_fetched: None,
+            inbox_fetched: None,
             return_to: None,
         };
         app.modules = app
@@ -576,6 +589,11 @@ impl App {
                         self.effects.push(Effect::Clipboard(text));
                     }
                 }
+                HostEffect::Bell => self.effects.push(Effect::Bell),
+                HostEffect::Sound(f) => self.effects.push(Effect::Sound(f)),
+                HostEffect::Desktop { title, body } => {
+                    self.effects.push(Effect::Desktop { title, body });
+                }
             }
         }
     }
@@ -659,6 +677,23 @@ impl App {
                     nav.preview = Some((pane, r.lines));
                 }
             }
+            (Pending::InboxLine(pane), Response::ScrollbackRead(r)) => {
+                if let Overlay::Inbox(st) = &mut self.overlay {
+                    let last = r
+                        .lines
+                        .iter()
+                        .map(|l| {
+                            l.iter()
+                                .map(|c| if c.ch.is_empty() { " " } else { c.ch.as_str() })
+                                .collect::<String>()
+                                .trim()
+                                .to_owned()
+                        })
+                        .rfind(|l| !l.is_empty())
+                        .unwrap_or_default();
+                    st.lines.insert(pane, last);
+                }
+            }
             (Pending::Switch { focus, then_kill }, Response::SessionAttach(a)) => {
                 self.attached(&a, focus, then_kill);
             }
@@ -739,6 +774,7 @@ impl App {
                 return;
             }
             Overlay::Navigator(nav) => return self.navigator_key(nav, &k, &chord),
+            Overlay::Inbox(st) => return self.inbox_key(st, &k, &chord),
             Overlay::WhichKey | Overlay::None => {}
         }
 
@@ -1033,6 +1069,11 @@ impl App {
                 }
             }
             Action::Palette => self.open_palette(),
+            Action::Inbox => {
+                self.overlay = Overlay::Inbox(crate::inbox::InboxState::default());
+                self.inbox_fetched = None;
+                self.refresh_dir();
+            }
             Action::Detach => {
                 self.send(m::SessionDetach { view_id }, Pending::Detach);
             }
@@ -1183,7 +1224,7 @@ impl App {
 
     /// Keeps the directory and the preview fresh while they are on screen.
     fn tick_navigators(&mut self, now: Instant) -> bool {
-        let nav_open = matches!(self.overlay, Overlay::Navigator(_));
+        let nav_open = matches!(self.overlay, Overlay::Navigator(_) | Overlay::Inbox(_));
         let mut changed = false;
         if (nav_open || self.sidenav_open)
             && self
@@ -1192,6 +1233,31 @@ impl App {
         {
             self.refresh_dir();
             changed = true;
+        }
+        if let Overlay::Inbox(st) = &self.overlay {
+            // What each listed agent last said, once a second.
+            if self
+                .inbox_fetched
+                .is_none_or(|t| now.duration_since(t) >= std::time::Duration::from_secs(1))
+            {
+                self.inbox_fetched = Some(now);
+                let panes: Vec<String> = crate::inbox::entries(&self.dir, st)
+                    .into_iter()
+                    .map(|e| e.pane)
+                    .collect();
+                for p in panes {
+                    self.send(
+                        m::ScrollbackRead {
+                            pane_id: p.clone(),
+                            from_line: 0,
+                            count: 500,
+                        },
+                        Pending::InboxLine(p),
+                    );
+                }
+                changed = true;
+            }
+            return changed;
         }
         let Overlay::Navigator(nav) = &self.overlay else {
             return changed;
@@ -1295,6 +1361,102 @@ impl App {
             _ => {}
         }
         self.overlay = Overlay::Navigator(nav);
+    }
+
+    /// The inbox's keys (REQ-UI-044): `1`-`9` and `enter` jump, `y`/`n`/`a` answer a blocked
+    /// agent (the letter plus Enter), `x` dismisses (the pane goes back to `idle`).
+    fn inbox_key(&mut self, mut st: crate::inbox::InboxState, k: &m::KeyEvent, chord: &Chord) {
+        let rows = crate::inbox::entries(&self.dir, &st);
+        if st.filtering {
+            match chord.key.as_str() {
+                "escape" | "enter" => st.filtering = false,
+                "backspace" => {
+                    st.filter.pop();
+                }
+                _ => {
+                    if let Some(t) = &k.text {
+                        st.filter.push_str(t);
+                    }
+                }
+            }
+            st.selected = 0;
+            self.overlay = Overlay::Inbox(st);
+            return;
+        }
+        let jump = |app: &mut App, e: &crate::inbox::Entry| {
+            app.switch_to(crate::app::NavTarget::Pane {
+                session: e.session.clone(),
+                tab: e.tab.clone(),
+                pane: e.pane.clone(),
+            });
+        };
+        let selected = rows.get(st.selected).cloned();
+        match chord.key.as_str() {
+            "q" | "escape" => return,
+            "j" | "down" => st.selected = (st.selected + 1).min(rows.len().saturating_sub(1)),
+            "k" | "up" => st.selected = st.selected.saturating_sub(1),
+            "/" => st.filtering = true,
+            "enter" => {
+                if let Some(e) = selected {
+                    jump(self, &e);
+                }
+                return;
+            }
+            d if d.len() == 1 && d.as_bytes()[0].is_ascii_digit() && d != "0" => {
+                if let Some(e) = rows.get(d.parse::<usize>().unwrap() - 1) {
+                    jump(self, e);
+                    return;
+                }
+            }
+            key @ ("y" | "n" | "a") => {
+                if let Some(e) = selected.filter(|e| e.state == "blocked") {
+                    let enter = m::InputEvent::KeyEvent(m::KeyEvent {
+                        key: "enter".into(),
+                        mods: vec![],
+                        text: None,
+                        event: m::KeyEventKind::Press,
+                    });
+                    let letter = m::InputEvent::KeyEvent(m::KeyEvent {
+                        key: key.into(),
+                        mods: vec![],
+                        text: Some(key.into()),
+                        event: m::KeyEventKind::Press,
+                    });
+                    self.quiet(m::PaneInput {
+                        pane_id: e.pane.clone(),
+                        events: vec![letter, enter],
+                    });
+                    self.message = Some(format!("answered {key} to {} in {}", e.name, e.session));
+                    self.refresh_dir();
+                }
+            }
+            "x" => {
+                if let Some(e) = selected {
+                    let set = [
+                        ("agent.state", "idle".to_owned()),
+                        ("agent.source", "hook".to_owned()),
+                        ("agent.since", crate::nav::now_ms().to_string()),
+                    ]
+                    .into_iter()
+                    .map(|(k, v)| (k.to_owned(), v))
+                    .collect();
+                    self.quiet(m::PaneSetMeta {
+                        pane_id: e.pane.clone(),
+                        set: Some(set),
+                        unset: None,
+                    });
+                    // Gone from the list at once, whatever the next refresh brings.
+                    for s in &mut self.dir.sessions {
+                        if let Some(p) = s.panes.get_mut(&e.pane) {
+                            p.meta.insert("agent.state".into(), "idle".into());
+                        }
+                    }
+                    st.selected = st.selected.min(rows.len().saturating_sub(2));
+                }
+            }
+            _ => {}
+        }
+        self.overlay = Overlay::Inbox(st);
     }
 
     /// Kills a session; killing the attached one first moves to another, if there is one.

@@ -286,9 +286,10 @@ fn test_002_every_milestone_requirement_is_mapped() {
     // §13, 0.1.0: ARCH-*, PTY-*, VT-001–005, QRY-*, SESS-*, VIEW-*, EVT-*, LIFE-001–002, PROTO-*, BUILD-*.
     // §13, 0.2.0: UI-001–012, UI-020–021, UI-043, UI-050–053, CLI-*, plus PLUG-* (built for its plugins).
     // §13, 0.3.0: STORE-*, CFG-*.
+    // §13, 0.5.0: AGT-*, NOTIFY-*, UI-044.
     let whole = [
         "ARCH", "PTY", "QRY", "SESS", "VIEW", "EVT", "PROTO", "BUILD", "CLI", "PLUG", "STORE",
-        "CFG",
+        "CFG", "AGT", "NOTIFY",
     ];
     let ranged = [
         ("VT", 1..=5),
@@ -300,6 +301,7 @@ fn test_002_every_milestone_requirement_is_mapped() {
         // §13, 0.4.0: UI-030–033, UI-040–042.
         ("UI", 30..=33),
         ("UI", 40..=42),
+        ("UI", 44..=44),
     ];
     let mut want = std::collections::BTreeSet::new();
     for line in spec.lines() {
@@ -310,7 +312,9 @@ fn test_002_every_milestone_requirement_is_mapped() {
         let Some((family, num)) = id.split_once('-') else {
             continue;
         };
-        let n: u32 = num.split_whitespace().next().unwrap().parse().unwrap();
+        // `- REQ-AGT-001 (tier 1, authoritative): …`: the id ends at the first blank.
+        let num = num.split_whitespace().next().unwrap();
+        let n: u32 = num.parse().unwrap();
         if whole.contains(&family) || ranged.iter().any(|(f, r)| *f == family && r.contains(&n)) {
             // Deferred requirements are not part of the milestone.
             if !line.contains("(Deferred") {

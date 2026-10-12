@@ -7,6 +7,8 @@ pub mod bindings;
 pub mod config;
 pub mod copy;
 pub mod graphics;
+pub mod host;
+pub mod inbox;
 pub mod keys;
 pub mod layout;
 pub mod model;
@@ -331,6 +333,32 @@ pub fn run(socket: &Path, session: Option<&str>, host: Host) -> io::Result<()> {
                 match fx {
                     Effect::Exit => return Ok(()),
                     Effect::Clipboard(text) => term.write(term::osc52(&text).as_bytes())?,
+                    Effect::Bell => term.write(host::BELL.as_bytes())?,
+                    Effect::Sound(file) => {
+                        let path = std::env::var("PATH").unwrap_or_default();
+                        let file = std::path::PathBuf::from(file);
+                        if let Some(cmd) = host::sound_command(&file, &path) {
+                            host::spawn_quietly(cmd);
+                        } else {
+                            // No player installed: the bell is better than silence.
+                            term.write(host::BELL.as_bytes())?;
+                        }
+                    }
+                    Effect::Desktop { title, body } => {
+                        let how = host::desktop_for(
+                            std::env::var("TERM_PROGRAM").ok().as_deref(),
+                            std::env::var("TERM").ok().as_deref(),
+                        );
+                        match host::desktop_sequence(how, &title, &body) {
+                            Some(seq) => term.write(seq.as_bytes())?,
+                            None => {
+                                let path = std::env::var("PATH").unwrap_or_default();
+                                if let Some(cmd) = host::native_command(&title, &body, &path) {
+                                    host::spawn_quietly(cmd);
+                                }
+                            }
+                        }
+                    }
                     Effect::Reload => match reload.as_ref().map(|r| r()) {
                         Some(Ok(cfg)) => {
                             let (t, err) =

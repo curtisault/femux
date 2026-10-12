@@ -132,6 +132,10 @@
         },
         "meta": {
           "$ref": "#/$defs/Meta"
+        },
+        "last_output": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch of the pane's newest output; 0 before any."
         }
       },
       "required": [
@@ -145,7 +149,8 @@
         "title",
         "meta",
         "restore",
-        "restored"
+        "restored",
+        "last_output"
       ]
     },
     "PaneSetMeta": {
