@@ -61,7 +61,8 @@ async fn pty_002_foreground_process_and_cwd() {
     .await
     .unwrap();
     let shell = info(&mut c, &pane).await;
-    assert_eq!(shell.fg_cmd, "sh");
+    // The shell itself (named "sh", or "bash" on macOS where /bin/sh execs it).
+    assert!(!shell.fg_cmd.is_empty() && shell.fg_cmd != "sleep");
     std::fs::create_dir(h.dir.path().join("sub")).unwrap();
     c.type_text(&pane, "cd sub && sleep 30\n").await;
     match c.wait_event("pane.fg_changed").await {
@@ -109,6 +110,8 @@ async fn pty_003_busy_pane_does_not_block_others() {
 async fn pty_004_signals() {
     let h = Harness::start();
     let (mut c, view, pane) = session(&h, "s").await;
+    // Compare by pid: on macOS /bin/sh execs bash, so the shell's name is not "sh".
+    let shell = info(&mut c, &pane).await.fg_pid;
     for sig in [
         Signal::Sigint,
         Signal::Sigterm,
@@ -131,7 +134,7 @@ async fn pty_004_signals() {
         .await
         .unwrap();
         let deadline = Instant::now() + Duration::from_secs(5);
-        while info(&mut c, &pane).await.fg_cmd != "sh" {
+        while info(&mut c, &pane).await.fg_pid != shell {
             assert!(Instant::now() < deadline, "{sig:?} did not stop sleep");
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
