@@ -496,7 +496,7 @@ cwd = "~/writing/notes"
 
 - REQ-CLI-001: Every subcommand has `--json` output.
 - REQ-CLI-002: Inside a pane, commands default to that pane (`$FEMUX_PANE`).
-  Note: the pane's tab and session default the same way (`pane.info`); outside femux, `tab new` needs `--session` unless exactly one session exists. `tab select` switches every attached client of the session (ADR-016 #8); tab indexes are resolved through a short-lived view.
+  Note: the pane's tab and session default the same way (`pane.info`); outside femux, `tab new` needs `--session` unless exactly one session exists. `tab select` switches every attached client of the session (ADR-016 #8); tab indexes are resolved with the read-only `session.tabs` (ADR-016 #11).
 - REQ-CLI-003: Shell completions for bash, zsh, fish are generated from the CLI definition.
   Note: `femux completions <shell>`, including the subcommands plugins add.
 

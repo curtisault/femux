@@ -285,10 +285,14 @@ impl Model {
         match e {
             Event::TabCreated(t) => {
                 if self.tab(&t.tab_id).is_none() {
-                    self.tabs.push(Tab {
-                        id: t.tab_id.clone(),
-                        ..Default::default()
-                    });
+                    let at = (t.index as usize).min(self.tabs.len());
+                    self.tabs.insert(
+                        at,
+                        Tab {
+                            id: t.tab_id.clone(),
+                            ..Default::default()
+                        },
+                    );
                 }
             }
             Event::TabSelected(t) if t.view_id == self.view_id => {
@@ -419,5 +423,25 @@ impl Model {
     pub fn tab_of(&self, pane: &str) -> Option<&Tab> {
         let t = &self.panes.get(pane)?.tab;
         self.tab(t)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tabs_are_inserted_at_the_daemons_index() {
+        let mut model = Model::default();
+        for (id, index) in [("A", 0), ("B", 1), ("N", 0), ("Z", 9)] {
+            model.on_event(&Event::TabCreated(m::TabCreated {
+                session: "s".into(),
+                tab_id: id.into(),
+                index,
+                ..Default::default()
+            }));
+        }
+        let order: Vec<&str> = model.tabs.iter().map(|t| t.id.as_str()).collect();
+        assert_eq!(order, ["N", "A", "B", "Z"]);
     }
 }

@@ -108,13 +108,18 @@
         },
         "tab_id": {
           "$ref": "common.json#/$defs/TabId"
+        },
+        "index": {
+          "$ref": "common.json#/$defs/U32",
+          "description": "Position of the new tab in its session."
         }
       },
       "required": [
         "seq",
         "ts",
         "session",
-        "tab_id"
+        "tab_id",
+        "index"
       ]
     },
     "TabSelected": {

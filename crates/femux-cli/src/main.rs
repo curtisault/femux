@@ -368,21 +368,13 @@ fn session_of(conn: &mut Conn, given: &Option<String>) -> Result<String, String>
     }
 }
 
-/// A session's tabs, read through a short-lived view.
+/// A session's tabs (read-only, ADR-016 #11).
 fn tabs_of(conn: &mut Conn, session: &str) -> Result<Vec<m::TabSnapshot>, String> {
-    let att = conn
-        .call(m::SessionAttach {
-            name: session.to_owned(),
-            tab: None,
-            cols: None,
-            rows: None,
-        })
-        .or_else(err)?;
-    conn.call(m::SessionDetach {
-        view_id: att.view_id,
+    conn.call(m::SessionTabs {
+        name: session.to_owned(),
     })
-    .or_else(err)?;
-    Ok(att.snapshot.tabs)
+    .map(|r| r.tabs)
+    .or_else(err)
 }
 
 fn is_ulid(s: &str) -> bool {

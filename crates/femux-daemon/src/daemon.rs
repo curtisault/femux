@@ -472,6 +472,7 @@ impl Daemon {
             m::TabCreated {
                 session: session.to_owned(),
                 tab_id: tab_id.clone(),
+                index: at as u32,
                 ..Default::default()
             },
             scope.clone(),
@@ -786,6 +787,18 @@ impl Daemon {
                     })
                     .collect();
                 Response::SessionList(m::SessionListOk { sessions })
+            }
+            Q::SessionTabs(r) => {
+                let first = st
+                    .session(&r.name)?
+                    .tabs
+                    .first()
+                    .cloned()
+                    .unwrap_or_default();
+                let snapshot = st.snapshot(&r.name, &first)?;
+                Response::SessionTabs(m::SessionTabsOk {
+                    tabs: snapshot.tabs,
+                })
             }
             Q::SessionCreate(r) => {
                 if r.file.is_some() {

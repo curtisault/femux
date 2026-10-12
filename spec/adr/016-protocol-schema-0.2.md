@@ -18,3 +18,5 @@ are ignored (REQ-PROTO-012).
 | 7 | `pane.info` gains `session`. | A CLI running inside a pane (REQ-CLI-002) needs the session for `tab new` without walking every session. |
 | 8 | `tab.select.view_id` is optional: without it every attached view of the tab's session switches, one `tab.selected` per view. | `femux tab select` has no view of its own. |
 | 9 | `layout.focus.view_id` is optional: then `pane_id` is required and `dir` is relative to that pane. | `femux pane focus l` inside a pane. |
+| 10 | `tab.created` carries `index`. | `tab.create` can insert at a position; without the index a client appending the tab orders its strip differently from the daemon (0.2.1 review). |
+| 11 | New read-only request `session.tabs {name}` → `{tabs}`. | The CLI resolved tab indexes by attaching and detaching a throwaway view, a mutation with session-wide events and a resize window (0.2.1 review). |
