@@ -304,9 +304,13 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
 ### 5.4 Info bar
 
 - REQ-UI-030: One bar at `top|bottom|left|right`; `left` and `right` are vertical and stack modules.
+  Note: a `left`/`right` bar is a 24-column column the full height of the terminal, with the tab strip and panes beside it; the session chip and mode come first, the `left` modules follow from the top and the `right` ones are anchored to the bottom. Prompts, confirmations and messages use the bar row, or with a vertical bar the bottom row of the pane area while they are shown.
 - REQ-UI-031: Modules are listed in config in order; each is a plugin implementing `InfoModule { fn render(&self, w: usize) -> Spans; fn interval(&self) -> Duration }`.
+  Note: modules also get `sample(&mut self, ctx)`, called every `max(interval(), [infobar] interval_ms)` and only for modules the config shows, and `render` reads a `BarCtx` (session, tabs, agent counts, the focused pane's cwd, notifications of hidden panes, orientation). Unknown names are skipped. `session` is the client's own chip and mode, so with the `infobar` plugin disabled the bar still shows them.
 - REQ-UI-032: Built-in modules: `session`, `tabs`, `clock`, `cpu`, `mem`, `net`, `battery`, `git`, `agents`, `notifications`, `hostname`. A module name prefixed `remote:` renders on the daemon host (data arrives as pane-independent events).
+  Note (0.4.0): `remote:<module>` renders the local module until SSH attach (0.6.0) gives the daemon a different host. `agents` counts `agent.state` metadata as it stands; `notifications` shows `notify.posted` (ADR-018 #2). `cpu`, `mem` and `net` use the `sysinfo` crate; `battery` reads `/sys/class/power_supply` on Linux and `pmset` on macOS; `git` runs `git status` off the client's thread. `battery` and `git` show nothing without a battery or a repository.
 - REQ-UI-033: `notifications` shows the newest N notification titles when the originating pane is hidden (useful in zoom).
+  Note: hidden means not in this client's current tab, or zoomed away; a notification about no pane always shows. A row bar shows the newest, a column the newest three.
 
 ### 5.5 Navigators and overlays
 

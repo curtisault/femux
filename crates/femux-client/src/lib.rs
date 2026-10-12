@@ -8,7 +8,9 @@ pub mod config;
 pub mod copy;
 pub mod graphics;
 pub mod keys;
+pub mod layout;
 pub mod model;
+pub mod nav;
 pub mod probe;
 pub mod render;
 pub mod term;
@@ -130,11 +132,6 @@ pub struct Host {
     pub reload: Option<Box<dyn Fn() -> Result<ClientConfig, String> + Send>>,
 }
 
-/// Chrome rows for a config (tab strip + status line), used before the app exists.
-fn chrome_rows(cfg: &ClientConfig) -> u16 {
-    1 + u16::from(cfg.tabs != config::TabsPosition::Hidden)
-}
-
 /// Collects output for the terminfo renderer.
 struct Out(Vec<u8>, (usize, usize));
 
@@ -218,7 +215,8 @@ pub fn run(socket: &Path, session: Option<&str>, host: Host) -> io::Result<()> {
     let probe = probe::run(&mut term, Duration::from_millis(250));
     let mut early = term.parse(&probe.leftover, true);
     let (cols, rows) = term.size();
-    let chrome = chrome_rows(&host.cfg);
+    // The pane area before the app exists (no side nav yet).
+    let area = layout::Layout::compute(cols, rows, &host.cfg, false).panes;
 
     let mut conn = Conn::open(socket)?;
     let mut aside = Vec::new();
@@ -239,8 +237,8 @@ pub fn run(socket: &Path, session: Option<&str>, host: Host) -> io::Result<()> {
         .map(String::from)
         .to_vec(),
         term: Some(m::TermCaps {
-            cols,
-            rows: rows.saturating_sub(chrome).max(1),
+            cols: area.w,
+            rows: area.h,
             colors: m::ColorDepth::Truecolor,
             kitty_graphics: false,
             kitty_keyboard: probe.kitty_keyboard,
@@ -281,8 +279,8 @@ pub fn run(socket: &Path, session: Option<&str>, host: Host) -> io::Result<()> {
         m::SessionAttach {
             name: name.clone(),
             tab: None,
-            cols: Some(cols),
-            rows: Some(rows.saturating_sub(chrome).max(1)),
+            cols: Some(area.w),
+            rows: Some(area.h),
         },
         &mut aside,
     )? {

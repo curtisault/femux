@@ -12,7 +12,7 @@ use femux_proto::msg::{self as m, Direction};
 use femux_proto::{ErrorBody, Event, Push, Request, Response, ServerMsg};
 
 use crate::bindings::{Action, Bindings, Table};
-use crate::config::{ClientConfig, TabsPosition};
+use crate::config::ClientConfig;
 use crate::copy::{CopyMode, Need, Search};
 use crate::keys::Chord;
 use crate::model::{Effect as ModelEffect, Model};
@@ -83,6 +83,21 @@ pub fn fuzzy(query: &str, text: &str) -> Option<u32> {
     Some(score + text.len() as u32 / 8)
 }
 
+/// Something the side nav or a navigator can switch to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NavTarget {
+    Session(String),
+    Tab {
+        session: String,
+        tab: String,
+    },
+    Pane {
+        session: String,
+        tab: String,
+        pane: String,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Confirm {
     ClosePane(String),
@@ -109,6 +124,8 @@ pub enum Overlay {
         input: String,
         what: PromptKind,
     },
+    /// The session or window navigator (REQ-UI-040/041).
+    Navigator(crate::nav::NavState),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -150,7 +167,13 @@ struct Drag {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Hit {
     Tab(String),
-    Pane { id: String, x: u16, y: u16 },
+    /// A side nav entry (REQ-UI-042).
+    Nav(NavTarget),
+    Pane {
+        id: String,
+        x: u16,
+        y: u16,
+    },
     FloatMove(String),
     FloatResize(String),
     Nothing,
@@ -186,6 +209,13 @@ pub struct App {
     mouse_pane: Option<String>,
     /// Tab strip hit boxes from the last render: `(x0, x1, tab)`.
     pub tab_hits: Vec<(u16, u16, String)>,
+    /// Side nav rows from the last render: `(y, target)` (REQ-UI-042).
+    pub sidenav_hits: Vec<(u16, NavTarget)>,
+    pub sidenav_open: bool,
+    /// Info bar modules by name (REQ-UI-031), with when each last sampled.
+    pub modules: Vec<(Box<dyn femux_plugin::InfoModule>, Option<Instant>)>,
+    /// `notify.posted` titles, newest first (REQ-UI-033).
+    pub notifications: std::collections::VecDeque<(Option<String>, String, m::NotifyLevel)>,
 }
 
 impl App {
@@ -230,7 +260,17 @@ impl App {
             drag: None,
             mouse_pane: None,
             tab_hits: Vec::new(),
+            sidenav_hits: Vec::new(),
+            sidenav_open: false,
+            modules: Vec::new(),
+            notifications: std::collections::VecDeque::new(),
         };
+        app.modules = app
+            .plugins
+            .iter()
+            .flat_map(|p| p.modules())
+            .map(|m| (m, None))
+            .collect();
         app.model_effects(fx);
         let view_id = app.model.view_id.clone();
         app.send(m::FrameSubscribe { view_id }, Pending::Quiet);
@@ -301,24 +341,15 @@ impl App {
             .unwrap_or_default()
     }
 
-    /// Rows of chrome above the pane area.
-    pub fn top_chrome(&self) -> u16 {
-        u16::from(self.cfg.tabs == TabsPosition::Top)
+    /// Where everything goes on screen (REQ-UI-030, REQ-UI-042).
+    pub fn layout(&self) -> crate::layout::Layout {
+        crate::layout::Layout::compute(self.cols, self.rows, &self.cfg, self.sidenav_open)
     }
 
-    /// Rows of chrome below the pane area (tab strip at the bottom plus the status line).
-    pub fn bottom_chrome(&self) -> u16 {
-        1 + u16::from(self.cfg.tabs == TabsPosition::Bottom)
-    }
-
-    /// The size the daemon sizes our view to (REQ-VIEW-001): the terminal minus chrome.
+    /// The size the daemon sizes our view to (REQ-VIEW-001): the pane area.
     pub fn view_size(&self) -> (u16, u16) {
-        (
-            self.cols.max(1),
-            self.rows
-                .saturating_sub(self.top_chrome() + self.bottom_chrome())
-                .max(1),
-        )
+        let p = self.layout().panes;
+        (p.w, p.h)
     }
 
     pub fn on_resize(&mut self, cols: u16, rows: u16) {
@@ -334,18 +365,108 @@ impl App {
         self.dirty = true;
     }
 
-    /// Advances timers; true if something changed.
+    /// Advances timers: which-key, and info bar modules due for a sample. True if something
+    /// changed.
     pub fn tick(&mut self, now: Instant) -> bool {
+        let mut changed = false;
         if let Some(since) = self.prefix_since
             && !self.which_key_due
             && now.duration_since(since) >= self.cfg.which_key_delay
         {
             self.which_key_due = true;
             self.overlay = Overlay::WhichKey;
-            self.dirty = true;
-            return true;
+            changed = true;
         }
-        false
+        // REQ-UI-031: each shown module samples on its own interval.
+        let shown: Vec<String> = self
+            .cfg
+            .bar_left
+            .iter()
+            .chain(&self.cfg.bar_right)
+            .map(|n| n.strip_prefix("remote:").unwrap_or(n).to_owned())
+            .collect();
+        let ctx = self.bar_ctx(self.cfg.bar.vertical());
+        let floor = self.cfg.bar_interval;
+        for (module, last) in &mut self.modules {
+            if !shown.iter().any(|n| n == module.name()) {
+                continue;
+            }
+            let every = module.interval().max(floor);
+            if last.is_none_or(|l| now.duration_since(l) >= every) {
+                module.sample(&ctx);
+                *last = Some(now);
+                changed = true;
+            }
+        }
+        if changed {
+            self.dirty = true;
+        }
+        changed
+    }
+
+    /// Whether this client shows `pane` right now (REQ-UI-033).
+    pub fn pane_visible(&self, pane: &str) -> bool {
+        self.model
+            .current_tab()
+            .is_some_and(|t| t.panes().iter().any(|p| p == pane) && (!t.zoomed || t.focus == pane))
+    }
+
+    /// What info modules may read (REQ-UI-031).
+    pub fn bar_ctx(&self, vertical: bool) -> femux_plugin::BarCtx {
+        let tabs = self
+            .model
+            .tabs
+            .iter()
+            .enumerate()
+            .map(|(i, t)| femux_plugin::TabItem {
+                index: i + 1,
+                title: self.model.tab_title(t),
+                current: t.id == self.model.current,
+                urgent: t.urgent,
+            })
+            .collect();
+        let mut agents = std::collections::BTreeMap::new();
+        for p in self.model.panes.values() {
+            if let Some(s) = p.meta.get("agent.state") {
+                *agents.entry(s.clone()).or_insert(0) += 1;
+            }
+        }
+        let notifications = self
+            .notifications
+            .iter()
+            .filter(|(pane, _, _)| pane.as_deref().is_none_or(|p| !self.pane_visible(p)))
+            .take(3)
+            .map(|(_, title, level)| femux_plugin::NoteItem {
+                title: title.clone(),
+                level: *level,
+            })
+            .collect();
+        femux_plugin::BarCtx {
+            session: self.model.session.clone(),
+            tabs,
+            agents,
+            cwd: self
+                .model
+                .focused()
+                .map(|p| p.cwd.clone())
+                .filter(|c| !c.is_empty()),
+            notifications,
+            vertical,
+        }
+    }
+
+    /// A module's output for `name` (`remote:<module>` renders the local one until 0.6.0);
+    /// `None` when the module is unknown or has nothing to show.
+    pub fn module_spans(
+        &self,
+        name: &str,
+        ctx: &femux_plugin::BarCtx,
+        w: usize,
+    ) -> Option<femux_plugin::Spans> {
+        let base = name.strip_prefix("remote:").unwrap_or(name);
+        let (module, _) = self.modules.iter().find(|(m, _)| m.name() == base)?;
+        let spans = module.render(ctx, w);
+        (femux_plugin::width(&spans) > 0).then_some(spans)
     }
 
     /// The which-key panel from whichever plugin provides one.
@@ -400,6 +521,11 @@ impl App {
     fn on_event(&mut self, e: &Event) {
         if let Event::ConfigReloaded(_) = e {
             self.effects.push(Effect::Reload);
+        }
+        if let Event::NotifyPosted(n) = e {
+            self.notifications
+                .push_front((n.pane_id.clone(), n.title.clone(), n.level));
+            self.notifications.truncate(20);
         }
         let fx = self.model.on_event(e);
         self.model_effects(fx);
@@ -530,6 +656,7 @@ impl App {
                 // Any key closes help; the key is not otherwise interpreted.
                 return;
             }
+            Overlay::Navigator(nav) => return self.navigator_key(nav, &k, &chord),
             Overlay::WhichKey | Overlay::None => {}
         }
 
@@ -942,6 +1069,12 @@ impl App {
         }
     }
 
+    // ------------------------------------------------------------------ navigators
+
+    fn navigator_key(&mut self, nav: crate::nav::NavState, _k: &m::KeyEvent, _chord: &Chord) {
+        let _ = nav;
+    }
+
     // ------------------------------------------------------------------ palette
 
     fn open_palette(&mut self) {
@@ -1059,12 +1192,12 @@ impl App {
 
     /// What is at screen cell `(x, y)`.
     pub fn hit(&self, x: u16, y: u16) -> Hit {
-        let strip_row = match self.cfg.tabs {
-            TabsPosition::Top => Some(0),
-            TabsPosition::Bottom => Some(self.rows.saturating_sub(2)),
-            TabsPosition::Hidden => None,
-        };
-        if Some(y) == strip_row {
+        let layout = self.layout();
+        if let Some((sx, sy, sw)) = layout.strip
+            && y == sy
+            && x >= sx
+            && x < sx + sw
+        {
             return self
                 .tab_hits
                 .iter()
@@ -1072,11 +1205,21 @@ impl App {
                 .map(|(_, _, t)| Hit::Tab(t.clone()))
                 .unwrap_or(Hit::Nothing);
         }
-        let oy = self.top_chrome();
-        if y < oy || y >= oy + self.view_size().1 {
+        if let Some(nav) = layout.sidenav
+            && nav.contains(x, y)
+        {
+            return self
+                .sidenav_hits
+                .iter()
+                .find(|(row, _)| *row == y)
+                .map(|(_, target)| Hit::Nav(target.clone()))
+                .unwrap_or(Hit::Nothing);
+        }
+        let area = layout.panes;
+        if !area.contains(x, y) {
             return Hit::Nothing;
         }
-        let (px, py) = (x, y - oy);
+        let (px, py) = (x - area.x, y - area.y);
         let Some(tab) = self.model.current_tab() else {
             return Hit::Nothing;
         };
@@ -1229,10 +1372,10 @@ impl App {
                         else {
                             return;
                         };
-                        let oy = self.top_chrome();
+                        let area = self.layout().panes;
                         (
-                            x.saturating_sub(r.x).min(r.w.saturating_sub(1)),
-                            y.saturating_sub(oy + r.y).min(r.h.saturating_sub(1)),
+                            x.saturating_sub(area.x + r.x).min(r.w.saturating_sub(1)),
+                            y.saturating_sub(area.y + r.y).min(r.h.saturating_sub(1)),
                         )
                     }
                 };

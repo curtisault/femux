@@ -21,6 +21,22 @@ pub enum TabsPosition {
     Hidden,
 }
 
+/// Where the info bar goes (REQ-UI-030).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BarPosition {
+    Top,
+    #[default]
+    Bottom,
+    Left,
+    Right,
+}
+
+impl BarPosition {
+    pub fn vertical(self) -> bool {
+        matches!(self, BarPosition::Left | BarPosition::Right)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientConfig {
     /// `[input] prefix`: chords such as `ctrl+space` (REQ-UI-002).
@@ -45,6 +61,13 @@ pub struct ClientConfig {
     pub keys_root: BTreeMap<String, String>,
     /// `[keys.copy]`: copy-mode bindings.
     pub keys_copy: BTreeMap<String, String>,
+    /// `[infobar] position` (REQ-UI-030).
+    pub bar: BarPosition,
+    /// `[infobar] left` / `right`: module names in order (REQ-UI-031).
+    pub bar_left: Vec<String>,
+    pub bar_right: Vec<String>,
+    /// `[infobar] interval_ms`: modules sample at most this often.
+    pub bar_interval: Duration,
 }
 
 impl Default for ClientConfig {
@@ -61,6 +84,12 @@ impl Default for ClientConfig {
             keys_prefix: BTreeMap::new(),
             keys_root: BTreeMap::new(),
             keys_copy: BTreeMap::new(),
+            bar: BarPosition::Bottom,
+            bar_left: ["session", "tabs"].map(String::from).to_vec(),
+            bar_right: ["agents", "git", "cpu", "mem", "net", "clock"]
+                .map(String::from)
+                .to_vec(),
+            bar_interval: Duration::from_millis(1000),
         }
     }
 }

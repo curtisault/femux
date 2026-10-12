@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 
-use femux_client::config::{Borders, ClientConfig, TabsPosition};
+use femux_client::config::{BarPosition, Borders, ClientConfig, TabsPosition};
 pub use femux_config::{Config, config_dir, home, state_dir};
 
 /// The client's settings from the config file.
@@ -29,6 +29,15 @@ pub fn client(c: &Config) -> ClientConfig {
         keys_prefix: c.keys.prefix.clone(),
         keys_root: c.keys.root.clone(),
         keys_copy: c.keys.copy.clone(),
+        bar: match c.infobar.position {
+            femux_config::BarPosition::Top => BarPosition::Top,
+            femux_config::BarPosition::Bottom => BarPosition::Bottom,
+            femux_config::BarPosition::Left => BarPosition::Left,
+            femux_config::BarPosition::Right => BarPosition::Right,
+        },
+        bar_left: c.infobar.left.clone(),
+        bar_right: c.infobar.right.clone(),
+        bar_interval: Duration::from_millis(c.infobar.interval_ms),
     }
 }
 

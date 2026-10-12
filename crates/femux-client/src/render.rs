@@ -2,7 +2,7 @@
 //! borders in the daemon's gaps, floats on top (REQ-UI-011), copy mode, the status line and
 //! overlays. The host diffs successive surfaces for the terminal (REQ-UI-050).
 
-use femux_plugin::{Overlay as PluginOverlay, Span, Style};
+use femux_plugin::{Overlay as PluginOverlay, Span, Spans, Style};
 use femux_proto::msg as m;
 use termwiz::cell::{Blink, CellAttributes, Intensity, Underline};
 use termwiz::color::{ColorAttribute, SrgbaTuple};
@@ -10,7 +10,8 @@ use termwiz::surface::{Change, CursorVisibility, Position, Surface};
 
 use crate::app::{App, Mode, Overlay};
 use crate::bindings::Table;
-use crate::config::{Borders, TabsPosition};
+use crate::config::Borders;
+use crate::layout::Layout;
 use crate::model::PaneScreen;
 use crate::theme::Theme;
 
@@ -53,26 +54,26 @@ pub fn attributes(c: &m::Cell) -> CellAttributes {
     a
 }
 
-fn attr(fg: ColorAttribute, bg: ColorAttribute) -> CellAttributes {
+pub(crate) fn attr(fg: ColorAttribute, bg: ColorAttribute) -> CellAttributes {
     let mut a = CellAttributes::default();
     a.set_foreground(fg);
     a.set_background(bg);
     a
 }
 
-fn bold(mut a: CellAttributes) -> CellAttributes {
+pub(crate) fn bold(mut a: CellAttributes) -> CellAttributes {
     a.set_intensity(Intensity::Bold);
     a
 }
 
-struct Canvas<'a> {
-    s: &'a mut Surface,
-    w: usize,
-    h: usize,
+pub(crate) struct Canvas<'a> {
+    pub(crate) s: &'a mut Surface,
+    pub(crate) w: usize,
+    pub(crate) h: usize,
 }
 
 impl Canvas<'_> {
-    fn put(&mut self, x: usize, y: usize, text: &str, a: &CellAttributes) -> usize {
+    pub(crate) fn put(&mut self, x: usize, y: usize, text: &str, a: &CellAttributes) -> usize {
         if y >= self.h || x >= self.w {
             return x;
         }
@@ -88,14 +89,14 @@ impl Canvas<'_> {
         x + n
     }
 
-    fn fill(&mut self, x: usize, y: usize, n: usize, ch: char, a: &CellAttributes) {
+    pub(crate) fn fill(&mut self, x: usize, y: usize, n: usize, ch: char, a: &CellAttributes) {
         if n > 0 {
             let s: String = std::iter::repeat_n(ch, n).collect();
             self.put(x, y, &s, a);
         }
     }
 
-    fn spans(
+    pub(crate) fn spans(
         &mut self,
         x: usize,
         y: usize,
@@ -112,6 +113,9 @@ impl Canvas<'_> {
                 Style::Title => bold(attr(theme.accent, bg)),
                 Style::Accent => attr(theme.accent, bg),
                 Style::Warn => attr(theme.warn, bg),
+                Style::Ok => attr(theme.ok, bg),
+                Style::Error => attr(theme.error, bg),
+                Style::Chip => bold(attr(theme.accent_fg, theme.accent)),
             };
             x = self.put(x, y, &sp.text, &a);
         }
@@ -203,14 +207,309 @@ pub fn borders(
     out
 }
 
-/// Draws the whole client. `app.tab_hits` is refreshed for mouse hit testing.
+/// What the status row shows, if anything: prompts and confirmations take the whole row,
+/// text follows the session chip and mode.
+enum Transient {
+    Confirm(String),
+    Prompt(String, String),
+    Text(Spans, bool),
+}
+
+fn transient(app: &App) -> Option<Transient> {
+    match &app.overlay {
+        Overlay::Confirm { text, .. } => return Some(Transient::Confirm(text.clone())),
+        Overlay::Prompt { title, input, .. } => {
+            return Some(Transient::Prompt(title.clone(), input.clone()));
+        }
+        _ => {}
+    }
+    let mut spans: Spans = Vec::new();
+    let mut cursor = false;
+    if let Some(d) = app.preselect {
+        spans.push(Span::new(
+            format!(
+                "next split: {}",
+                crate::bindings::Action::Preselect(d).describe()
+            ),
+            Style::Warn,
+        ));
+    }
+    if let Some(cm) = &app.copy
+        && app.mode == Mode::Copy
+    {
+        if !spans.is_empty() {
+            spans.push(Span::text(" "));
+        }
+        match &cm.typing {
+            Some(t) => {
+                let lead = if t.dir == m::SearchDir::Down {
+                    "/"
+                } else {
+                    "?"
+                };
+                spans.push(Span::text(format!("{lead}{}", t.regex)));
+                cursor = true;
+            }
+            None => spans.push(Span::new(
+                format!("line {} col {}", cm.cur.0, cm.cur.1),
+                Style::Muted,
+            )),
+        }
+    }
+    if !cursor && let Some(msg) = &app.message {
+        if !spans.is_empty() {
+            spans.push(Span::text(" "));
+        }
+        spans.push(Span::new(msg.clone(), Style::Warn));
+    }
+    (!spans.is_empty()).then_some(Transient::Text(spans, cursor))
+}
+
+fn mode_label(app: &App, theme: &Theme) -> (&'static str, CellAttributes) {
+    match (app.prefix_armed(), app.mode) {
+        (true, _) => ("PREFIX", bold(attr(theme.accent_fg, theme.warn))),
+        (false, Mode::Terminal) => ("TERMINAL", attr(theme.muted, theme.bar_bg)),
+        (false, Mode::Normal) => ("NORMAL", bold(attr(theme.accent_fg, theme.ok))),
+        (false, Mode::Copy) => ("COPY", bold(attr(theme.accent_fg, theme.accent))),
+    }
+}
+
+/// Splits a module's spans into lines at `\n` (vertical bars only).
+fn lines_of(spans: &Spans) -> Vec<Spans> {
+    let mut out: Vec<Spans> = vec![Vec::new()];
+    for sp in spans {
+        for (i, part) in sp.text.split('\n').enumerate() {
+            if i > 0 {
+                out.push(Vec::new());
+            }
+            if !part.is_empty() {
+                out.last_mut()
+                    .unwrap()
+                    .push(Span::new(part.to_owned(), sp.style));
+            }
+        }
+    }
+    out
+}
+
+/// The info bar (REQ-UI-030/031): a row at the top or bottom, or a column at the left or
+/// right with modules stacked.
+fn draw_bar(app: &mut App, c: &mut Canvas, theme: &Theme, l: &Layout, tr: &Option<Transient>) {
+    let bar = l.bar;
+    let bg = theme.bar_bg;
+    let (mode, mode_attr) = mode_label(app, theme);
+    let chip = format!(" {} ", app.model.session);
+    if !l.bar_vertical {
+        let (x0, y, w) = (bar.x as usize, bar.y as usize, bar.w as usize);
+        c.fill(x0, y, w, ' ', &attr(theme.bar_fg, bg));
+        let ctx = app.bar_ctx(false);
+        let right: Vec<Spans> = app
+            .cfg
+            .bar_right
+            .clone()
+            .iter()
+            .filter_map(|n| app.module_spans(n, &ctx, w / 2))
+            .collect();
+        let mut right_line: Spans = Vec::new();
+        for (i, sp) in right.into_iter().enumerate() {
+            if i > 0 {
+                right_line.push(Span::new(" │ ", Style::Muted));
+            }
+            right_line.extend(
+                sp.into_iter()
+                    .map(|s| Span::new(s.text.replace('\n', " "), s.style)),
+            );
+        }
+        let rw = femux_plugin::width(&right_line) + 1;
+        let mut x = c.put(x0, y, &chip, &bold(attr(theme.accent_fg, theme.accent)));
+        x = c.put(x, y, &format!(" {mode} "), &mode_attr);
+        if !matches!(tr, Some(Transient::Text(..))) {
+            x = c.put(
+                x,
+                y,
+                &format!(" prefix {}", app.prefix_label()),
+                &attr(theme.muted, bg),
+            );
+            for name in app.cfg.bar_left.clone() {
+                if name == "session" {
+                    continue;
+                }
+                if let Some(sp) = app.module_spans(&name, &ctx, w / 2) {
+                    let sp: Spans = sp
+                        .into_iter()
+                        .map(|s| Span::new(s.text.replace('\n', " "), s.style))
+                        .collect();
+                    x = c.spans(x + 2, y, &sp, theme, bg);
+                }
+            }
+        }
+        let _ = x;
+        if rw < w {
+            c.spans(x0 + w - rw, y, &right_line, theme, bg);
+        }
+        return;
+    }
+    // A column: the chip and mode, then the left modules from the top, the right ones at the
+    // bottom (REQ-UI-030: vertical bars stack modules).
+    let (x0, w) = (bar.x as usize + 1, bar.w.saturating_sub(2) as usize);
+    for y in bar.y..bar.y + bar.h {
+        c.fill(
+            bar.x as usize,
+            y as usize,
+            bar.w as usize,
+            ' ',
+            &attr(theme.bar_fg, bg),
+        );
+    }
+    let bottom = (bar.y + bar.h) as usize;
+    let mut y = bar.y as usize + 1;
+    c.put(x0, y, &chip, &bold(attr(theme.accent_fg, theme.accent)));
+    y += 2;
+    c.put(x0, y, "mode", &attr(theme.muted, bg));
+    c.put(x0, y + 1, mode, &mode_attr);
+    y += 3;
+    let ctx = app.bar_ctx(true);
+    let block = |app: &mut App, name: &str| -> Option<Vec<Spans>> {
+        let sp = app.module_spans(name, &ctx, w)?;
+        let mut lines = vec![vec![Span::new(name.to_owned(), Style::Muted)]];
+        lines.extend(lines_of(&sp));
+        Some(lines)
+    };
+    for name in app.cfg.bar_left.clone() {
+        if name == "session" {
+            continue;
+        }
+        if let Some(lines) = block(app, &name) {
+            for line in lines {
+                if y < bottom {
+                    c.spans(x0, y, &line, theme, bg);
+                }
+                y += 1;
+            }
+            y += 1;
+        }
+    }
+    let blocks: Vec<Vec<Spans>> = app
+        .cfg
+        .bar_right
+        .clone()
+        .iter()
+        .filter_map(|n| block(app, n))
+        .collect();
+    let height: usize = blocks.iter().map(|b| b.len() + 1).sum();
+    let mut y = y.max(bottom.saturating_sub(height));
+    for b in blocks {
+        for line in b {
+            if y < bottom {
+                c.spans(x0, y, &line, theme, bg);
+            }
+            y += 1;
+        }
+        y += 1;
+    }
+}
+
+/// The status row: prompts, confirmations and messages (see [`Layout::status`]).
+fn draw_status(
+    app: &App,
+    c: &mut Canvas,
+    theme: &Theme,
+    l: &Layout,
+    tr: &Option<Transient>,
+    cursor: &mut Option<(usize, usize)>,
+) {
+    let (x0, y, w) = (
+        l.status.0 as usize,
+        l.status.1 as usize,
+        l.status.2 as usize,
+    );
+    let bg = theme.bar_bg;
+    match tr {
+        None => {}
+        Some(Transient::Confirm(text)) => {
+            c.fill(x0, y, w, ' ', &attr(theme.accent_fg, theme.warn));
+            c.put(x0 + 1, y, text, &bold(attr(theme.accent_fg, theme.warn)));
+            *cursor = None;
+        }
+        Some(Transient::Prompt(title, input)) => {
+            c.fill(x0, y, w, ' ', &attr(theme.text, bg));
+            let x = c.put(
+                x0 + 1,
+                y,
+                &format!("{title}: "),
+                &bold(attr(theme.accent, bg)),
+            );
+            let x = c.put(x, y, input, &attr(theme.text, bg));
+            *cursor = Some((x, y));
+        }
+        Some(Transient::Text(spans, wants_cursor)) => {
+            let x = if l.bar_vertical {
+                c.fill(x0, y, w, ' ', &attr(theme.bar_fg, bg));
+                x0 + 1
+            } else {
+                // After the chip and the mode.
+                let (mode, _) = mode_label(app, theme);
+                x0 + app.model.session.chars().count() + 2 + mode.len() + 2 + 1
+            };
+            let end = c.spans(x, y, spans, theme, bg);
+            if *wants_cursor {
+                *cursor = Some((end, y));
+            }
+        }
+    }
+}
+
+/// The tab strip (REQ-UI-020). `app.tab_hits` is refreshed for the mouse.
+fn draw_strip(app: &mut App, c: &mut Canvas, theme: &Theme, l: &Layout) {
+    app.tab_hits.clear();
+    let Some((sx, sy, sw)) = l.strip else { return };
+    let (sx, y, end) = (sx as usize, sy as usize, (sx + sw) as usize);
+    c.fill(sx, y, sw as usize, ' ', &attr(theme.bar_fg, theme.bar_bg));
+    let mut x = sx;
+    let tabs = app.model.tabs.clone();
+    for (i, t) in tabs.iter().enumerate() {
+        let mut label = format!(" {} {}", i + 1, app.model.tab_title(t));
+        if app.model.tab_running(t) {
+            label.push(' ');
+            label.push_str(&app.cfg.running_indicator);
+        }
+        if app.model.tab_restored(t) {
+            label.push_str(" ↺");
+        }
+        if t.urgent {
+            label.push_str(" !");
+        }
+        if t.zoomed {
+            label.push_str(" Z");
+        }
+        label.push(' ');
+        let a = if t.id == app.model.current {
+            bold(attr(theme.accent_fg, theme.accent))
+        } else if t.urgent {
+            bold(attr(theme.warn, theme.bar_bg))
+        } else {
+            attr(theme.bar_fg, theme.bar_bg)
+        };
+        let label: String = label.chars().take(end.saturating_sub(x)).collect();
+        let x1 = c.put(x, y, &label, &a);
+        app.tab_hits.push((x as u16, x1 as u16, t.id.clone()));
+        x = x1 + 1;
+        if x >= end {
+            break;
+        }
+    }
+}
+
+/// Draws the whole client. Hit boxes for the mouse are refreshed.
 pub fn render(app: &mut App, theme: &Theme, s: &mut Surface) {
     app.dirty = false;
     let (w, h) = s.dimensions();
     s.add_change(Change::ClearScreen(ColorAttribute::Default));
     let mut c = Canvas { s, w, h };
-    let oy = app.top_chrome() as usize;
-    let (vw, vh) = app.view_size();
+    let l = app.layout();
+    let area = l.panes;
+    let o = (area.x as usize, area.y as usize);
+    let (vw, vh) = (area.w, area.h);
     let mut cursor: Option<(usize, usize)> = None;
 
     // Panes.
@@ -225,7 +524,7 @@ pub fn render(app: &mut App, theme: &Theme, s: &mut Surface) {
             })
             .collect();
         for (id, _) in &tiled {
-            draw_pane(app, &mut c, theme, id, oy, &mut cursor);
+            draw_pane(app, &mut c, theme, id, o, &mut cursor);
         }
         if !tab.zoomed {
             let restored: Vec<&m::Rect> = tiled
@@ -242,8 +541,8 @@ pub fn render(app: &mut App, theme: &Theme, s: &mut Surface) {
                 };
                 let glyph = if by_restored { dashed(glyph) } else { glyph };
                 c.put(
-                    x as usize,
-                    y as usize + oy,
+                    x as usize + o.0,
+                    y as usize + o.1,
                     glyph,
                     &attr(color, ColorAttribute::Default),
                 );
@@ -269,15 +568,15 @@ pub fn render(app: &mut App, theme: &Theme, s: &mut Surface) {
                     ColorAttribute::Default,
                 );
                 let g = glyphs(app.cfg.borders);
-                let (x0, y0) = (r.x as i32 - 1, r.y as i32 - 1 + oy as i32);
-                let (x1, y1) = (r.x as i32 + r.w as i32, r.y as i32 + r.h as i32 + oy as i32);
-                let limit_y = oy as i32 + vh as i32;
+                let (ox, oy) = (o.0 as i32, o.1 as i32);
+                let (x0, y0) = (r.x as i32 - 1 + ox, r.y as i32 - 1 + oy);
+                let (x1, y1) = (r.x as i32 + r.w as i32 + ox, r.y as i32 + r.h as i32 + oy);
                 for y in y0..=y1 {
-                    if y < oy as i32 || y >= limit_y {
+                    if y < oy || y >= oy + vh as i32 {
                         continue;
                     }
                     for x in x0..=x1 {
-                        if x < 0 || x >= vw as i32 {
+                        if x < ox || x >= ox + vw as i32 {
                             continue;
                         }
                         let glyph = match (x == x0, x == x1, y == y0, y == y1) {
@@ -305,126 +604,42 @@ pub fn render(app: &mut App, theme: &Theme, s: &mut Surface) {
                         }
                     })
                     .unwrap_or_default();
-                if !title.is_empty() && y0 >= oy as i32 {
+                if !title.is_empty() && y0 >= oy {
                     c.put(
-                        (r.x as usize + 1).min(w),
+                        (x0 as usize + 2).min(w),
                         y0 as usize,
                         &format!(" {title} "),
                         &bold(a.clone()),
                     );
                 }
-                draw_pane(app, &mut c, theme, &f.id, oy, &mut cursor);
+                draw_pane(app, &mut c, theme, &f.id, o, &mut cursor);
             }
         }
     }
 
-    // Tab strip.
-    app.tab_hits.clear();
-    let strip_row = match app.cfg.tabs {
-        TabsPosition::Top => Some(0usize),
-        TabsPosition::Bottom => Some(h.saturating_sub(2)),
-        TabsPosition::Hidden => None,
-    };
-    if let Some(y) = strip_row {
-        c.fill(0, y, w, ' ', &attr(theme.bar_fg, theme.bar_bg));
-        let mut x = 0usize;
-        let tabs = app.model.tabs.clone();
-        for (i, t) in tabs.iter().enumerate() {
-            let mut label = format!(" {} {}", i + 1, app.model.tab_title(t));
-            if app.model.tab_running(t) {
-                label.push(' ');
-                label.push_str(&app.cfg.running_indicator);
-            }
-            if app.model.tab_restored(t) {
-                label.push_str(" ↺");
-            }
-            if t.urgent {
-                label.push_str(" !");
-            }
-            if t.zoomed {
-                label.push_str(" Z");
-            }
-            label.push(' ');
-            let a = if t.id == app.model.current {
-                bold(attr(theme.accent_fg, theme.accent))
-            } else if t.urgent {
-                bold(attr(theme.warn, theme.bar_bg))
-            } else {
-                attr(theme.bar_fg, theme.bar_bg)
-            };
-            let x1 = c.put(x, y, &label, &a);
-            app.tab_hits.push((x as u16, x1 as u16, t.id.clone()));
-            x = x1 + 1;
-            if x >= w {
-                break;
-            }
-        }
-    }
-
-    // Status line.
-    let sy = h.saturating_sub(1);
-    c.fill(0, sy, w, ' ', &attr(theme.bar_fg, theme.bar_bg));
-    let mut x = c.put(
-        0,
-        sy,
-        &format!(" {} ", app.model.session),
-        &bold(attr(theme.accent_fg, theme.accent)),
-    );
-    let (label, a) = match (app.prefix_armed(), app.mode) {
-        (true, _) => (" PREFIX ", bold(attr(theme.accent_fg, theme.warn))),
-        (false, Mode::Terminal) => (" TERMINAL ", attr(theme.muted, theme.bar_bg)),
-        (false, Mode::Normal) => (" NORMAL ", bold(attr(theme.accent_fg, theme.ok))),
-        (false, Mode::Copy) => (" COPY ", bold(attr(theme.accent_fg, theme.accent))),
-    };
-    x = c.put(x, sy, label, &a);
-    if let Some(d) = app.preselect {
-        x = c.put(
-            x + 1,
-            sy,
-            &format!(
-                "next split: {}",
-                crate::bindings::Action::Preselect(d).describe()
-            ),
-            &attr(theme.warn, theme.bar_bg),
-        );
-    }
-    if let Some(cm) = &app.copy
-        && let Some(t) = &cm.typing
-    {
-        let lead = if t.dir == m::SearchDir::Down {
-            "/"
-        } else {
-            "?"
-        };
-        x = c.put(
-            x + 1,
-            sy,
-            &format!("{lead}{}", t.regex),
-            &attr(theme.text, theme.bar_bg),
-        );
-        cursor = Some((x, sy));
-    } else if let Some(msg) = &app.message {
-        x = c.put(x + 1, sy, msg, &attr(theme.warn, theme.bar_bg));
-    }
-    let _ = x;
-    let right = match (&app.copy, app.mode) {
-        (Some(cm), Mode::Copy) => format!("line {} col {}  ", cm.cur.0, cm.cur.1),
-        _ => format!("prefix {}  ", app.prefix_label()),
-    };
-    let rx = w.saturating_sub(right.chars().count());
-    c.put(rx, sy, &right, &attr(theme.muted, theme.bar_bg));
+    draw_strip(app, &mut c, theme, &l);
+    crate::nav::draw_sidenav(app, &mut c, theme, &l);
+    let tr = transient(app);
+    draw_bar(app, &mut c, theme, &l, &tr);
+    draw_status(app, &mut c, theme, &l, &tr, &mut cursor);
 
     // Overlays.
     match app.overlay.clone() {
-        Overlay::None => {}
         Overlay::WhichKey => {
-            if let Some(o) = app.plugin_overlay() {
-                draw_panel(&mut c, theme, &o, sy);
+            if let Some(ov) = app.plugin_overlay() {
+                draw_panel(
+                    &mut c,
+                    theme,
+                    &ov,
+                    area.x as usize,
+                    area.w as usize,
+                    (area.y + area.h) as usize,
+                );
             }
         }
         Overlay::Help => {
-            let o = help_overlay(app);
-            draw_box(&mut c, theme, &o, &mut cursor, None);
+            let ov = help_overlay(app);
+            draw_box(&mut c, theme, &ov, &mut cursor, None);
         }
         Overlay::Palette(p) => {
             let matches = p.matches();
@@ -441,7 +656,7 @@ pub fn render(app: &mut App, theme: &Theme, s: &mut Surface) {
                     Span::new(format!("  {}", item.hint), Style::Muted),
                 ]);
             }
-            let o = PluginOverlay {
+            let ov = PluginOverlay {
                 title: vec![Span::new("> ", Style::Accent), Span::text(p.input.clone())],
                 lines,
                 place: femux_plugin::Place::Center,
@@ -449,27 +664,15 @@ pub fn render(app: &mut App, theme: &Theme, s: &mut Surface) {
             draw_box(
                 &mut c,
                 theme,
-                &o,
+                &ov,
                 &mut cursor,
                 Some(2 + p.input.chars().count()),
             );
         }
-        Overlay::Confirm { text, .. } => {
-            c.fill(0, sy, w, ' ', &attr(theme.accent_fg, theme.warn));
-            c.put(1, sy, &text, &bold(attr(theme.accent_fg, theme.warn)));
-            cursor = None;
+        Overlay::Navigator(nav) => {
+            crate::nav::draw_navigator(app, &nav, &mut c, theme, &mut cursor);
         }
-        Overlay::Prompt { title, input, .. } => {
-            c.fill(0, sy, w, ' ', &attr(theme.text, theme.bar_bg));
-            let x = c.put(
-                1,
-                sy,
-                &format!("{title}: "),
-                &bold(attr(theme.accent, theme.bar_bg)),
-            );
-            let x = c.put(x, sy, &input, &attr(theme.text, theme.bar_bg));
-            cursor = Some((x, sy));
-        }
+        Overlay::None | Overlay::Confirm { .. } | Overlay::Prompt { .. } => {}
     }
 
     c.s.add_change(Change::AllAttributes(CellAttributes::default()));
@@ -492,7 +695,7 @@ fn draw_pane(
     c: &mut Canvas,
     theme: &Theme,
     id: &str,
-    oy: usize,
+    o: (usize, usize),
     cursor: &mut Option<(usize, usize)>,
 ) {
     let Some(pane) = app.model.panes.get(id) else {
@@ -505,25 +708,26 @@ fn draw_pane(
         && app.mode == Mode::Copy
         && let Some(cm) = &app.copy
     {
-        draw_copy(cm, c, theme, r, oy, cursor);
+        draw_copy(cm, c, theme, r, o, cursor);
         return;
     }
-    draw_screen(screen, c, oy);
+    draw_screen(screen, c, o);
     if focused && matches!(app.overlay, Overlay::None | Overlay::WhichKey) && screen.cursor.visible
     {
         *cursor = Some((
-            r.x as usize + screen.cursor.x as usize,
-            oy + r.y as usize + screen.cursor.y as usize,
+            o.0 + r.x as usize + screen.cursor.x as usize,
+            o.1 + r.y as usize + screen.cursor.y as usize,
         ));
     }
 }
 
 /// Draws a pane's rows as runs of equally styled cells: one cursor move, one attribute
 /// change and one text per run rather than per cell.
-fn draw_screen(screen: &PaneScreen, c: &mut Canvas, oy: usize) {
+fn draw_screen(screen: &PaneScreen, c: &mut Canvas, o: (usize, usize)) {
     let r = &screen.rect;
+    let rx = o.0 + r.x as usize;
     for (y, row) in screen.rows.iter().enumerate().take(r.h as usize) {
-        let sy = oy + r.y as usize + y;
+        let sy = o.1 + r.y as usize + y;
         let mut x = 0usize;
         let end = row.len().min(r.w as usize);
         let mut run = String::new();
@@ -541,7 +745,7 @@ fn draw_screen(screen: &PaneScreen, c: &mut Canvas, oy: usize) {
             };
             if run_attr.as_ref() != Some(&attr) {
                 if let Some(a) = run_attr.take() {
-                    c.put(r.x as usize + run_x, sy, &run, &a);
+                    c.put(rx + run_x, sy, &run, &a);
                 }
                 run.clear();
                 run_x = x;
@@ -551,7 +755,7 @@ fn draw_screen(screen: &PaneScreen, c: &mut Canvas, oy: usize) {
             x += width;
         }
         if let Some(a) = run_attr {
-            c.put(r.x as usize + run_x, sy, &run, &a);
+            c.put(rx + run_x, sy, &run, &a);
         }
     }
 }
@@ -561,12 +765,13 @@ fn draw_copy(
     c: &mut Canvas,
     theme: &Theme,
     r: &m::Rect,
-    oy: usize,
+    o: (usize, usize),
     cursor: &mut Option<(usize, usize)>,
 ) {
+    let rx = o.0 + r.x as usize;
     for row in 0..r.h {
         let line = cm.top + row as i64;
-        let sy = oy + r.y as usize + row as usize;
+        let sy = o.1 + r.y as usize + row as usize;
         let cells = cm.lines.get(&line);
         let mut x = 0u16;
         while x < r.w {
@@ -588,28 +793,29 @@ fn draw_copy(
                 a.set_background(theme.warn);
                 a.set_foreground(theme.accent_fg);
             }
-            c.put(r.x as usize + x as usize, sy, &text, &a);
+            c.put(rx + x as usize, sy, &text, &a);
             x += cell.map(|cl| cl.width.max(1)).unwrap_or(1) as u16;
         }
     }
     if cm.typing.is_none() {
         *cursor = Some((
-            r.x as usize + cm.cur.1 as usize,
-            oy + r.y as usize + (cm.cur.0 - cm.top).max(0) as usize,
+            rx + cm.cur.1 as usize,
+            o.1 + r.y as usize + (cm.cur.0 - cm.top).max(0) as usize,
         ));
     }
 }
 
 /// A full-width panel above the status line (which-key).
-fn draw_panel(c: &mut Canvas, theme: &Theme, o: &PluginOverlay, status_row: usize) {
-    let height = (o.lines.len() + 2).min(status_row);
-    let top = status_row - height;
-    for y in top..status_row {
-        c.fill(0, y, c.w, ' ', &attr(theme.text, theme.overlay_bg));
+/// A panel across `x..x + w` ending above row `bottom` (which-key).
+fn draw_panel(c: &mut Canvas, theme: &Theme, o: &PluginOverlay, x: usize, w: usize, bottom: usize) {
+    let height = (o.lines.len() + 2).min(bottom);
+    let top = bottom - height;
+    for y in top..bottom {
+        c.fill(x, y, w, ' ', &attr(theme.text, theme.overlay_bg));
     }
-    c.spans(1, top, &o.title, theme, theme.overlay_bg);
+    c.spans(x + 1, top, &o.title, theme, theme.overlay_bg);
     for (i, line) in o.lines.iter().enumerate().take(height.saturating_sub(2)) {
-        c.spans(1, top + 1 + i, line, theme, theme.overlay_bg);
+        c.spans(x + 1, top + 1 + i, line, theme, theme.overlay_bg);
     }
 }
 
@@ -712,7 +918,7 @@ mod tests {
             w: 8,
             h: 1,
         };
-        draw_screen(&screen, &mut c, 0);
+        draw_screen(&screen, &mut c, (0, 0));
         assert_eq!(s.screen_chars_to_string(), " abc    \n");
         assert_eq!(s.screen_cells()[0][2].attrs().intensity(), Intensity::Bold);
         assert_eq!(

@@ -113,3 +113,8 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 
 | Requirement | Tests | Status |
 | --- | --- | --- |
+| REQ-UI-030 | femux-client `ui_bar::ui_030_the_bar_sits_on_any_side_and_the_panes_move_over`, `layout::tests::ui_030_the_bar_takes_one_side_and_the_panes_the_rest` | pass |
+| REQ-UI-031 | femux-client `ui_bar::ui_031_modules_come_from_plugins_in_config_order_on_their_interval` | pass |
+| REQ-UI-032 | femux-plugin-infobar `tests::*`; femux-client `ui_bar::acceptance_0_4_bar_on_all_four_sides_with_every_built_in_module` | pass |
+| REQ-UI-033 | femux-client `ui_bar::ui_033_notifications_show_while_their_pane_is_hidden`; femux-test `notify::notify_post_is_relayed_to_the_panes_session` | pass |
+| Plugin `infobar` | femux-plugin-infobar `tests::*`; femux-client `ui_bar::*` | pass |

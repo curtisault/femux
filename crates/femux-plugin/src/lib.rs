@@ -37,6 +37,11 @@ pub enum Style {
     Title,
     Accent,
     Warn,
+    /// Success, e.g. an agent that is done.
+    Ok,
+    Error,
+    /// Text on the accent color, e.g. the session chip.
+    Chip,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,11 +69,62 @@ pub fn width(spans: &[Span]) -> usize {
     spans.iter().map(|s| s.text.chars().count()).sum()
 }
 
-/// An info bar module (REQ-UI-031).
+/// One tab as the info bar sees it.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct TabItem {
+    pub index: usize,
+    pub title: String,
+    pub current: bool,
+    pub urgent: bool,
+}
+
+/// A notification whose pane is not on screen (REQ-UI-033), newest first.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NoteItem {
+    pub title: String,
+    pub level: m::NotifyLevel,
+}
+
+/// What an info module may read about the client (REQ-UI-031). Rebuilt for every frame.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct BarCtx {
+    pub session: String,
+    pub tabs: Vec<TabItem>,
+    /// `agent.state` value -> number of panes of the session in it.
+    pub agents: std::collections::BTreeMap<String, usize>,
+    /// The focused pane's working directory.
+    pub cwd: Option<String>,
+    pub notifications: Vec<NoteItem>,
+    /// The bar is a column (`left`/`right`): modules may use several lines (`\n` in a span).
+    pub vertical: bool,
+}
+
+/// An info bar module (REQ-UI-031): the bar calls `sample` every `interval` to refresh what
+/// the module measures, and `render` for every frame.
 pub trait InfoModule: Send {
     fn name(&self) -> &str;
-    fn render(&self, w: usize) -> Spans;
+    #[allow(unused_variables)]
+    fn sample(&mut self, ctx: &BarCtx) {}
+    /// The module's text in at most `w` columns; nothing to show is an empty `Spans`.
+    fn render(&self, ctx: &BarCtx, w: usize) -> Spans;
     fn interval(&self) -> Duration;
+}
+
+/// A color theme a plugin supplies by name (`[theme] name`); colors are `[r, g, b]`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Palette {
+    pub dark: bool,
+    pub accent: [u8; 3],
+    pub accent_fg: [u8; 3],
+    pub muted: [u8; 3],
+    pub warn: [u8; 3],
+    pub ok: [u8; 3],
+    pub error: [u8; 3],
+    pub text: [u8; 3],
+    pub bar_bg: [u8; 3],
+    pub bar_fg: [u8; 3],
+    pub selection: [u8; 3],
+    pub overlay_bg: [u8; 3],
 }
 
 /// An action offered to the command palette (REQ-UI-043).
@@ -156,6 +212,10 @@ pub trait ClientPlugin: Send {
     }
     fn on_event(&mut self, ev: &Event) -> Vec<HostEffect> {
         Vec::new()
+    }
+    /// The theme called `name`, if this plugin knows it: `Some(Err)` names what is wrong.
+    fn theme(&self, name: &str) -> Option<Result<Palette, String>> {
+        None
     }
 }
 

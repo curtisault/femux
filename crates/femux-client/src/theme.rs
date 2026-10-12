@@ -12,6 +12,7 @@ pub struct Theme {
     pub muted: ColorAttribute,
     pub warn: ColorAttribute,
     pub ok: ColorAttribute,
+    pub error: ColorAttribute,
     pub text: ColorAttribute,
     pub bar_bg: ColorAttribute,
     pub bar_fg: ColorAttribute,
@@ -35,6 +36,7 @@ impl Theme {
             muted: rgb(0x6b, 0x72, 0x80),
             warn: rgb(0xe3, 0xb3, 0x41),
             ok: rgb(0x8c, 0xc2, 0x65),
+            error: rgb(0xe0, 0x6c, 0x75),
             text: rgb(0xd7, 0xdb, 0xe2),
             bar_bg: rgb(0x14, 0x18, 0x20),
             bar_fg: rgb(0xb8, 0xbe, 0xc8),
@@ -51,6 +53,7 @@ impl Theme {
             muted: rgb(0x80, 0x86, 0x90),
             warn: rgb(0xb0, 0x7a, 0x00),
             ok: rgb(0x3b, 0x8a, 0x2e),
+            error: rgb(0xc0, 0x30, 0x30),
             text: rgb(0x20, 0x24, 0x2b),
             bar_bg: rgb(0xe8, 0xea, 0xee),
             bar_fg: rgb(0x30, 0x34, 0x3c),
@@ -59,8 +62,50 @@ impl Theme {
         }
     }
 
-    /// Picks a theme: `dark`/`light` by name, else from mode 2031's answer, else from the
-    /// background's luminance, else dark.
+    /// A theme from a plugin's palette (the `theme` plugin, 0.4.0).
+    pub fn from_palette(p: &femux_plugin::Palette) -> Theme {
+        let c = |[r, g, b]: [u8; 3]| rgb(r, g, b);
+        Theme {
+            dark: p.dark,
+            accent: c(p.accent),
+            accent_fg: c(p.accent_fg),
+            muted: c(p.muted),
+            warn: c(p.warn),
+            ok: c(p.ok),
+            error: c(p.error),
+            text: c(p.text),
+            bar_bg: c(p.bar_bg),
+            bar_fg: c(p.bar_fg),
+            selection: c(p.selection),
+            overlay_bg: c(p.overlay_bg),
+        }
+    }
+
+    /// Picks a theme (REQ-UI-051): a plugin's palette for a name it knows, else `dark`/`light`
+    /// by name, else from mode 2031's answer, else from the background's luminance, else dark.
+    /// The error is a theme a plugin knows but could not load; the fallback applies then.
+    pub fn resolve(
+        name: &str,
+        plugins: &[Box<dyn femux_plugin::ClientPlugin>],
+        dark_mode: Option<bool>,
+        bg: Option<[u8; 3]>,
+    ) -> (Theme, Option<String>) {
+        if name != "terminal" {
+            for p in plugins {
+                match p.theme(name) {
+                    Some(Ok(palette)) => return (Theme::from_palette(&palette), None),
+                    Some(Err(e)) => {
+                        return (Theme::pick("terminal", dark_mode, bg), Some(e));
+                    }
+                    None => {}
+                }
+            }
+        }
+        (Theme::pick(name, dark_mode, bg), None)
+    }
+
+    /// Picks a built-in theme: `dark`/`light` by name, else from mode 2031's answer, else from
+    /// the background's luminance, else dark.
     pub fn pick(name: &str, dark_mode: Option<bool>, bg: Option<[u8; 3]>) -> Theme {
         match name {
             "dark" => return Theme::dark(),
