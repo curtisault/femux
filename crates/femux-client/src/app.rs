@@ -926,14 +926,20 @@ impl App {
                 if !seen.insert(*action) {
                     continue;
                 }
-                let hint = if prefix {
+                let key = if prefix {
                     format!("{} {chord}", self.prefix_label())
                 } else {
                     chord.to_string()
                 };
+                let desc = action.describe();
+                let name = action.name();
                 items.push(PaletteItem {
-                    label: action.describe(),
-                    hint,
+                    hint: if desc == name {
+                        key
+                    } else {
+                        format!("{desc} · {key}")
+                    },
+                    label: name,
                     run: PaletteRun::Action(*action),
                 });
             }
@@ -941,8 +947,8 @@ impl App {
         for a in crate::bindings::ALL {
             if !a.is_copy() && seen.insert(*a) {
                 items.push(PaletteItem {
-                    label: a.describe(),
-                    hint: String::new(),
+                    label: a.name(),
+                    hint: a.describe(),
                     run: PaletteRun::Action(*a),
                 });
             }

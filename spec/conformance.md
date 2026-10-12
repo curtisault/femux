@@ -67,9 +67,11 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | --- | --- | --- |
 | REQ-UI-001 | femux-client `ui_modes::ui_001_three_modes` | pass |
 | REQ-UI-002 | femux-client `ui_modes::ui_002_prefix_is_one_shot_and_configurable`, `keys::tests::*`, `bindings::tests::every_default_binding_of_spec_5_1_exists` | pass |
+| REQ-UI-003 | femux-client `ui_overlays::ui_003_which_key_shows_after_the_delay`; femux-plugin-which-key `tests::groups_stay_together_in_columns`, `tests::only_in_prefix_mode` | pass |
 | REQ-UI-004 | femux-client `ui_modes::ui_004_prefixless_nav_is_off_by_default` | pass |
 | REQ-UI-010 | femux-daemon `layout::tests::master_and_scroll_schemes_follow_pane_order`; femux-test `scheme::ui_010_schemes_change_the_geometry`; femux-client `ui_layout::ui_010_preselection_places_the_next_split` | pass |
 | REQ-UI-011 | femux-client `ui_floats::ui_011_floats_render_above_tiles_and_follow_the_mouse`; femux-test `session::sess_002_layout_tree_nodes` (floats beside the tree) | pass |
+| REQ-UI-043 | femux-client `ui_overlays::ui_043_palette_fuzzy_searches_actions_and_cli_commands` | pass |
 | REQ-PLUG-001 | femux-test `repo::plug_001_plugins_are_feature_gated_crates` | pass |
 | REQ-PLUG-002 | femux-plugin `daemon_plugin::plug_002_daemon_plugin_subscribes_and_writes_metadata`; femux-plugin-which-key `tests::*`; femux-plugin-clipboard `tests::*`; femux-plugin-shell-integration `tests::*` | pass |
 | REQ-PLUG-003 | femux-test `repo::plug_003_plugins_depend_on_the_protocol_crates_only`, `repo::arch_002_clients_and_plugins_use_the_protocol_only` | pass |
