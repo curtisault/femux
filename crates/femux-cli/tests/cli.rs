@@ -584,18 +584,26 @@ fn cfg_001_002_launch_from_a_file_and_from_flags() {
     assert_eq!(t[0].custom_title.as_deref(), Some("editor"));
     let infos = pane_infos(&env, "writing");
     let root = home.join("writing");
+    // Compare directories as the OS resolves them (macOS reports /var as /private/var).
+    let same_dir = |reported: &serde_json::Value, want: &std::path::Path| {
+        std::path::Path::new(reported.as_str().unwrap_or_default())
+            .canonicalize()
+            .ok()
+            == want.canonicalize().ok()
+    };
     assert_eq!(infos[0]["cmd"], "sleep 300");
     assert_eq!(infos[0]["restore"], true);
     assert_eq!(infos[1]["cmd"], "sleep 301");
     assert_eq!(infos[1]["restore"], false);
-    assert_eq!(
-        infos[1]["cwd"],
-        root.join("notes").to_string_lossy().as_ref()
+    assert!(
+        same_dir(&infos[1]["cwd"], &root.join("notes")),
+        "{}",
+        infos[1]
     );
     // REQ-CFG-001: tabs beyond the listed ones are plain shells in the root.
     for i in [2, 3] {
         assert!(infos[i]["cmd"].is_null(), "{}", infos[i]);
-        assert_eq!(infos[i]["cwd"], root.to_string_lossy().as_ref());
+        assert!(same_dir(&infos[i]["cwd"], &root), "{}", infos[i]);
     }
     let list = env.json(&["ls"]);
     assert_eq!(list["sessions"][0]["root"], root.to_string_lossy().as_ref());

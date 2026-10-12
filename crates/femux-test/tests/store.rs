@@ -19,6 +19,21 @@ async fn info(c: &mut Client, pane: &str) -> PaneInfoOk {
     .unwrap()
 }
 
+/// Waits until `pane`'s process has started (a re-run pane has pid 0 until its stagger
+/// passes). Whether `sh -c cmd` execs `cmd` or forks for it depends on the shell, so tests
+/// prove a command ran by its output rather than by the foreground process name.
+async fn wait_started(c: &mut Client, pane: &str) -> PaneInfoOk {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let i = info(c, pane).await;
+        if i.pid != 0 {
+            return i;
+        }
+        assert!(Instant::now() < deadline, "{pane} never started: {i:?}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
 /// Waits until `pane`'s foreground command is `cmd`.
 async fn wait_fg(c: &mut Client, pane: &str, cmd: &str) -> PaneInfoOk {
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -138,7 +153,7 @@ async fn store_004_sessions_come_back_with_their_ids_layout_and_marks() {
         .call(TabCreate {
             session: "s".into(),
             cwd: None,
-            cmd: Some("sleep 300".into()),
+            cmd: Some("echo rerun-$((6*7)); sleep 300".into()),
             title: None,
             index: None,
             restore: Some(true),
@@ -156,7 +171,14 @@ async fn store_004_sessions_come_back_with_their_ids_layout_and_marks() {
         })
         .await
         .unwrap();
-    wait_fg(&mut c, &rerun.pane_id, "sleep").await;
+    // Frames come for the view's tab: show the re-run tab to see its output.
+    c.call(TabSelect {
+        view_id: None,
+        tab_id: rerun.tab_id.clone(),
+    })
+    .await
+    .unwrap();
+    c.wait_text(&rerun.pane_id, "rerun-42").await;
     c.call(StoreSnapshot {}).await.unwrap();
     let before = c
         .call(SessionAttach {
@@ -215,16 +237,30 @@ async fn store_004_sessions_come_back_with_their_ids_layout_and_marks() {
     assert_eq!(ia.meta.get("agent.name").map(String::as_str), Some("x"));
     assert_eq!(ia.cmd, None);
     // restore = true re-runs the command; without it the pane is a plain shell.
-    let ir = wait_fg(&mut c, &rerun.pane_id, "sleep").await;
+    let ir = wait_started(&mut c, &rerun.pane_id).await;
     assert!(ir.restore && !ir.restored);
-    assert_eq!(ir.cmd.as_deref(), Some("sleep 300"));
+    assert_eq!(ir.cmd.as_deref(), Some("echo rerun-$((6*7)); sleep 300"));
+    // It really ran again: scrollback is not persisted, so the marker is new output.
+    c.attach("s", 81, 25).await;
+    c.call(TabSelect {
+        view_id: None,
+        tab_id: rerun.tab_id.clone(),
+    })
+    .await
+    .unwrap();
+    c.wait_text(&rerun.pane_id, "rerun-42").await;
     let ip = info(&mut c, &plain.pane_id).await;
     assert!(
         ip.restored && ip.cmd.is_none() && ip.fg_cmd != "sleep",
         "{ip:?}"
     );
     // REQ-STORE-008 (daemon side): a command running in a restored pane clears the mark.
-    c.attach("s", 81, 25).await;
+    c.call(TabSelect {
+        view_id: None,
+        tab_id: t1.clone(),
+    })
+    .await
+    .unwrap();
     c.wait_text(&a, "$").await;
     c.type_text(&a, "sleep 5\n").await;
     wait_fg(&mut c, &a, "sleep").await;
@@ -290,10 +326,10 @@ async fn store_005_reruns_are_staggered() {
     restoring(&mut h);
     let started = Instant::now();
     let mut c = h.client().await;
-    wait_fg(&mut c, &panes[0], "sleep").await;
+    wait_started(&mut c, &panes[0]).await;
     // The second re-run waits one stagger after the first.
     assert_eq!(info(&mut c, &panes[1]).await.pid, 0, "started too early");
-    wait_fg(&mut c, &panes[1], "sleep").await;
+    wait_started(&mut c, &panes[1]).await;
     assert!(started.elapsed() >= Duration::from_millis(1400));
 }
 

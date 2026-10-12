@@ -222,7 +222,7 @@ fn acceptance_0_3_kill_the_daemon_restart_and_the_layout_returns() {
     std::fs::create_dir_all(&sessions).unwrap();
     std::fs::write(
         sessions.join("work.toml"),
-        "root = \"~\"\ntabs = 2\n\n[[tab]]\ntitle = \"long\"\ncommand = \"sleep 600\"\nrestore = true\n",
+        "root = \"~\"\ntabs = 2\n\n[[tab]]\ntitle = \"long\"\ncommand = \"echo long-$((6*7)); sleep 600\"\nrestore = true\n",
     )
     .unwrap();
     for signal in [
@@ -251,10 +251,15 @@ fn acceptance_0_3_kill_the_daemon_restart_and_the_layout_returns() {
         let mut daemon = start_foreground(&env);
         let after = session_tabs(&env.socket(), "work");
         assert_eq!(shape(&after), shape(&before), "after {signal:?}");
-        // The restore = true tab re-runs its command; the others are restored shells.
+        // The restore = true tab re-runs its command (its output is new: scrollback is not
+        // persisted); the others are restored shells.
         wait_until("command re-run", Duration::from_secs(10), || {
-            env.json(&["pane", "info", "--pane", &after[0].focus])["fg_cmd"] == "sleep"
+            env.json(&["pane", "cat", "--pane", &after[0].focus])["lines"]
+                .as_array()
+                .is_some_and(|l| l.iter().any(|l| l == "long-42"))
         });
+        let rerun = env.json(&["pane", "info", "--pane", &after[0].focus]);
+        assert_eq!(rerun["restored"], false, "{rerun}");
         let other = env.json(&["pane", "info", "--pane", &after[1].focus]);
         assert_eq!(other["restored"], true, "{other}");
         env.stop_daemon();
