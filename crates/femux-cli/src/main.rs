@@ -784,8 +784,10 @@ fn run_cmd(cli: &Cli, cfg: &Config, socket: &Path, all_plugins: Vec<Plugin>, cmd
                 )
             }
             IntegrationCmd::Hook { agent, event } => {
+                // Only a hook without an argument (Claude Code) delivers its event on stdin;
+                // Codex passes JSON as the argument with stdin left open.
                 let mut stdin = String::new();
-                if event.is_none() || event.as_deref().is_some_and(|e| e.starts_with('{')) {
+                if event.is_none() {
                     let _ = io::Read::read_to_string(&mut io::stdin(), &mut stdin);
                 }
                 let Some(state) = integration::state_for(agent, event.as_deref(), &stdin) else {

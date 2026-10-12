@@ -406,6 +406,26 @@ fn integration_install_hook_and_uninstall() {
         env.json(&["pane", "info", "--pane", &pane])["meta"]["agent.state"],
         "done"
     );
+    // Codex passes its event as an argument and leaves stdin open: the hook must not wait on it.
+    let mut child = env
+        .cmd(&[
+            "integration",
+            "hook",
+            "codex",
+            r#"{"type":"agent-turn-complete"}"#,
+        ])
+        .env("FEMUX_PANE", &pane)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .spawn()
+        .unwrap();
+    let _keep_open = child.stdin.take();
+    let status = common::exit_within(&mut child, Duration::from_secs(5))
+        .expect("hook exits with stdin open");
+    assert!(status.success());
+    let info = env.json(&["pane", "info", "--pane", &pane]);
+    assert_eq!(info["meta"]["agent.state"], "done");
+    assert_eq!(info["meta"]["agent.name"], "codex");
     // Uninstall leaves the files without femux entries.
     env.run(&["integration", "uninstall", "claude-code"]);
     let settings = std::fs::read_to_string(home.join(".claude/settings.json")).unwrap();
