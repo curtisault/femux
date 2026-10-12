@@ -408,7 +408,10 @@ impl App {
         let r = match r {
             Ok(r) => r,
             Err(e) => {
-                if !matches!(p, Pending::Info | Pending::Quiet) {
+                // A failed detach (the view is already gone) still ends the client.
+                if matches!(p, Pending::Detach) {
+                    self.effects.push(Effect::Exit);
+                } else if !matches!(p, Pending::Info | Pending::Quiet) {
                     self.message = Some(e.message);
                 }
                 return;
