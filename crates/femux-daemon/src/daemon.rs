@@ -88,6 +88,7 @@ pub const SERVED: &[&str] = &[
     "layout",
     "notify",
     "pane",
+    "plugin",
     "scrollback",
     "server",
     "session",
@@ -1613,6 +1614,18 @@ impl Daemon {
                     scope,
                 );
                 Response::NotifyPost(m::Empty {})
+            }
+            Q::PluginPublish(r) => {
+                // Relayed unread to every subscriber (ADR-020).
+                self.emit(
+                    m::PluginData {
+                        plugin: r.plugin,
+                        data: r.data,
+                        ..Default::default()
+                    },
+                    Scope::default(),
+                );
+                Response::PluginPublish(m::Empty {})
             }
             Q::ServerInfo(_) => Response::ServerInfo(m::ServerInfoOk {
                 version: env!("CARGO_PKG_VERSION").into(),

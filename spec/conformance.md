@@ -141,3 +141,9 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-NOTIFY-003 | femux-client `notify::notify_002_003_the_client_acts_on_posted_events_unless_shown` | pass |
 | 0.5.0 acceptance | femux-cli `agents::agent_wait_returns_when_the_claude_code_hook_reports_done`; femux-client `notify::chime_plays_when_the_hook_reports_done` | pass |
 | REQ-PLUG-002 (plugin ticks, responses, CLI events) | femux-plugin-agents `detect::*`; femux-cli `agents::*` | pass |
+
+## 0.6.0
+
+| Requirement | Tests | Status |
+| --- | --- | --- |
+| REQ-PROTO-010 (ADR-020 plugin.publish/plugin.data) | femux-test `plugin::plugin_data_reaches_every_subscriber`, `protocol::*` | pass |

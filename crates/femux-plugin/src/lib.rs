@@ -391,6 +391,7 @@ pub async fn run_daemon_plugin(
             "scrollback",
             "clipboard",
             "notify",
+            "plugin",
             "server",
         ]
         .map(String::from)
