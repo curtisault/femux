@@ -11,7 +11,9 @@ async fn ui_020_tab_strip_shows_running_urgent_and_zoom() {
     let pane = d.pane.clone();
     d.wait_pane_text(&pane, "$").await;
     d.until("pane info", |a| a.model.panes[&pane].known).await;
-    assert_eq!(d.screen_line(0), " 1 sh");
+    // The shell's own name (sh here, bash on macOS where /bin/sh is bash).
+    let sh = d.app.model.panes[&pane].fg_cmd.clone();
+    assert_eq!(d.screen_line(0), format!(" 1 {sh}"));
     // A new tab becomes current; a long-running command marks it.
     d.press_all(&["ctrl+space", "t"]).await;
     d.until("second tab", |a| {
@@ -23,7 +25,7 @@ async fn ui_020_tab_strip_shows_running_urgent_and_zoom() {
     d.until("pane 2 info", |a| a.model.panes[&p2].known).await;
     d.type_text("sleep 30\n").await;
     d.until("running", |a| a.model.panes[&p2].running()).await;
-    assert_eq!(d.screen_line(0), " 1 sh   2 sleep ●");
+    assert_eq!(d.screen_line(0), format!(" 1 {sh}   2 sleep ●"));
     // Back on tab 1, a bell in tab 2 marks it urgent; selecting it clears the mark.
     d.press_all(&["ctrl+space", "1"]).await;
     d.until("tab 1", |a| a.model.current == a.model.tabs[0].id)
@@ -53,7 +55,11 @@ async fn ui_020_tab_strip_shows_running_urgent_and_zoom() {
     }
     d.obs.type_text(&p2, "printf '\\a'\n").await;
     d.until("urgent", |a| a.model.tabs[1].urgent).await;
-    assert!(d.screen_line(0).contains("2 sh !"), "{}", d.screen_line(0));
+    assert!(
+        d.screen_line(0).contains(&format!("2 {sh} !")),
+        "{}",
+        d.screen_line(0)
+    );
     d.press_all(&["ctrl+space", "n"]).await;
     d.until("tab 2", |a| {
         a.model.current == a.model.tabs[1].id && !a.model.tabs[1].urgent
@@ -62,7 +68,11 @@ async fn ui_020_tab_strip_shows_running_urgent_and_zoom() {
     // Zoom marker.
     d.press_all(&["ctrl+space", "z"]).await;
     d.until("zoomed", |a| a.model.tabs[1].zoomed).await;
-    assert!(d.screen_line(0).ends_with("2 sh Z"), "{}", d.screen_line(0));
+    assert!(
+        d.screen_line(0).ends_with(&format!("2 {sh} Z")),
+        "{}",
+        d.screen_line(0)
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -72,7 +82,9 @@ async fn ui_021_title_precedence() {
     d.wait_pane_text(&pane, "$").await;
     d.until("pane info", |a| a.model.panes[&pane].known).await;
     // fg command (the shell) beats the cwd basename.
-    assert_eq!(d.screen_line(0), " 1 sh");
+    let sh = d.app.model.panes[&pane].fg_cmd.clone();
+    assert!(!sh.is_empty());
+    assert_eq!(d.screen_line(0), format!(" 1 {sh}"));
     // OSC 2 beats the fg command.
     d.type_text("printf '\\033]2;notes\\a'\n").await;
     d.until("osc 2 title", |a| a.model.panes[&pane].title == "notes")
