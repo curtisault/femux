@@ -267,6 +267,8 @@ enum IntegrationCmd {
 struct Out {
     text: String,
     json: Value,
+    /// A plugin asked to attach to this session afterwards.
+    attach: Option<String>,
 }
 
 type R = Result<Out, String>;
@@ -275,6 +277,7 @@ fn ok(text: impl Into<String>, json: Value) -> R {
     Ok(Out {
         text: text.into(),
         json,
+        attach: None,
     })
 }
 
@@ -968,6 +971,17 @@ fn with_plugin_commands(mut cmd: Command, plugins: &[Plugin]) -> Command {
             for a in &c.args {
                 leaf = leaf.arg(Arg::new(a.name).help(a.help).required(a.required));
             }
+            for f in &c.flags {
+                let arg = Arg::new(f.name).long(f.name).help(f.help);
+                leaf = leaf.arg(if f.value {
+                    arg.num_args(1)
+                } else {
+                    arg.action(clap::ArgAction::SetTrue)
+                });
+            }
+            if let Some(t) = c.trailing {
+                leaf = leaf.arg(Arg::new(t).num_args(0..).last(true));
+            }
             if rest.is_empty() {
                 cmd = cmd.subcommand(leaf);
                 continue;
@@ -992,7 +1006,7 @@ fn with_plugin_commands(mut cmd: Command, plugins: &[Plugin]) -> Command {
 }
 
 /// Runs a plugin subcommand if `matches` names one.
-fn run_plugin(matches: &ArgMatches, plugins: &[Plugin], socket: &Path) -> Option<R> {
+fn run_plugin(matches: &ArgMatches, plugins: &[Plugin], socket: &Path, server: &str) -> Option<R> {
     let (name, sub) = matches.subcommand()?;
     let (full, leaf) = match sub.subcommand() {
         Some((n2, s2)) => (format!("{name} {n2}"), s2),
@@ -1002,18 +1016,38 @@ fn run_plugin(matches: &ArgMatches, plugins: &[Plugin], socket: &Path) -> Option
         let Some(spec) = p.commands().into_iter().find(|c| c.name == full) else {
             continue;
         };
-        let args: Vec<String> = spec
-            .args
-            .iter()
-            .filter_map(|a| leaf.get_one::<String>(a.name).cloned())
-            .collect();
+        let mut input = femux_plugin::CliInput {
+            args: spec
+                .args
+                .iter()
+                .filter_map(|a| leaf.get_one::<String>(a.name).cloned())
+                .collect(),
+            ..Default::default()
+        };
+        for f in &spec.flags {
+            if f.value {
+                if let Some(v) = leaf.get_one::<String>(f.name) {
+                    input.flags.insert(f.name.to_owned(), Some(v.clone()));
+                }
+            } else if leaf.get_flag(f.name) {
+                input.flags.insert(f.name.to_owned(), None);
+            }
+        }
+        if let Some(t) = spec.trailing {
+            input.trailing = leaf
+                .get_many::<String>(t)
+                .map(|v| v.cloned().collect())
+                .unwrap_or_default();
+        }
         let mut core = LazyCore {
             socket: socket.to_path_buf(),
+            server: server.to_owned(),
             conn: None,
         };
-        return Some(p.run(&full, &args, &mut core).map(|o| Out {
+        return Some(p.run(&full, &input, &mut core).map(|o| Out {
             text: o.text,
             json: o.json,
+            attach: o.attach,
         }));
     }
     None
@@ -1022,6 +1056,7 @@ fn run_plugin(matches: &ArgMatches, plugins: &[Plugin], socket: &Path) -> Option
 /// Connects on the first request, so commands like `shell-integration` need no daemon.
 struct LazyCore {
     socket: PathBuf,
+    server: String,
     conn: Option<Conn>,
 }
 
@@ -1057,6 +1092,12 @@ impl CliCore for LazyCore {
         let mut s = String::new();
         let _ = io::Read::read_to_string(&mut io::stdin(), &mut s);
         s
+    }
+    fn start_daemon(&mut self) -> Result<(), String> {
+        if running(&self.socket) {
+            return Ok(());
+        }
+        spawn_daemon(&self.server, &self.socket).map_err(|e| e.to_string())
     }
 }
 
@@ -1099,8 +1140,23 @@ fn main() -> ExitCode {
             command: None,
         };
         let socket = socket_path(&globals, &cfg);
-        if let Some(r) = run_plugin(&matches, &plugins, &socket) {
-            return r;
+        let server = globals
+            .server
+            .clone()
+            .unwrap_or_else(|| cfg.daemon.name.clone());
+        if let Some(r) = run_plugin(&matches, &plugins, &socket, &server) {
+            let out = r?;
+            // Attach afterwards only from a terminal, outside femux, and not for --json.
+            if let Some(session) = &out.attach
+                && !json
+                && std::env::var_os("FEMUX_PANE").is_none()
+                && unsafe { libc::isatty(0) == 1 && libc::isatty(1) == 1 }
+            {
+                femux_client::run(&socket, Some(session), host(&cfg, plugins, &cmd))
+                    .map_err(|e| e.to_string())?;
+                return ok("", out.json);
+            }
+            return Ok(out);
         }
         let cli = Cli::from_arg_matches(&matches).map_err(|e| e.to_string())?;
         run_cmd(&cli, &cfg, &socket, plugins, &cmd)

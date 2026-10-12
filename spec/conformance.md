@@ -39,7 +39,7 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-EVT-002 | femux-daemon `bus::tests::filters_by_kind_session_and_pane`, `bus::tests::slow_subscriber_gets_events_lost_and_continues`; femux-test `events::evt_002_filters_and_loss`, `protocol::proto_041_full_frame_after_attach_and_events_lost` | pass |
 | REQ-EVT-003 | femux-daemon `bus::tests::late_subscriber_replays_since`; femux-test `events::evt_003_replay_since` | pass |
 | REQ-EVT-004 | femux-test `events::evt_004_pane_metadata` | pass |
-| REQ-LIFE-001 | femux-cli `binary::life_001_sigterm_hups_panes_and_exits` | pass |
+| REQ-LIFE-001 | femux-cli `binary::life_001_sigterm_hups_panes_and_exits`, `binary::acceptance_0_3_kill_the_daemon_restart_and_the_layout_returns` (with restore) | pass |
 | REQ-LIFE-002 | femux-test `lifecycle::life_002_exit_with_last_session`, `lifecycle::life_002_keep_alive`, `lifecycle::life_002_the_request_that_ends_the_daemon_is_answered`, `lifecycle::life_002_exit_when_the_last_shell_exits`; femux-cli `binary::life_002_kill_of_the_last_session_succeeds` | pass |
 | REQ-PROTO-001 | femux-test `protocol::proto_001_socket_and_directory_modes`; femux-proto `tests::socket_dirs` | pass |
 | REQ-PROTO-002 | femux-daemon `server::tests::other_uids_are_refused`; femux-test `protocol::proto_002_same_uid_peer_is_served` | pass |
@@ -104,3 +104,7 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-STORE-007 | femux-daemon `store::tests::store_007_unloadable_files_are_backed_up_never_overwritten`; femux-test `store::store_007_a_bad_store_is_backed_up_and_the_daemon_starts` | pass |
 | REQ-STORE-008 | femux-client `app::tests::store_008_restored_panes_have_a_dashed_border_until_a_command_runs`; femux-test `store::store_004_sessions_come_back_with_their_ids_layout_and_marks` (daemon mark) | pass |
 | `femux reload` (ADR-013) | femux-test `store::server_reload_applies_the_config_or_changes_nothing`; femux-cli `cli::reload_applies_the_config_to_the_running_daemon`; femux-client `app::tests::config_reloaded_asks_for_the_config_and_applies_it` | pass |
+| REQ-CFG-001 | femux-config `tests::session_files_list_tabs_then_plain_shells`; femux-cli `cli::cfg_001_002_launch_from_a_file_and_from_flags`; femux-plugin-launcher `tests::cfg_002_flags_build_the_same_session_as_a_file` | pass |
+| REQ-CFG-002 | femux-cli `cli::cfg_001_002_launch_from_a_file_and_from_flags`; femux-plugin-launcher `tests::*` | pass |
+| Plugin `launcher` | femux-cli `cli::cfg_001_002_launch_from_a_file_and_from_flags`; femux-test `repo::plug_003_plugins_depend_on_the_protocol_crates_only` | pass |
+| Acceptance (0.3.0) | femux-cli `binary::acceptance_0_3_kill_the_daemon_restart_and_the_layout_returns`, `cli::cfg_001_002_launch_from_a_file_and_from_flags` | pass |

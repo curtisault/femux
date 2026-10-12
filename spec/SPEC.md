@@ -496,7 +496,9 @@ cwd = "~/writing/notes"
 ```
 
 - REQ-CFG-001: Tabs beyond the listed `[[tab]]` entries open as plain shells in `root`.
+  Note: `tabs` counts every tab; with fewer `[[tab]]` entries the rest are shells in `root`, and with none at all the session still opens one. Paths in `root` and `cwd` may start with `~`.
 - REQ-CFG-002: `femux launch writing` creates the session from its file; `femux launch writing --tabs 4 --dir ~/writing -- nvim 'git status'` is equivalent and MAY write the file with `--save`.
+  Note: `launch` is the `launcher` plugin's subcommand. `<arg>` is a path when it contains `/`, ends in `.toml` or names a file, else `sessions/<arg>.toml`; the session is named by the file's `name`, else its stem. The flag form applies when `--tabs`, `--dir` or `-- commands` is given; each command after `--` is one tab. A session that already exists is attached to, not recreated. `launch` starts the daemon if needed and attaches afterwards when run from a terminal outside femux; `--detach` and `--json` do not attach.
 - REQ-CFG-003: Unknown keys are errors, not warnings.
   Note: every table of `config.toml` and of session files rejects unknown keys and names the line; enum-like values (`scheme`, `borders`, positions, `mode_keys`) reject unknown values the same way. A bad config stops every command. `femux config check` validates the config and every session file; `femux config edit` seeds a missing config with the defaults from `spec/config.example.toml`.
 
@@ -512,7 +514,7 @@ cwd = "~/writing/notes"
 - REQ-CLI-003: Shell completions for bash, zsh, fish are generated from the CLI definition.
   Note: `femux completions <shell>`, including the subcommands plugins add.
 
-Note (§11, 0.2.0): `launch`, `agent`, `config`, `reload`, `update`, `hosts` and `notify` arrive with their milestones (0.3.0, 0.5.0, 0.3.0, 0.3.0, 1.0, 0.6.0, 0.5.0). `integration install` ships early because its hook target, `femux pane set`, exists.
+Note (§11): `launch`, `config check|edit` and `reload` arrive in 0.3.0; `agent`, `update`, `hosts` and `notify` with their milestones (0.5.0, 1.0, 0.6.0, 0.5.0). `integration install` ships early (0.2.0) because its hook target, `femux pane set`, exists.
 
 ---
 

@@ -102,4 +102,8 @@ impl CliCore for Conn {
         let _ = io::Read::read_to_string(&mut io::stdin(), &mut s);
         s
     }
+    /// A `Conn` exists only when a daemon answered.
+    fn start_daemon(&mut self) -> Result<(), String> {
+        Ok(())
+    }
 }

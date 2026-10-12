@@ -51,11 +51,39 @@ impl Env {
     }
 }
 
+impl Env {
+    /// Stops the daemon at this socket, if one is running (`server.stop`). Sends the request
+    /// without waiting for answers, so a daemon already on its way out cannot make it panic.
+    pub fn stop_daemon(&self) {
+        use std::io::Write;
+        let socket = self.socket();
+        let Ok(mut s) = std::os::unix::net::UnixStream::connect(&socket) else {
+            return;
+        };
+        let hello = femux_test::Client::hello(80, 24);
+        let stop = femux_proto::msg::ServerStop { kill_panes: true };
+        for (id, req) in [
+            (1, femux_proto::Request::from(hello)),
+            (2, femux_proto::Request::from(stop)),
+        ] {
+            if let Ok(bytes) = req.encode(id)
+                && s.write_all(&bytes).is_err()
+            {
+                return;
+            }
+        }
+        // No assertion: this also runs from Drop, possibly while a test is failing.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while socket.exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+}
+
 impl Drop for Env {
     fn drop(&mut self) {
-        // Leave no daemon behind.
-        let _ = self.cmd(&["kill", "0"]).output();
-        let _ = self.cmd(&["kill", "s"]).output();
+        // Leave no daemon behind, whatever sessions it holds.
+        self.stop_daemon();
     }
 }
 

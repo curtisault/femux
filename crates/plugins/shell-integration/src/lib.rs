@@ -3,7 +3,7 @@
 //! and OSC 7 working-directory reports (REQ-VT-006). Source it from the shell's rc file:
 //! `eval "$(femux shell-integration bash)"`.
 
-use femux_plugin::{CliArg, CliCommand, CliCore, CliOutput, CliPlugin, Plugin};
+use femux_plugin::{CliArg, CliCommand, CliCore, CliInput, CliOutput, CliPlugin, Plugin};
 
 pub fn plugin() -> Plugin {
     Plugin {
@@ -114,20 +114,22 @@ impl CliPlugin for Cli {
                 help: "bash, zsh or fish",
                 required: true,
             }],
+            ..Default::default()
         }]
     }
     fn run(
         &self,
         _cmd: &str,
-        args: &[String],
+        input: &CliInput,
         _core: &mut dyn CliCore,
     ) -> Result<CliOutput, String> {
-        let shell = args.first().map(String::as_str).unwrap_or("");
+        let shell = input.args.first().map(String::as_str).unwrap_or("");
         let script = script(shell)
             .ok_or_else(|| format!("unknown shell {shell:?}; one of {}", SHELLS.join(", ")))?;
         Ok(CliOutput {
             text: script.to_owned(),
             json: serde_json::json!({ "shell": shell, "script": script }),
+            attach: None,
         })
     }
 }

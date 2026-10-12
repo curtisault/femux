@@ -81,6 +81,7 @@ const LEAVES: &[&[&str]] = &[
     &["reload"],
     &["clipboard", "set"],
     &["shell-integration"],
+    &["launch"],
 ];
 
 #[test]
@@ -548,4 +549,96 @@ fn reload_applies_the_config_to_the_running_daemon() {
             .unwrap();
         c.call(m::ServerStop { kill_panes: true }).await.unwrap();
     });
+}
+
+fn pane_infos(env: &Env, session: &str) -> Vec<serde_json::Value> {
+    tabs(env, session)
+        .iter()
+        .map(|t| env.json(&["pane", "info", "--pane", &t.focus]))
+        .collect()
+}
+
+/// REQ-CFG-001/002: `femux launch` from a session file and from flags, `--save`, and a second
+/// launch attaching to the existing session instead of creating another.
+#[test]
+fn cfg_001_002_launch_from_a_file_and_from_flags() {
+    let env = Env::new();
+    let home = env.dir.path().to_path_buf();
+    std::fs::create_dir_all(home.join("writing/notes")).unwrap();
+    let sessions = home.join("config/femux/sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+    std::fs::write(
+        sessions.join("writing.toml"),
+        "name = \"writing\"\nroot = \"~/writing\"\ntabs = 4\n\n[[tab]]\ntitle = \"editor\"\ncommand = \"sleep 300\"\nrestore = true\n\n[[tab]]\ncommand = \"sleep 301\"\ncwd = \"~/writing/notes\"\n",
+    )
+    .unwrap();
+    // No daemon yet: launch starts one.
+    let j = env.json(&["launch", "writing", "--detach"]);
+    assert_eq!(
+        (j["created"].clone(), j["tabs"].clone()),
+        (true.into(), 4.into()),
+        "{j}"
+    );
+    let t = tabs(&env, "writing");
+    assert_eq!(t.len(), 4);
+    assert_eq!(t[0].custom_title.as_deref(), Some("editor"));
+    let infos = pane_infos(&env, "writing");
+    let root = home.join("writing");
+    assert_eq!(infos[0]["cmd"], "sleep 300");
+    assert_eq!(infos[0]["restore"], true);
+    assert_eq!(infos[1]["cmd"], "sleep 301");
+    assert_eq!(infos[1]["restore"], false);
+    assert_eq!(
+        infos[1]["cwd"],
+        root.join("notes").to_string_lossy().as_ref()
+    );
+    // REQ-CFG-001: tabs beyond the listed ones are plain shells in the root.
+    for i in [2, 3] {
+        assert!(infos[i]["cmd"].is_null(), "{}", infos[i]);
+        assert_eq!(infos[i]["cwd"], root.to_string_lossy().as_ref());
+    }
+    let list = env.json(&["ls"]);
+    assert_eq!(list["sessions"][0]["root"], root.to_string_lossy().as_ref());
+    // Launching an existing session creates nothing.
+    let again = env.json(&["launch", "writing", "--detach"]);
+    assert_eq!(again["created"], false);
+    assert_eq!(tabs(&env, "writing").len(), 4);
+
+    // The flag form, saved: the same shape, and the saved file launches it again.
+    let dir = root.to_string_lossy().into_owned();
+    let j = env.json(&[
+        "launch",
+        "w2",
+        "--tabs",
+        "3",
+        "--dir",
+        &dir,
+        "--save",
+        "--detach",
+        "--",
+        "sleep 302",
+        "sleep 303",
+    ]);
+    assert_eq!(j["tabs"], 3, "{j}");
+    let saved = std::fs::read_to_string(sessions.join("w2.toml")).unwrap();
+    let parsed = femux_config::SessionFile::parse(&saved).unwrap();
+    assert_eq!(parsed.tabs, Some(3));
+    assert_eq!(parsed.tab.len(), 2);
+    assert_eq!(parsed.tab[1].command.as_deref(), Some("sleep 303"));
+    let cmds = |env: &Env| -> Vec<serde_json::Value> {
+        pane_infos(env, "w2")
+            .iter()
+            .map(|i| i["cmd"].clone())
+            .collect()
+    };
+    let first = cmds(&env);
+    env.run(&["kill", "w2"]);
+    env.json(&["launch", "w2", "--detach"]);
+    assert_eq!(cmds(&env), first);
+    assert_eq!(first[0], "sleep 302");
+    // Errors name the file and line.
+    std::fs::write(sessions.join("bad.toml"), "name = \"bad\"\nwindows = 2\n").unwrap();
+    let e = env.json(&["launch", "bad", "--detach"]);
+    let e = e["error"].as_str().unwrap();
+    assert!(e.contains("bad.toml") && e.contains("line 2"), "{e}");
 }
