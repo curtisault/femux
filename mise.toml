@@ -43,7 +43,8 @@ description = "What CI runs: format check, lint, tests (in that order)"
 run = [
   "cargo fmt --all -- --check",
   "cargo clippy --workspace --all-targets -- -D warnings",
-  "cargo test --workspace",
+  # Every test binary runs even after one fails, so a CI run reports every failure.
+  "cargo test --workspace --no-fail-fast",
 ]
 
 [tasks.bench]
