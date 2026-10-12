@@ -60,3 +60,15 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-TEST-001 | femux-test `acceptance::create_split_ls_detach_reattach` (uses `screen` and `screen_text`) | pass |
 | REQ-TEST-002 | femux-test `repo::test_002_every_milestone_requirement_is_mapped` | pass |
 | Acceptance (0.1.0) | femux-test `acceptance::create_split_ls_detach_reattach`; bare viewer: femux-client `viewer::tests::*`, femux-cli `binary::arch_004_plain_femux_starts_a_daemon_and_attaches` | pass |
+
+## 0.2.0
+
+| Requirement | Tests | Status |
+| --- | --- | --- |
+| REQ-UI-001 | femux-client `ui_modes::ui_001_three_modes` | pass |
+| REQ-UI-002 | femux-client `ui_modes::ui_002_prefix_is_one_shot_and_configurable`, `keys::tests::*`, `bindings::tests::every_default_binding_of_spec_5_1_exists` | pass |
+| REQ-UI-004 | femux-client `ui_modes::ui_004_prefixless_nav_is_off_by_default` | pass |
+| REQ-PLUG-001 | femux-test `repo::plug_001_plugins_are_feature_gated_crates` | pass |
+| REQ-PLUG-002 | femux-plugin `daemon_plugin::plug_002_daemon_plugin_subscribes_and_writes_metadata`; femux-plugin-which-key `tests::*`; femux-plugin-clipboard `tests::*`; femux-plugin-shell-integration `tests::*` | pass |
+| REQ-PLUG-003 | femux-test `repo::plug_003_plugins_depend_on_the_protocol_crates_only`, `repo::arch_002_clients_and_plugins_use_the_protocol_only` | pass |
+| REQ-PLUG-004 | femux-test `repo::plug_004_built_in_list_matches_crates_and_milestones` | pass |

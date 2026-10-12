@@ -250,6 +250,7 @@ frame {view_id, frame_seq, full: bool, panes: [{pane_id, rect, cells: [ {x,y,run
 
 - REQ-UI-001: Three modes: `terminal` (default; keys go to the focused pane), `normal` (vim motions act on layout), `copy` (scrollback).
 - REQ-UI-002: Prefix (default `ctrl+space`, list allowed) enters a one-shot `prefix` table; `prefix prefix` sends the prefix to the pane; `prefix esc` enters sticky `normal`.
+  Note: sticky `normal` uses the prefix table directly; `esc` (or the prefix key) returns to `terminal`. An unbound key after the prefix is swallowed and named in the status line.
 - REQ-UI-003: A which-key overlay lists available chords after `ui.which_key_delay_ms` (default 400).
 - REQ-UI-004: Prefix-less bindings (`alt+h/j/k/l`) exist but are off by default.
 
@@ -281,9 +282,12 @@ Default bindings (prefix table unless noted):
 
 Copy mode: `hjkl`, `w b e`, `0 $`, `gg G`, `ctrl+u/d`, `/ ? n N` (regex), `v V ctrl+v` select, `y` yank (OSC 52 + clipboard.set), `[ ]` previous/next prompt mark, `q` exit.
 
+Note: `]` pastes the newest server clipboard text the client has seen (its own yank or any `clipboard.changed`). `S`, `W` and `b` are bound in 0.2.0 but only report that navigators arrive in 0.4.0. `x` confirms when the pane's foreground process is not its shell (`pane.info.pid`). Action names for `[keys.*]` are listed by `femux keys list`.
+
 ### 5.2 Layout
 
 - REQ-UI-010: BSP with preselection (`prefix` then `shift+h/j/k/l` chooses where the next split goes), master-stack and scrolling schemes selectable per tab.
+  Note: `shift+h/j/k/l` are the resize keys in the §5.1 table, so preselection is `prefix ctrl+h/j/k/l` (actions `preselect left|down|up|right`); the choice shows in the status line and applies to the next split. Schemes are palette actions `scheme bsp|master|scroll` (`layout.set_scheme`).
 - REQ-UI-011: Floating panes render above tiles; mouse drag moves and resizes them.
 - REQ-UI-012: Layout templates can be saved and loaded by name (`femux layout save|load`); they serialize `layout.get` output plus cwd and cmd per pane.
 

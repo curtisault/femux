@@ -224,6 +224,20 @@ impl Client {
         Ok(c)
     }
 
+    /// Sends a request under a caller-chosen id (for driving a client state machine).
+    pub async fn send_with_id(&mut self, id: u64, req: Request) {
+        let bytes = req.encode(id).unwrap();
+        self.wr.write_all(&bytes).await.unwrap();
+    }
+
+    /// The next raw message within `timeout`, bypassing this client's own bookkeeping.
+    pub async fn raw_recv(&mut self, timeout: Duration) -> Option<ServerMsg> {
+        match tokio::time::timeout(timeout, self.rx.recv()).await {
+            Ok(Some(Ok(m))) => Some(m),
+            _ => None,
+        }
+    }
+
     /// Sends a request without waiting; returns its id.
     pub async fn send(&mut self, req: impl Into<Request>) -> u64 {
         let id = self.next_id;

@@ -95,6 +95,22 @@ fn spawn_daemon(cli: &Cli, socket: &Path) -> io::Result<()> {
     Ok(())
 }
 
+/// What the client gets: config, the enabled client plugins, CLI names for the palette.
+fn host() -> femux_client::Host {
+    let enabled: Vec<String> = ["clipboard", "shell-integration", "which-key"]
+        .map(String::from)
+        .to_vec();
+    let plugins = plugins::enabled(&enabled)
+        .into_iter()
+        .filter_map(|p| p.client)
+        .collect();
+    femux_client::Host {
+        cfg: femux_client::ClientConfig::default(),
+        plugins,
+        cli_commands: vec!["ls".into(), "new".into(), "kill".into()],
+    }
+}
+
 fn run_daemon(cli: &Cli, socket: PathBuf) -> io::Result<()> {
     let mut cfg = femux_daemon::Config::new(&cli.server);
     cfg.socket = socket;
@@ -156,9 +172,9 @@ fn main() -> ExitCode {
             if !running(&socket) {
                 spawn_daemon(&cli, &socket)?;
             }
-            femux_client::run(&socket, None)
+            femux_client::run(&socket, None, host())
         })(),
-        Some(Cmd::Attach { session }) => femux_client::run(&socket, session.as_deref()),
+        Some(Cmd::Attach { session }) => femux_client::run(&socket, session.as_deref(), host()),
         Some(Cmd::Ls) => call(&socket, m::SessionList {}).map(|l| {
             for s in l.sessions {
                 println!("{}: {} tabs, {} clients", s.name, s.tabs, s.clients);

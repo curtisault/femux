@@ -1,7 +1,5 @@
 //! The built-in plugin registry (REQ-PLUG-001): every plugin compiled in by its feature, then
 //! filtered by `[plugins] enabled` at runtime.
-#![allow(dead_code)] // used by the CLI host and the client once the 0.2.0 CLI lands
-
 use femux_plugin::Plugin;
 
 /// Every plugin compiled into this binary.

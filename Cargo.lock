@@ -501,7 +501,12 @@ dependencies = [
 name = "femux-client"
 version = "0.1.0"
 dependencies = [
+ "femux-plugin",
+ "femux-plugin-clipboard",
+ "femux-plugin-which-key",
  "femux-proto",
+ "femux-test",
+ "libc",
  "termwiz",
  "tokio",
 ]
