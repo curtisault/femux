@@ -8,7 +8,9 @@ pub mod config;
 pub mod copy;
 pub mod graphics;
 pub mod keys;
+pub mod layout;
 pub mod model;
+pub mod nav;
 pub mod probe;
 pub mod render;
 pub mod term;
@@ -130,11 +132,6 @@ pub struct Host {
     pub reload: Option<Box<dyn Fn() -> Result<ClientConfig, String> + Send>>,
 }
 
-/// Chrome rows for a config (tab strip + status line), used before the app exists.
-fn chrome_rows(cfg: &ClientConfig) -> u16 {
-    1 + u16::from(cfg.tabs != config::TabsPosition::Hidden)
-}
-
 /// Collects output for the terminfo renderer.
 struct Out(Vec<u8>, (usize, usize));
 
@@ -218,7 +215,8 @@ pub fn run(socket: &Path, session: Option<&str>, host: Host) -> io::Result<()> {
     let probe = probe::run(&mut term, Duration::from_millis(250));
     let mut early = term.parse(&probe.leftover, true);
     let (cols, rows) = term.size();
-    let chrome = chrome_rows(&host.cfg);
+    // The pane area before the app exists (no side nav yet).
+    let area = layout::Layout::compute(cols, rows, &host.cfg, false).panes;
 
     let mut conn = Conn::open(socket)?;
     let mut aside = Vec::new();
@@ -239,8 +237,8 @@ pub fn run(socket: &Path, session: Option<&str>, host: Host) -> io::Result<()> {
         .map(String::from)
         .to_vec(),
         term: Some(m::TermCaps {
-            cols,
-            rows: rows.saturating_sub(chrome).max(1),
+            cols: area.w,
+            rows: area.h,
             colors: m::ColorDepth::Truecolor,
             kitty_graphics: false,
             kitty_keyboard: probe.kitty_keyboard,
@@ -281,15 +279,16 @@ pub fn run(socket: &Path, session: Option<&str>, host: Host) -> io::Result<()> {
         m::SessionAttach {
             name: name.clone(),
             tab: None,
-            cols: Some(cols),
-            rows: Some(rows.saturating_sub(chrome).max(1)),
+            cols: Some(area.w),
+            rows: Some(area.h),
         },
         &mut aside,
     )? {
         Response::SessionAttach(a) => a,
         r => return Err(other(format!("unexpected {r:?}"))),
     };
-    let mut theme = Theme::pick(&host.cfg.theme, probe.dark, probe.bg);
+    let (mut theme, theme_error) =
+        Theme::resolve(&host.cfg.theme, &host.plugins, probe.dark, probe.bg);
     let reload = host.reload;
     let mut app = App::new(
         host.cfg,
@@ -299,6 +298,9 @@ pub fn run(socket: &Path, session: Option<&str>, host: Host) -> io::Result<()> {
         cols,
         rows,
     );
+    if let Some(e) = theme_error {
+        app.message = Some(e);
+    }
     let mouse = app.cfg.mouse;
     term.enter(mouse)?;
 
@@ -331,8 +333,13 @@ pub fn run(socket: &Path, session: Option<&str>, host: Host) -> io::Result<()> {
                     Effect::Clipboard(text) => term.write(term::osc52(&text).as_bytes())?,
                     Effect::Reload => match reload.as_ref().map(|r| r()) {
                         Some(Ok(cfg)) => {
-                            theme = Theme::pick(&cfg.theme, probe.dark, probe.bg);
+                            let (t, err) =
+                                Theme::resolve(&cfg.theme, &app.plugins, probe.dark, probe.bg);
+                            theme = t;
                             app.apply_config(cfg);
+                            if let Some(e) = err {
+                                app.message = Some(e);
+                            }
                             prev = Surface::new(size.0 as usize, size.1 as usize);
                             term.write(b"\x1b[2J")?;
                         }

@@ -75,7 +75,7 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-UI-020 | femux-client `ui_tabs::ui_020_tab_strip_shows_running_urgent_and_zoom`, `model::tests::tabs_are_inserted_at_the_daemons_index` | pass |
 | REQ-UI-021 | femux-client `ui_tabs::ui_021_title_precedence`; femux-daemon `state::State::tab_title` via femux-test `session::*` | pass |
 | REQ-UI-050 | femux-client `tests::paint_writes_only_the_diff_inside_synchronized_output`, `probe::tests::parses_answers_and_keeps_the_rest` | pass |
-| REQ-UI-051 | femux-client `theme::tests::picks_by_name_mode_or_background`, `probe::tests::parses_answers_and_keeps_the_rest` | pass |
+| REQ-UI-051 | femux-client `theme::tests::picks_by_name_mode_or_background`, `theme::tests::plugin_palettes_win_and_their_errors_fall_back`, `probe::tests::parses_answers_and_keeps_the_rest`; femux-plugin-theme `tests::*` | pass |
 | REQ-UI-052 | femux-client `graphics::tests::placements_are_offset_and_clipped`, `graphics::tests::kitty_commands_carry_offsets_and_crops` | pass |
 | REQ-UI-053 | femux-client `ui_mouse::ui_053_mouse_focuses_forwards_and_can_be_disabled` | pass |
 | Acceptance (0.2.0) | femux-client `acceptance::all_default_bindings_work`, `acceptance::copy_mode_search_selects_and_yanks`; femux-cli `binary::arch_004_plain_femux_starts_a_daemon_and_attaches` (daily driver on a PTY) | pass |
@@ -108,3 +108,18 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-CFG-002 | femux-cli `cli::cfg_001_002_launch_from_a_file_and_from_flags`; femux-plugin-launcher `tests::*` | pass |
 | Plugin `launcher` | femux-cli `cli::cfg_001_002_launch_from_a_file_and_from_flags`; femux-test `repo::plug_003_plugins_depend_on_the_protocol_crates_only` | pass |
 | Acceptance (0.3.0) | femux-cli `binary::acceptance_0_3_kill_the_daemon_restart_and_the_layout_returns`, `cli::cfg_001_002_launch_from_a_file_and_from_flags` | pass |
+
+## 0.4.0
+
+| Requirement | Tests | Status |
+| --- | --- | --- |
+| REQ-UI-030 | femux-client `ui_bar::ui_030_the_bar_sits_on_any_side_and_the_panes_move_over`, `ui_bar::ui_030_a_column_bar_never_draws_over_the_panes`, `layout::tests::ui_030_the_bar_takes_one_side_and_the_panes_the_rest` | pass |
+| REQ-UI-031 | femux-client `ui_bar::ui_031_modules_come_from_plugins_in_config_order_on_their_interval` | pass |
+| REQ-UI-032 | femux-plugin-infobar `tests::*`; femux-client `ui_bar::acceptance_0_4_bar_on_all_four_sides_with_every_built_in_module` | pass |
+| REQ-UI-033 | femux-client `ui_bar::ui_033_notifications_show_while_their_pane_is_hidden`; femux-test `notify::notify_post_is_relayed_to_the_panes_session` | pass |
+| Plugin `infobar` | femux-plugin-infobar `tests::*`; femux-client `ui_bar::*` | pass |
+| REQ-UI-040 | femux-client `ui_nav::ui_040_session_navigator_lists_attaches_renames_creates_and_kills`, `nav::tests::ui_040_sessions_expand_to_tabs_and_filter`; femux-test `notify::last_activity_follows_output_and_input` | pass |
+| REQ-UI-041 | femux-client `ui_nav::ui_041_window_navigator_previews_panes_live_and_goes_to_them`, `nav::tests::ui_041_windows_list_every_pane_and_preview_the_selection` | pass |
+| REQ-UI-042 | femux-client `ui_nav::ui_042_side_nav_lists_sessions_and_tabs_and_switches_on_click` | pass |
+| Plugin `theme` | femux-plugin-theme `tests::bundled_themes_by_name`, `tests::files_override_a_base_and_reject_unknown_keys`; femux-client `theme::tests::plugin_palettes_win_and_their_errors_fall_back` | pass |
+| Acceptance (0.4.0) | femux-client `ui_bar::acceptance_0_4_bar_on_all_four_sides_with_every_built_in_module`, `ui_nav::*` | pass |

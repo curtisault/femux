@@ -1,6 +1,6 @@
 # femux — Specification
 
-Version 0.3 (draft) · 2026-10-12 · License: MIT
+Version 0.4 (draft) · 2026-10-12 · License: MIT
 
 femux is a terminal multiplexer written in Rust. A session daemon owns processes, a versioned protocol carries state, and clients render. Agent tracking and every other feature are plugins over that core. This document is the single source of truth for an implementing agent. Requirement IDs (`REQ-*`) are stable; tests, commits and PRs reference them.
 
@@ -284,7 +284,7 @@ Default bindings (prefix table unless noted):
 
 Copy mode: `hjkl`, `w b e`, `0 $`, `gg G`, `ctrl+u/d`, `/ ? n N` (regex), `v V ctrl+v` select, `y` yank (OSC 52 + clipboard.set), `[ ]` previous/next prompt mark, `q` exit.
 
-Note: `]` pastes the newest server clipboard text the client has seen (its own yank or any `clipboard.changed`). `S`, `W` and `b` are bound in 0.2.0 but only report that navigators arrive in 0.4.0. `x` confirms when the pane's foreground process is not its shell (`pane.info.pid`). Action names for `[keys.*]` are listed by `femux keys list`.
+Note: `]` pastes the newest server clipboard text the client has seen (its own yank or any `clipboard.changed`). `S`, `W` and `b` open the navigators and the side nav from 0.4.0 (they were inert in 0.2.0). `x` confirms when the pane's foreground process is not its shell (`pane.info.pid`). Action names for `[keys.*]` are listed by `femux keys list`.
 
 ### 5.2 Layout
 
@@ -304,15 +304,22 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
 ### 5.4 Info bar
 
 - REQ-UI-030: One bar at `top|bottom|left|right`; `left` and `right` are vertical and stack modules.
+  Note: a `left`/`right` bar is a 24-column column the full height of the terminal, with the tab strip and panes beside it; the session chip and mode come first, the `left` modules follow from the top and the `right` ones are anchored to the bottom. Prompts, confirmations and messages use the bar row, or with a vertical bar the bottom row of the pane area while they are shown.
 - REQ-UI-031: Modules are listed in config in order; each is a plugin implementing `InfoModule { fn render(&self, w: usize) -> Spans; fn interval(&self) -> Duration }`.
+  Note: modules also get `sample(&mut self, ctx)`, called every `max(interval(), [infobar] interval_ms)` and only for modules the config shows, and `render` reads a `BarCtx` (session, tabs, agent counts, the focused pane's cwd, notifications of hidden panes, orientation). Unknown names are skipped. `session` is the client's own chip and mode, so with the `infobar` plugin disabled the bar still shows them.
 - REQ-UI-032: Built-in modules: `session`, `tabs`, `clock`, `cpu`, `mem`, `net`, `battery`, `git`, `agents`, `notifications`, `hostname`. A module name prefixed `remote:` renders on the daemon host (data arrives as pane-independent events).
+  Note (0.4.0): `remote:<module>` renders the local module until SSH attach (0.6.0) gives the daemon a different host. `agents` counts `agent.state` metadata as it stands; `notifications` shows `notify.posted` (ADR-018 #2). `cpu`, `mem` and `net` use the `sysinfo` crate; `battery` reads `/sys/class/power_supply` on Linux and `pmset` on macOS; `git` runs `git status` off the client's thread. `battery` and `git` show nothing without a battery or a repository.
 - REQ-UI-033: `notifications` shows the newest N notification titles when the originating pane is hidden (useful in zoom).
+  Note: hidden means not in this client's current tab, or zoomed away; a notification about no pane always shows. A row bar shows the newest, a column the newest three.
 
 ### 5.5 Navigators and overlays
 
 - REQ-UI-040: Session navigator (`S`): full-screen list of sessions with tab counts, agent summary, last activity; `enter` attaches, `x` kills, `r` renames, `/` filters.
+  Note: each session row shows its root, agent summary and tab count (`attached` for this client's own); `tab` expands a session to its tabs; created, last activity (ADR-018 #1), tab, pane and client counts sit under the preview. `n` creates a session; `x` asks first, and killing the attached session first moves this client to another one. `enter` attaches by detaching this client's view and attaching to the chosen session.
 - REQ-UI-041: Window navigator (`W`): tree of sessions → tabs → panes with a live preview of the selected pane.
+  Note: the preview reads the selected pane's screen with `scrollback.read` every 500 ms; `enter` goes to the pane, attaching to its session when it is another one.
 - REQ-UI-042: Side nav (`b`): persistent left column listing sessions and tabs; click to switch.
+  Note: 26 columns, between a `left` bar and the panes, which the daemon resizes. The attached session is expanded to its tabs and the others are collapsed; clicking a session attaches to it, clicking a tab selects it. Sessions refresh every 2 s while the side nav or a navigator is open.
 - REQ-UI-043: Command palette (`ctrl+p`, `prefix :`): fuzzy search over all bound actions and CLI subcommands.
   Note: actions are listed by name (`femux keys list`) with their description and key; choosing a CLI subcommand types `femux <subcommand> ` into the focused pane. Matching is subsequence-based.
 - REQ-UI-044: Inbox overlay (agents plugin): list of panes in `blocked|done|error` with one-key jump and one-key respond.
@@ -322,7 +329,7 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
 - REQ-UI-050: Output is diff-based; each frame is wrapped in synchronized output (mode 2026) when the host supports it.
   Note: support is probed at startup with `DECRQM 2026`, together with OSC 10/11/12, `DSR 996` (light/dark), the Kitty keyboard query and DA1.
 - REQ-UI-051: Theme from `[theme]` or, when `theme = "terminal"`, from OSC 10/11 queries at startup; light/dark follows mode 2031 when available.
-  Note: 0.2.0 ships a bundled `dark` and `light` theme; `terminal` picks one from the mode 2031 answer, else from the OSC 11 background's luminance. Named and file themes arrive with the `theme` plugin (0.4.0).
+  Note: `terminal` picks the built-in dark or light theme from the mode 2031 answer, else from the OSC 11 background's luminance. Other names come from the `theme` plugin (0.4.0): `dark`, `light`, `high-contrast`, or a path to a JSON file of `#rrggbb` colors over a `base`; unknown keys are errors. A theme the plugin cannot load falls back to `terminal` and says why in the status row. `femux reload` re-applies it.
 - REQ-UI-052: Kitty graphics placements are re-emitted with pane offsets and clipped at pane bounds.
   Note: 0.2.0 implements the geometry and the `a=p` re-emission for `frame.images`; the daemon sends placements from 0.7.0 (GFX-*).
 - REQ-UI-053: Mouse support is on by default and fully disableable.

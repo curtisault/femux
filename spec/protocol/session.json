@@ -25,6 +25,10 @@
         "created": {
           "$ref": "common.json#/$defs/U64",
           "description": "ms since epoch"
+        },
+        "last_activity": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch of the newest output from, or input to, any of its panes; its creation time if none."
         }
       },
       "required": [
@@ -32,7 +36,8 @@
         "root",
         "tabs",
         "clients",
-        "created"
+        "created",
+        "last_activity"
       ]
     },
     "SessionListOk": {

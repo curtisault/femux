@@ -53,13 +53,13 @@ impl Drive {
         })
         .await
         .unwrap();
-        let chrome = 2;
+        let area = femux_client::layout::Layout::compute(cols, rows, &cfg, false).panes;
         let attach = conn
             .call(m::SessionAttach {
                 name: "s".into(),
                 tab: None,
-                cols: Some(cols),
-                rows: Some(rows - chrome),
+                cols: Some(area.w),
+                rows: Some(area.h),
             })
             .await
             .unwrap();

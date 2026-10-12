@@ -86,6 +86,7 @@ pub const SERVED: &[&str] = &[
     "events",
     "frame",
     "layout",
+    "notify",
     "pane",
     "scrollback",
     "server",
@@ -321,6 +322,7 @@ impl Daemon {
             restored: opts.restored,
             extra_env: opts.extra_env,
             saved_env: BTreeMap::new(),
+            activity: Arc::default(),
         };
         st.panes.insert(id.clone(), pane);
         match opts.delay {
@@ -387,6 +389,7 @@ impl Daemon {
             master.clone(),
             vt,
             tx,
+            pane.activity.clone(),
         )));
         pane.tasks.push(tokio::spawn(writer(master.clone(), rx)));
         pane.tasks
@@ -816,6 +819,14 @@ impl Daemon {
         Ok((p.vt.clone(), p.input.clone()))
     }
 
+    /// Records input to a pane (ADR-018 #1).
+    fn touch(&self, pane: &str) {
+        if let Some(p) = self.state.lock().unwrap().panes.get(pane) {
+            p.activity
+                .store(crate::bus::now_ms(), std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
     /// Requests that only touch one pane's terminal. `Err` hands the request back.
     fn handle_terminal(&self, req: Request) -> Result<R<Response>, Request> {
         use Request as Q;
@@ -873,6 +884,7 @@ impl Daemon {
                     if !out.is_empty() {
                         let _ = input.send(out);
                     }
+                    self.touch(&r.pane_id);
                     Response::PaneInput(m::Empty {})
                 }
                 Q::ScrollbackRead(r) => {
@@ -945,6 +957,16 @@ impl Daemon {
                             .collect::<std::collections::BTreeSet<_>>()
                             .len() as u32,
                         created: s.created,
+                        last_activity: s
+                            .tabs
+                            .iter()
+                            .filter_map(|t| st.tabs.get(t))
+                            .flat_map(|t| t.panes())
+                            .filter_map(|p| st.panes.get(&p))
+                            .map(|p| p.activity.load(std::sync::atomic::Ordering::Relaxed))
+                            .max()
+                            .unwrap_or(0)
+                            .max(s.created),
                     })
                     .collect();
                 Response::SessionList(m::SessionListOk { sessions })
@@ -1560,6 +1582,26 @@ impl Daemon {
             Q::EventsSubscribe(_) | Q::EventsUnsubscribe(_) => {
                 return Err(invalid("handled by the connection"));
             }
+            Q::NotifyPost(r) => {
+                // Relayed to every subscriber; the pane's session scopes it (ADR-018 #2).
+                let scope = match &r.pane_id {
+                    Some(p) => {
+                        st.pane(p)?;
+                        st.pane_scope(p)
+                    }
+                    None => Scope::default(),
+                };
+                self.emit(
+                    m::NotifyPosted {
+                        pane_id: r.pane_id,
+                        title: r.title,
+                        level: r.level.unwrap_or(m::NotifyLevel::Info),
+                        ..Default::default()
+                    },
+                    scope,
+                );
+                Response::NotifyPost(m::Empty {})
+            }
             Q::ServerInfo(_) => Response::ServerInfo(m::ServerInfoOk {
                 version: env!("CARGO_PKG_VERSION").into(),
                 uptime: self.started.elapsed().as_millis() as u64,
@@ -1694,6 +1736,7 @@ async fn reader(
     master: Arc<tokio::io::unix::AsyncFd<std::os::fd::OwnedFd>>,
     vt: Arc<Mutex<Terminal>>,
     input: mpsc::UnboundedSender<Vec<u8>>,
+    activity: Arc<std::sync::atomic::AtomicU64>,
 ) {
     let mut buf = vec![0u8; 64 * 1024];
     loop {
@@ -1707,6 +1750,7 @@ async fn reader(
             Ok(Ok(n)) => n,
             Err(_would_block) => continue,
         };
+        activity.store(crate::bus::now_ms(), std::sync::atomic::Ordering::Relaxed);
         let (replies, changes) = {
             let mut vt = vt.lock().unwrap();
             vt.write(&buf[..n]);

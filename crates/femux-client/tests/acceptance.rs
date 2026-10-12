@@ -209,13 +209,17 @@ async fn all_default_bindings_work() {
     assert!(matches!(d.app.overlay, Overlay::Help));
     assert!(d.screen().contains("prefix table"));
     d.press("escape").await;
-    for k in ["S", "W", "b"] {
+    // S / W: the navigators (0.4.0), q closes them; b toggles the side nav.
+    for k in ["S", "W"] {
         d.press_all(&["ctrl+space", k]).await;
-        assert!(
-            d.app.message.as_deref().unwrap_or("").contains("0.4.0"),
-            "{k}"
-        );
+        assert!(matches!(d.app.overlay, Overlay::Navigator(_)), "{k}");
+        d.press("q").await;
+        assert!(matches!(d.app.overlay, Overlay::None), "{k}");
     }
+    d.press_all(&["ctrl+space", "b"]).await;
+    assert!(d.app.sidenav_open);
+    d.press_all(&["ctrl+space", "b"]).await;
+    assert!(!d.app.sidenav_open);
     // x: close pane; confirmation when a program runs in it.
     d.type_text("sleep 30\n").await;
     d.until("running", |x| x.model.panes[&c].running()).await;

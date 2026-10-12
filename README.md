@@ -7,17 +7,18 @@ from the `femux` CLI. Agent tracking and the other extras are built-in plugins o
 
 ## Status
 
-femux is pre-1.0 and at version 0.3: a client and CLI meant for daily local use, with sessions
+femux is pre-1.0 and at version 0.4: a client and CLI meant for daily local use, with sessions
 that can survive a daemon restart.
 
 Working now: tabs, BSP splits with preselection, master and scroll layouts, floating panes, zoom,
-marks, copy mode with regex search, a command palette, which-key hints, mouse support, the
-`femux` CLI with `--json` output, session files with `femux launch`, and opt-in restore of
-sessions after the daemon restarts (`[restore] enabled = true`).
+marks, copy mode with regex search, a command palette, which-key hints, mouse support, an info
+bar on any side with cpu, memory, network, battery, git, agent and notification modules, session
+and window navigators, a side nav, themes, the `femux` CLI with `--json` output, session files
+with `femux launch`, and opt-in restore of sessions after the daemon restarts
+(`[restore] enabled = true`).
 
-Not yet: the info bar and navigators, agent state tracking, SSH attach and image passthrough.
-The order they arrive in is the milestone table in
-[SPEC §13](spec/SPEC.md#13-milestones-and-branches).
+Not yet: agent state tracking and notifications, SSH attach and image passthrough. The order
+they arrive in is the milestone table in [SPEC §13](spec/SPEC.md#13-milestones-and-branches).
 
 ## Build
 
@@ -42,7 +43,8 @@ femux keys list       # every key binding and the action it runs
 
 Inside femux, press `ctrl+space` to reach the prefix table. Wait a moment and a panel lists
 every chord; `ctrl+space d` detaches and leaves everything running. `ctrl+p` opens the command
-palette.
+palette, `ctrl+space S` and `ctrl+space W` the session and window navigators, and
+`ctrl+space b` the side nav.
 
 To jump between prompts in copy mode and keep each pane's directory accurate, load the shell
 integration from your shell's rc file:

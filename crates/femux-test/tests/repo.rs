@@ -297,6 +297,9 @@ fn test_002_every_milestone_requirement_is_mapped() {
         ("UI", 20..=21),
         ("UI", 43..=43),
         ("UI", 50..=53),
+        // §13, 0.4.0: UI-030–033, UI-040–042.
+        ("UI", 30..=33),
+        ("UI", 40..=42),
     ];
     let mut want = std::collections::BTreeSet::new();
     for line in spec.lines() {

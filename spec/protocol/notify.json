@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://femux.dev/protocol/notify.json",
+  "title": "femux protocol: notifications",
+  "description": "Notifications are events every attached client sees; the notify plugin (0.5.0) decides what posts them and what a client does with them (REQ-NOTIFY-*). 0.4.0 shows them in the info bar (REQ-UI-033).",
+  "$defs": {
+    "NotifyLevel": {
+      "type": "string",
+      "enum": [
+        "info",
+        "done",
+        "warn",
+        "error"
+      ]
+    },
+    "NotifyPost": {
+      "type": "object",
+      "properties": {
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId",
+          "description": "The pane it is about, if any."
+        },
+        "title": {
+          "type": "string"
+        },
+        "level": {
+          "$ref": "#/$defs/NotifyLevel",
+          "description": "Default info."
+        }
+      },
+      "required": [
+        "title"
+      ]
+    },
+    "NotifyPosted": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "ts": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch"
+        },
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        },
+        "title": {
+          "type": "string"
+        },
+        "level": {
+          "$ref": "#/$defs/NotifyLevel"
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "title",
+        "level"
+      ]
+    }
+  },
+  "x-messages": [
+    {
+      "kind": "notify.post",
+      "request": "NotifyPost",
+      "response": "Empty"
+    }
+  ],
+  "x-events": [
+    {
+      "kind": "notify.posted",
+      "body": "NotifyPosted"
+    }
+  ]
+}
