@@ -324,6 +324,11 @@ impl Model {
                     tab.floats = l.floats.clone();
                     tab.zoomed = l.zoomed;
                     tab.scheme = l.scheme;
+                    // A closed pane leaves the layout without a pane.exited of its own.
+                    let keep = tab.panes();
+                    self.panes
+                        .retain(|id, p| p.tab != l.tab_id || keep.contains(id));
+                    self.marks.retain(|_, p| self.panes.contains_key(p));
                 }
             }
             Event::LayoutFocused(l) => {
