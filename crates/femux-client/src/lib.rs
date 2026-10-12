@@ -152,6 +152,33 @@ impl termwiz::render::RenderTty for Out {
     }
 }
 
+/// The bytes that turn the terminal showing `prev` into `next`: only the changed cells
+/// (REQ-UI-050), wrapped in synchronized output (mode 2026) when the host supports it.
+pub fn paint(
+    renderer: &mut TerminfoRenderer,
+    prev: &Surface,
+    next: &Surface,
+    sync: bool,
+) -> io::Result<Vec<u8>> {
+    let mut changes = vec![Change::CursorVisibility(CursorVisibility::Hidden)];
+    changes.extend(prev.diff_screens(next));
+    let (cx, cy) = next.cursor_position();
+    changes.push(Change::CursorPosition {
+        x: Position::Absolute(cx),
+        y: Position::Absolute(cy),
+    });
+    changes.push(Change::CursorVisibility(next.cursor_visibility()));
+    let mut out = Out(Vec::new(), next.dimensions());
+    if sync {
+        out.0.extend_from_slice(b"\x1b[?2026h");
+    }
+    renderer.render_to(&changes, &mut out).map_err(other)?;
+    if sync {
+        out.0.extend_from_slice(b"\x1b[?2026l");
+    }
+    Ok(out.0)
+}
+
 fn mouse_kind(prev: MouseButtons, now: MouseButtons) -> MouseKind {
     if now.contains(MouseButtons::VERT_WHEEL) {
         return if now.contains(MouseButtons::WHEEL_POSITIVE) {
@@ -311,23 +338,8 @@ pub fn run(socket: &Path, session: Option<&str>, host: Host) -> io::Result<()> {
             if app.dirty {
                 let mut next = Surface::new(size.0 as usize, size.1 as usize);
                 render::render(&mut app, &theme, &mut next);
-                let mut changes = vec![Change::CursorVisibility(CursorVisibility::Hidden)];
-                changes.extend(prev.diff_screens(&next));
-                let (cx, cy) = next.cursor_position();
-                changes.push(Change::CursorPosition {
-                    x: Position::Absolute(cx),
-                    y: Position::Absolute(cy),
-                });
-                changes.push(Change::CursorVisibility(next.cursor_visibility()));
-                let mut out = Out(Vec::new(), (size.0 as usize, size.1 as usize));
-                if sync {
-                    out.0.extend_from_slice(b"\x1b[?2026h");
-                }
-                renderer.render_to(&changes, &mut out).map_err(other)?;
-                if sync {
-                    out.0.extend_from_slice(b"\x1b[?2026l");
-                }
-                term.write(&out.0)?;
+                let bytes = paint(&mut renderer, &prev, &next, sync)?;
+                term.write(&bytes)?;
                 prev = next;
             }
             let events = if early.is_empty() {
@@ -363,4 +375,31 @@ pub fn run(socket: &Path, session: Option<&str>, host: Host) -> io::Result<()> {
     })();
     term.leave();
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use termwiz::caps::ProbeHints;
+
+    #[test]
+    fn paint_writes_only_the_diff_inside_synchronized_output() {
+        let caps =
+            Capabilities::new_with_hints(ProbeHints::default().term(Some("xterm-256color".into())))
+                .unwrap();
+        let mut r = TerminfoRenderer::new(caps);
+        let mut a = Surface::new(20, 3);
+        a.add_change("hello world");
+        let mut b = Surface::new(20, 3);
+        b.add_change("hello there");
+        let bytes = paint(&mut r, &a, &b, true).unwrap();
+        let s = String::from_utf8_lossy(&bytes);
+        assert!(
+            s.starts_with("\x1b[?2026h") && s.ends_with("\x1b[?2026l"),
+            "{s:?}"
+        );
+        assert!(s.contains("there") && !s.contains("hello"), "{s:?}");
+        let plain = paint(&mut r, &a, &b, false).unwrap();
+        assert!(!String::from_utf8_lossy(&plain).contains("2026"));
+    }
 }

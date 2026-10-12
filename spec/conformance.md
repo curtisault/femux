@@ -74,6 +74,10 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-UI-043 | femux-client `ui_overlays::ui_043_palette_fuzzy_searches_actions_and_cli_commands` | pass |
 | REQ-UI-020 | femux-client `ui_tabs::ui_020_tab_strip_shows_running_urgent_and_zoom` | pass |
 | REQ-UI-021 | femux-client `ui_tabs::ui_021_title_precedence`; femux-daemon `state::State::tab_title` via femux-test `session::*` | pass |
+| REQ-UI-050 | femux-client `tests::paint_writes_only_the_diff_inside_synchronized_output`, `probe::tests::parses_answers_and_keeps_the_rest` | pass |
+| REQ-UI-051 | femux-client `theme::tests::picks_by_name_mode_or_background`, `probe::tests::parses_answers_and_keeps_the_rest` | pass |
+| REQ-UI-052 | femux-client `graphics::tests::placements_are_offset_and_clipped`, `graphics::tests::kitty_commands_carry_offsets_and_crops` | pass |
+| REQ-UI-053 | femux-client `ui_mouse::ui_053_mouse_focuses_forwards_and_can_be_disabled` | pass |
 | REQ-PLUG-001 | femux-test `repo::plug_001_plugins_are_feature_gated_crates` | pass |
 | REQ-PLUG-002 | femux-plugin `daemon_plugin::plug_002_daemon_plugin_subscribes_and_writes_metadata`; femux-plugin-which-key `tests::*`; femux-plugin-clipboard `tests::*`; femux-plugin-shell-integration `tests::*` | pass |
 | REQ-PLUG-003 | femux-test `repo::plug_003_plugins_depend_on_the_protocol_crates_only`, `repo::arch_002_clients_and_plugins_use_the_protocol_only` | pass |
