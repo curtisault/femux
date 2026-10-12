@@ -38,7 +38,7 @@ fn main() {
 
     let lib_dir = prefix.join("lib");
     if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
-        repack_for_apple_ld(&lib_dir);
+        repack_for_apple_ld(&zig, &lib_dir);
     }
 
     // libghostty-vt first, then the SIMD archives it depends on.
@@ -55,23 +55,45 @@ fn main() {
     println!("cargo:include={}", prefix.join("include").display());
 }
 
-/// Zig's archiver does not 8-byte align Mach-O members, which Apple's ld rejects; Apple's
-/// libtool rewrites each archive with aligned members.
-fn repack_for_apple_ld(lib_dir: &std::path::Path) {
+/// Zig's archiver does not 8-byte align Mach-O members, which Apple's ld rejects, and Apple's
+/// libtool drops members it cannot read from such archives. So each archive is unpacked with
+/// `zig ar` (LLVM reads it fine) and repacked from its object files with Apple's libtool.
+fn repack_for_apple_ld(zig: &str, lib_dir: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
     for entry in std::fs::read_dir(lib_dir).expect("zig installed no lib/ dir") {
         let path = entry.unwrap().path();
         if path.extension().is_none_or(|e| e != "a") {
             continue;
         }
+        let dir = path.with_extension("objects");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let status = Command::new(zig)
+            .args(["ar", "x"])
+            .arg(&path)
+            .current_dir(&dir)
+            .status()
+            .unwrap();
+        assert!(status.success(), "zig ar x failed on {}", path.display());
+        let mut objects: Vec<PathBuf> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect();
+        objects.sort();
+        for o in &objects {
+            // Zig records members with mode 0.
+            std::fs::set_permissions(o, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
         let tmp = path.with_extension("repacked.a");
         let status = Command::new("libtool")
             .args(["-static", "-o"])
             .arg(&tmp)
-            .arg(&path)
+            .args(&objects)
             .status()
             .expect("failed to run Apple libtool (install the Xcode command line tools)");
         assert!(status.success(), "libtool failed on {}", path.display());
         std::fs::rename(&tmp, &path).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 
