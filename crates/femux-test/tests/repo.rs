@@ -249,16 +249,24 @@ fn build_002_rust_is_pinned() {
     assert!(mise.contains("clippy"), "mise installs clippy (CI runs it)");
 }
 
+/// CI runs the `ci` task from mise.toml, which must hold clippy and the tests.
 #[test]
 fn build_003_ci_runs_lint_and_tests_on_both_platforms() {
     let ci = read(".github/workflows/ci.yml");
+    for needle in ["ubuntu-latest", "macos-latest", "run: mise run ci"] {
+        assert!(ci.contains(needle), "ci.yml lacks {needle}");
+    }
+    let mise = read("mise.toml");
+    let task = mise
+        .split("[tasks.ci]")
+        .nth(1)
+        .and_then(|t| t.split("\n[").next())
+        .expect("mise.toml has a [tasks.ci]");
     for needle in [
-        "ubuntu-latest",
-        "macos-latest",
         "cargo clippy --workspace --all-targets -- -D warnings",
         "cargo test --workspace",
     ] {
-        assert!(ci.contains(needle), "ci.yml lacks {needle}");
+        assert!(task.contains(needle), "the ci task lacks {needle}");
     }
 }
 

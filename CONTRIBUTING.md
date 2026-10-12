@@ -29,6 +29,18 @@ mise exec -- cargo test --workspace
 mise exec -- cargo clippy --workspace --all-targets -- -D warnings
 ```
 
+## Tasks
+
+`mise.toml` defines tasks that run with the pinned toolchain; `mise tasks` lists them.
+
+```sh
+mise run ci        # what CI runs: format check, clippy -D warnings, all tests
+mise run release   # release build of the femux binary
+mise run install   # release build copied to ~/.local/bin (re-signed on macOS)
+```
+
+The others are `build`, `test`, `lint`, `fmt`, `fmt-check`, `bench` and `clean`.
+
 ## Bumping Ghostty
 
 1. In `crates/femux-vt/zig`: `zig fetch --save=ghostty https://github.com/ghostty-org/ghostty/archive/<commit>.tar.gz`

@@ -28,7 +28,8 @@ mise exec -- cargo build --release
 ```
 
 The first build downloads the pinned Ghostty source and takes a few minutes. The binary is
-`target/release/femux`. [CONTRIBUTING.md](CONTRIBUTING.md) covers building without mise.
+`target/release/femux`; `mise run install` builds it and copies it to `~/.local/bin`.
+[CONTRIBUTING.md](CONTRIBUTING.md) covers the other tasks and building without mise.
 
 ## Quick start
 
