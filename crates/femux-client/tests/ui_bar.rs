@@ -67,13 +67,14 @@ async fn ui_030_the_bar_sits_on_any_side_and_the_panes_move_over() {
             Some('$'),
             "{bar:?}: {screen:#?}"
         );
-        // The session chip is on the bar's side.
+        // The session chip is on the bar's side, one cell in; typing into panes shows no
+        // mode label.
         match bar {
-            BarPosition::Bottom => assert!(screen[29].starts_with(" s  TERMINAL"), "{screen:#?}"),
-            BarPosition::Top => assert!(screen[0].starts_with(" s  TERMINAL"), "{screen:#?}"),
+            BarPosition::Bottom => assert!(screen[29].starts_with("  s  "), "{screen:#?}"),
+            BarPosition::Top => assert!(screen[0].starts_with("  s  "), "{screen:#?}"),
             BarPosition::Left => {
                 assert!(screen[1].starts_with("  s "), "{screen:#?}");
-                assert!(screen[4].starts_with(" TERMINAL"), "{screen:#?}");
+                assert!(!screen[4].contains("TERMINAL"), "{screen:#?}");
             }
             BarPosition::Right => {
                 let x = (100 - BAR_WIDTH) as usize + 1;
@@ -320,7 +321,8 @@ impl InfoModule for Wide {
         "wide"
     }
     fn render(&self, _ctx: &BarCtx, _w: usize) -> Spans {
-        vec![Span::text("W".repeat(80))]
+        // A glyph no tab title or temp directory name contains.
+        vec![Span::text("░".repeat(80))]
     }
     fn interval(&self) -> Duration {
         Duration::from_secs(1)
@@ -353,9 +355,9 @@ async fn ui_030_a_column_bar_never_draws_over_the_panes() {
                 .skip(l.panes.x as usize)
                 .take(l.panes.w as usize)
                 .collect();
-            assert!(!in_panes.contains('W'), "{bar:?} row {y}: {row:?}");
+            assert!(!in_panes.contains('░'), "{bar:?} row {y}: {row:?}");
         }
-        let count: usize = screen.iter().map(|r| r.matches('W').count()).sum();
+        let count: usize = screen.iter().map(|r| r.matches('░').count()).sum();
         assert_eq!(count, (BAR_WIDTH - 2) as usize, "{bar:?}");
     }
 }

@@ -1,6 +1,6 @@
-//! Colors for the client's chrome (REQ-UI-051): a bundled dark and light theme, chosen from
-//! `[theme] name`, or from the host terminal's background (OSC 11) and mode 2031 when the
-//! name is `terminal`.
+//! Colors for the client's chrome (REQ-UI-051): a bundled dark and light theme chosen by
+//! `[theme] name`, or, for `terminal`, colors derived from the host terminal itself: its
+//! foreground and background (OSC 10/11) and its own palette's blue, yellow, green and red.
 
 use termwiz::color::{ColorAttribute, SrgbaTuple};
 
@@ -18,6 +18,27 @@ pub struct Theme {
     pub bar_fg: ColorAttribute,
     pub selection: ColorAttribute,
     pub overlay_bg: ColorAttribute,
+}
+
+/// What the host terminal reported at startup (the probe).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct HostColors {
+    /// Mode 2031's answer. Terminals report the desktop's preference here, which can differ
+    /// from their own colors, so it only decides when the background is unknown.
+    pub dark_mode: Option<bool>,
+    pub fg: Option<[u8; 3]>,
+    pub bg: Option<[u8; 3]>,
+}
+
+/// `a` moved `t` of the way to `b`.
+fn mix(a: [u8; 3], b: [u8; 3], t: f32) -> [u8; 3] {
+    let m = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
+    [m(a[0], b[0]), m(a[1], b[1]), m(a[2], b[2])]
+}
+
+/// The host's own palette entry (`n` of the 16 ANSI colors).
+fn ansi(n: u8) -> ColorAttribute {
+    ColorAttribute::PaletteIndex(n)
 }
 
 fn rgb(r: u8, g: u8, b: u8) -> ColorAttribute {
@@ -62,6 +83,33 @@ impl Theme {
         }
     }
 
+    /// The `terminal` theme when the host reported its background: chrome in the host's
+    /// own colors. Bars and overlays are the background tinted toward the foreground; accent,
+    /// warn, ok and error are the host palette's blue, yellow, green and red, so any terminal
+    /// color scheme carries over.
+    pub fn from_terminal(dark: bool, fg: Option<[u8; 3]>, bg: [u8; 3]) -> Theme {
+        let fg = fg.unwrap_or(if dark {
+            [0xd7, 0xdb, 0xe2]
+        } else {
+            [0x20, 0x24, 0x2b]
+        });
+        let c = |[r, g, b]: [u8; 3]| rgb(r, g, b);
+        Theme {
+            dark,
+            accent: ansi(4),
+            accent_fg: c(bg),
+            muted: c(mix(fg, bg, 0.45)),
+            warn: ansi(3),
+            ok: ansi(2),
+            error: ansi(1),
+            text: c(fg),
+            bar_bg: c(mix(bg, fg, 0.08)),
+            bar_fg: c(mix(fg, bg, 0.2)),
+            selection: c(mix(bg, fg, 0.2)),
+            overlay_bg: c(mix(bg, fg, 0.05)),
+        }
+    }
+
     /// A theme from a plugin's palette (the `theme` plugin, 0.4.0).
     pub fn from_palette(p: &femux_plugin::Palette) -> Theme {
         let c = |[r, g, b]: [u8; 3]| rgb(r, g, b);
@@ -81,39 +129,45 @@ impl Theme {
         }
     }
 
-    /// Picks a theme (REQ-UI-051): a plugin's palette for a name it knows, else `dark`/`light`
-    /// by name, else from mode 2031's answer, else from the background's luminance, else dark.
-    /// The error is a theme a plugin knows but could not load; the fallback applies then.
+    /// Picks a theme (REQ-UI-051): a plugin's palette for a name it knows, else a built-in
+    /// one ([`Theme::pick`]). The error is a theme a plugin knows but could not load; the
+    /// `terminal` theme applies then.
     pub fn resolve(
         name: &str,
         plugins: &[Box<dyn femux_plugin::ClientPlugin>],
-        dark_mode: Option<bool>,
-        bg: Option<[u8; 3]>,
+        host: HostColors,
     ) -> (Theme, Option<String>) {
         if name != "terminal" {
             for p in plugins {
                 match p.theme(name) {
                     Some(Ok(palette)) => return (Theme::from_palette(&palette), None),
-                    Some(Err(e)) => {
-                        return (Theme::pick("terminal", dark_mode, bg), Some(e));
-                    }
+                    Some(Err(e)) => return (Theme::pick("terminal", host), Some(e)),
                     None => {}
                 }
             }
         }
-        (Theme::pick(name, dark_mode, bg), None)
+        (Theme::pick(name, host), None)
     }
 
-    /// Picks a built-in theme: `dark`/`light` by name, else from mode 2031's answer, else from
-    /// the background's luminance, else dark.
-    pub fn pick(name: &str, dark_mode: Option<bool>, bg: Option<[u8; 3]>) -> Theme {
+    /// `dark`/`light` by name. Otherwise (`terminal`, or an unknown name) light or dark
+    /// follows the reported background's luminance, else mode 2031, else dark; with a known
+    /// background the colors come from the terminal ([`Theme::from_terminal`]).
+    pub fn pick(name: &str, host: HostColors) -> Theme {
         match name {
             "dark" => return Theme::dark(),
             "light" => return Theme::light(),
             _ => {}
         }
-        let dark = dark_mode.unwrap_or_else(|| bg.is_none_or(|[r, g, b]| luminance(r, g, b) < 0.5));
-        if dark { Theme::dark() } else { Theme::light() }
+        let dark = host
+            .bg
+            .map(|[r, g, b]| luminance(r, g, b) < 0.5)
+            .or(host.dark_mode)
+            .unwrap_or(true);
+        match host.bg {
+            Some(bg) if name == "terminal" => Theme::from_terminal(dark, host.fg, bg),
+            _ if dark => Theme::dark(),
+            _ => Theme::light(),
+        }
     }
 }
 
@@ -129,16 +183,20 @@ mod tests {
     #[test]
     fn plugin_palettes_win_and_their_errors_fall_back() {
         let plugins = vec![femux_plugin_theme_client()];
-        let (t, err) = Theme::resolve("high-contrast", &plugins, None, None);
+        let (t, err) = Theme::resolve("high-contrast", &plugins, HostColors::default());
         assert_eq!(err, None);
         assert_eq!(t, Theme::from_palette(&femux_plugin_theme::high_contrast()));
-        let (t, err) = Theme::resolve("nord", &plugins, Some(false), None);
+        let light = HostColors {
+            dark_mode: Some(false),
+            ..Default::default()
+        };
+        let (t, err) = Theme::resolve("nord", &plugins, light);
         assert!(err.unwrap().contains("nord"));
         assert!(!t.dark, "falls back to the terminal's light/dark");
         // Without the plugin, dark and light still work and unknown names are dark.
-        assert!(!Theme::resolve("light", &[], None, None).0.dark);
+        assert!(!Theme::resolve("light", &[], HostColors::default()).0.dark);
         assert_eq!(
-            Theme::resolve("nord", &[], None, None),
+            Theme::resolve("nord", &[], HostColors::default()),
             (Theme::dark(), None)
         );
     }
@@ -147,13 +205,45 @@ mod tests {
         femux_plugin_theme::plugin().client.unwrap()
     }
 
+    fn host(dark_mode: Option<bool>, bg: Option<[u8; 3]>) -> HostColors {
+        HostColors {
+            dark_mode,
+            fg: None,
+            bg,
+        }
+    }
+
     #[test]
-    fn picks_by_name_mode_or_background() {
-        assert!(Theme::pick("dark", Some(false), None).dark);
-        assert!(!Theme::pick("light", Some(true), None).dark);
-        assert!(!Theme::pick("terminal", Some(false), Some([0, 0, 0])).dark);
-        assert!(!Theme::pick("terminal", None, Some([250, 250, 250])).dark);
-        assert!(Theme::pick("terminal", None, Some([20, 20, 30])).dark);
-        assert!(Theme::pick("terminal", None, None).dark);
+    fn picks_by_name_then_background_then_mode() {
+        assert!(Theme::pick("dark", host(Some(false), None)).dark);
+        assert!(!Theme::pick("light", host(Some(true), None)).dark);
+        // The background wins over mode 2031: Ghostty with a dark theme on a light desktop
+        // reports light mode but a dark background.
+        assert!(Theme::pick("terminal", host(Some(false), Some([0x30, 0x34, 0x46]))).dark);
+        assert!(!Theme::pick("terminal", host(Some(true), Some([250, 250, 250]))).dark);
+        // Without a background, the mode decides, else dark.
+        assert!(!Theme::pick("terminal", host(Some(false), None)).dark);
+        assert!(Theme::pick("terminal", host(None, None)).dark);
+    }
+
+    #[test]
+    fn terminal_theme_takes_the_hosts_colors() {
+        let frappe = HostColors {
+            dark_mode: Some(false),
+            fg: Some([0xc6, 0xd0, 0xf5]),
+            bg: Some([0x30, 0x34, 0x46]),
+        };
+        let t = Theme::pick("terminal", frappe);
+        assert_eq!(t.text, rgb(0xc6, 0xd0, 0xf5));
+        assert_eq!(t.accent_fg, rgb(0x30, 0x34, 0x46));
+        // The bar is the background tinted a little toward the foreground.
+        assert_eq!(t.bar_bg, rgb(0x3c, 0x40, 0x54));
+        // Semantic colors are the host palette's own.
+        assert_eq!(
+            (t.accent, t.warn, t.ok, t.error),
+            (ansi(4), ansi(3), ansi(2), ansi(1))
+        );
+        // A name for a fixed theme ignores the host.
+        assert_eq!(Theme::pick("dark", frappe), Theme::dark());
     }
 }

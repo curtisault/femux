@@ -535,8 +535,12 @@ pub fn run(target: &Target, session: Option<&str>, host: Host) -> io::Result<()>
     let mut conn = Conn::connect(target, false)?;
     let mut aside = hello(&mut conn, &hello_msg, first_wait)?;
     let attach = attach_session(&mut conn, session, area.w, area.h, &mut aside)?;
-    let (mut theme, theme_error) =
-        Theme::resolve(&host.cfg.theme, &host.plugins, probe.dark, probe.bg);
+    let host_colors = theme::HostColors {
+        dark_mode: probe.dark,
+        fg: probe.fg,
+        bg: probe.bg,
+    };
+    let (mut theme, theme_error) = Theme::resolve(&host.cfg.theme, &host.plugins, host_colors);
     let reload = host.reload;
     let mut app = App::new(
         host.cfg,
@@ -659,8 +663,7 @@ pub fn run(target: &Target, session: Option<&str>, host: Host) -> io::Result<()>
                     }
                     Effect::Reload => match reload.as_ref().map(|r| r()) {
                         Some(Ok(cfg)) => {
-                            let (t, err) =
-                                Theme::resolve(&cfg.theme, &app.plugins, probe.dark, probe.bg);
+                            let (t, err) = Theme::resolve(&cfg.theme, &app.plugins, host_colors);
                             theme = t;
                             app.apply_config(cfg);
                             if let Some(e) = err {

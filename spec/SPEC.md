@@ -302,11 +302,13 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
 - REQ-UI-020: The tab strip shows index, title, a running indicator when the fg process is not the shell, an urgency marker on bell or agent state change in an unfocused tab, and a zoom marker.
   Note: "not the shell" is `pane.info.fg_pid != pid` (ADR-016 #1); urgency (`!`) comes from `pane.bell` or a `pane.meta_changed` setting `agent.state` and clears when the tab is selected; zoom shows `Z`.
 - REQ-UI-021: Title precedence: user rename > OSC 2 > fg command > cwd basename.
+  Note (0.6.1): while the shell itself is in the foreground (the pane runs no other program), the title is `<shell> <dir>` (`~` for home, else the last path component) instead of the shell's OSC 2 title, which is usually that same information spelled `~ - fish`. A program's OSC 2 title still beats its command name.
 
 ### 5.4 Info bar
 
 - REQ-UI-030: One bar at `top|bottom|left|right`; `left` and `right` are vertical and stack modules.
   Note: a `left`/`right` bar is a 24-column column the full height of the terminal, with the tab strip and panes beside it; the session chip and mode come first, the `left` modules follow from the top and the `right` ones are anchored to the bottom. Prompts, confirmations and messages use the bar row, or with a vertical bar the bottom row of the pane area while they are shown.
+  Note (0.6.1): the horizontal bar keeps one cell of padding at each end. It shows no mode label while typing into panes, only `PREFIX`, `NORMAL`, `COPY` and the navigators' names, and no permanent prefix hint (the which-key panel shows the prefix table).
 - REQ-UI-031: Modules are listed in config in order; each is a plugin implementing `InfoModule { fn render(&self, w: usize) -> Spans; fn interval(&self) -> Duration }`.
   Note: modules also get `sample(&mut self, ctx)`, called every `max(interval(), [infobar] interval_ms)` and only for modules the config shows, and `render` reads a `BarCtx` (session, tabs, agent counts, the focused pane's cwd, notifications of hidden panes, orientation). Unknown names are skipped. `session` is the client's own chip and mode, so with the `infobar` plugin disabled the bar still shows them.
 - REQ-UI-032: Built-in modules: `session`, `tabs`, `clock`, `cpu`, `mem`, `net`, `battery`, `git`, `agents`, `notifications`, `hostname`. A module name prefixed `remote:` renders on the daemon host (data arrives as pane-independent events).
@@ -334,6 +336,7 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
   Note: support is probed at startup with `DECRQM 2026`, together with OSC 10/11/12, `DSR 996` (light/dark), the Kitty keyboard query and DA1.
 - REQ-UI-051: Theme from `[theme]` or, when `theme = "terminal"`, from OSC 10/11 queries at startup; light/dark follows mode 2031 when available.
   Note: `terminal` picks the built-in dark or light theme from the mode 2031 answer, else from the OSC 11 background's luminance. Other names come from the `theme` plugin (0.4.0): `dark`, `light`, `high-contrast`, or a path to a JSON file of `#rrggbb` colors over a `base`; unknown keys are errors. A theme the plugin cannot load falls back to `terminal` and says why in the status row. `femux reload` re-applies it.
+  Note (0.6.1): mode 2031 reports the desktop's light/dark preference in some terminals (Ghostty), which can differ from the terminal's own colors, so the OSC 11 background's luminance decides and mode 2031 only applies when no background is reported. With a reported background, `terminal` colors the chrome from the terminal itself: text and accent-foreground are its foreground and background, bars and overlays its background tinted 5–8% toward the foreground, muted text halfway between, and accent, warn, ok and error its own palette's blue, yellow, green and red (ANSI 4, 3, 2, 1). Without one, the bundled dark or light theme applies.
 - REQ-UI-052: Kitty graphics placements are re-emitted with pane offsets and clipped at pane bounds.
   Note: 0.2.0 implements the geometry and the `a=p` re-emission for `frame.images`; the daemon sends placements from 0.7.0 (GFX-*).
 - REQ-UI-053: Mouse support is on by default and fully disableable.

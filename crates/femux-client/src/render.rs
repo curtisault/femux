@@ -338,10 +338,20 @@ fn mode_label(app: &App, theme: &Theme) -> (&'static str, CellAttributes) {
     }
     match (app.prefix_armed(), app.mode) {
         (true, _) => ("PREFIX", bold(attr(theme.accent_fg, theme.warn))),
-        (false, Mode::Terminal) => ("TERMINAL", attr(theme.muted, theme.bar_bg)),
+        // Typing into panes is the normal state: no label (the other modes announce
+        // themselves).
+        (false, Mode::Terminal) => ("", attr(theme.muted, theme.bar_bg)),
         (false, Mode::Normal) => ("NORMAL", bold(attr(theme.accent_fg, theme.ok))),
         (false, Mode::Copy) => ("COPY", bold(attr(theme.accent_fg, theme.accent))),
     }
+}
+
+/// Where text after the session chip and mode label starts on a horizontal bar at `x0`.
+fn after_chip(app: &App, theme: &Theme, x0: usize) -> usize {
+    let (mode, _) = mode_label(app, theme);
+    let mode_w = if mode.is_empty() { 0 } else { mode.len() + 2 };
+    // One cell of padding, the chip with its own spaces, the mode, one space.
+    x0 + 1 + app.session_chip().chars().count() + 2 + mode_w + 1
 }
 
 /// The first `max` columns of `spans`: modules may ignore their width, the bar may not.
@@ -406,16 +416,13 @@ fn draw_bar(app: &mut App, c: &mut Canvas, theme: &Theme, l: &Layout, tr: &Optio
             );
         }
         let right_line = clip(&right_line, w.saturating_sub(chip.chars().count() + 12));
+        // One cell of padding at either end.
         let rw = femux_plugin::width(&right_line) + 1;
-        let mut x = c.put(x0, y, &chip, &bold(attr(theme.accent_fg, theme.accent)));
-        x = c.put(x, y, &format!(" {mode} "), &mode_attr);
+        let mut x = c.put(x0 + 1, y, &chip, &bold(attr(theme.accent_fg, theme.accent)));
+        if !mode.is_empty() {
+            x = c.put(x, y, &format!(" {mode} "), &mode_attr);
+        }
         if !matches!(tr, Some(Transient::Text(..))) {
-            x = c.put(
-                x,
-                y,
-                &format!(" prefix {}", app.prefix_label()),
-                &attr(theme.muted, bg),
-            );
             for name in app.cfg.bar_left.clone() {
                 if name == "session" {
                     continue;
@@ -451,9 +458,11 @@ fn draw_bar(app: &mut App, c: &mut Canvas, theme: &Theme, l: &Layout, tr: &Optio
     let mut y = bar.y as usize + 1;
     c.put(x0, y, &chip, &bold(attr(theme.accent_fg, theme.accent)));
     y += 2;
-    c.put(x0, y, "mode", &attr(theme.muted, bg));
-    c.put(x0, y + 1, mode, &mode_attr);
-    y += 3;
+    if !mode.is_empty() {
+        c.put(x0, y, "mode", &attr(theme.muted, bg));
+        c.put(x0, y + 1, mode, &mode_attr);
+        y += 3;
+    }
     let ctx = app.bar_ctx(true);
     let block = |app: &mut App, name: &str| -> Option<Vec<Spans>> {
         let sp = app.module_spans(name, &ctx, w)?;
@@ -535,8 +544,7 @@ fn draw_status(
                 x0 + 1
             } else {
                 // After the chip and the mode.
-                let (mode, _) = mode_label(app, theme);
-                x0 + app.session_chip().chars().count() + 2 + mode.len() + 2 + 1
+                after_chip(app, theme, x0)
             };
             let end = c.spans(x, y, spans, theme, bg);
             if *wants_cursor {

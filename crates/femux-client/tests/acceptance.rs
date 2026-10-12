@@ -170,7 +170,8 @@ async fn all_default_bindings_work() {
     .await;
     d.press_all(&["ctrl+space", "T"]).await;
     assert!(matches!(d.app.overlay, Overlay::Prompt { .. }));
-    for _ in 0..8 {
+    // The prompt starts with the current title ("sh <dir>"): clear it.
+    for _ in 0..60 {
         d.press("backspace").await;
     }
     d.type_text("two").await;
