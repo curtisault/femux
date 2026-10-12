@@ -284,7 +284,7 @@ Default bindings (prefix table unless noted):
 
 Copy mode: `hjkl`, `w b e`, `0 $`, `gg G`, `ctrl+u/d`, `/ ? n N` (regex), `v V ctrl+v` select, `y` yank (OSC 52 + clipboard.set), `[ ]` previous/next prompt mark, `q` exit.
 
-Note: `]` pastes the newest server clipboard text the client has seen (its own yank or any `clipboard.changed`). `S`, `W` and `b` are bound in 0.2.0 but only report that navigators arrive in 0.4.0. `x` confirms when the pane's foreground process is not its shell (`pane.info.pid`). Action names for `[keys.*]` are listed by `femux keys list`.
+Note: `]` pastes the newest server clipboard text the client has seen (its own yank or any `clipboard.changed`). `S`, `W` and `b` open the navigators and the side nav from 0.4.0 (they were inert in 0.2.0). `x` confirms when the pane's foreground process is not its shell (`pane.info.pid`). Action names for `[keys.*]` are listed by `femux keys list`.
 
 ### 5.2 Layout
 
@@ -315,8 +315,11 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
 ### 5.5 Navigators and overlays
 
 - REQ-UI-040: Session navigator (`S`): full-screen list of sessions with tab counts, agent summary, last activity; `enter` attaches, `x` kills, `r` renames, `/` filters.
+  Note: each session row shows its root, agent summary and tab count (`attached` for this client's own); `tab` expands a session to its tabs; created, last activity (ADR-018 #1), tab, pane and client counts sit under the preview. `n` creates a session; `x` asks first, and killing the attached session first moves this client to another one. `enter` attaches by detaching this client's view and attaching to the chosen session.
 - REQ-UI-041: Window navigator (`W`): tree of sessions → tabs → panes with a live preview of the selected pane.
+  Note: the preview reads the selected pane's screen with `scrollback.read` every 500 ms; `enter` goes to the pane, attaching to its session when it is another one.
 - REQ-UI-042: Side nav (`b`): persistent left column listing sessions and tabs; click to switch.
+  Note: 26 columns, between a `left` bar and the panes, which the daemon resizes. The attached session is expanded to its tabs and the others are collapsed; clicking a session attaches to it, clicking a tab selects it. Sessions refresh every 2 s while the side nav or a navigator is open.
 - REQ-UI-043: Command palette (`ctrl+p`, `prefix :`): fuzzy search over all bound actions and CLI subcommands.
   Note: actions are listed by name (`femux keys list`) with their description and key; choosing a CLI subcommand types `femux <subcommand> ` into the focused pane. Matching is subsequence-based.
 - REQ-UI-044: Inbox overlay (agents plugin): list of panes in `blocked|done|error` with one-key jump and one-key respond.

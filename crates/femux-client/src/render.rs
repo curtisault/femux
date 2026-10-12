@@ -266,6 +266,13 @@ fn transient(app: &App) -> Option<Transient> {
 }
 
 fn mode_label(app: &App, theme: &Theme) -> (&'static str, CellAttributes) {
+    if let Overlay::Navigator(nav) = &app.overlay {
+        let label = match nav.kind {
+            crate::nav::NavKind::Sessions => "SESSIONS",
+            crate::nav::NavKind::Windows => "WINDOWS",
+        };
+        return (label, bold(attr(theme.accent_fg, theme.accent)));
+    }
     match (app.prefix_armed(), app.mode) {
         (true, _) => ("PREFIX", bold(attr(theme.accent_fg, theme.warn))),
         (false, Mode::Terminal) => ("TERMINAL", attr(theme.muted, theme.bar_bg)),

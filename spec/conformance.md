@@ -118,3 +118,6 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-UI-032 | femux-plugin-infobar `tests::*`; femux-client `ui_bar::acceptance_0_4_bar_on_all_four_sides_with_every_built_in_module` | pass |
 | REQ-UI-033 | femux-client `ui_bar::ui_033_notifications_show_while_their_pane_is_hidden`; femux-test `notify::notify_post_is_relayed_to_the_panes_session` | pass |
 | Plugin `infobar` | femux-plugin-infobar `tests::*`; femux-client `ui_bar::*` | pass |
+| REQ-UI-040 | femux-client `ui_nav::ui_040_session_navigator_lists_attaches_renames_creates_and_kills`, `nav::tests::ui_040_sessions_expand_to_tabs_and_filter`; femux-test `notify::last_activity_follows_output_and_input` | pass |
+| REQ-UI-041 | femux-client `ui_nav::ui_041_window_navigator_previews_panes_live_and_goes_to_them`, `nav::tests::ui_041_windows_list_every_pane_and_preview_the_selection` | pass |
+| REQ-UI-042 | femux-client `ui_nav::ui_042_side_nav_lists_sessions_and_tabs_and_switches_on_click` | pass |

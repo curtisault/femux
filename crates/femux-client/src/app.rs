@@ -101,11 +101,14 @@ pub enum NavTarget {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Confirm {
     ClosePane(String),
+    KillSession(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PromptKind {
     RenameTab(String),
+    NewSession,
+    RenameSession(String),
 }
 
 #[derive(Debug, Clone)]
@@ -138,8 +141,22 @@ enum Second {
 enum Pending {
     Info,
     NewTab,
-    Read { from: i64 },
-    Search { jump: bool },
+    /// The navigators' directory (REQ-UI-040..042).
+    DirList,
+    DirTabs(String),
+    DirPane(String),
+    Preview(String),
+    /// Attaching to another session; then focus a pane, then kill the old session.
+    Switch {
+        focus: Option<String>,
+        then_kill: Option<String>,
+    },
+    Read {
+        from: i64,
+    },
+    Search {
+        jump: bool,
+    },
     Marks,
     Detach,
     Quiet,
@@ -216,6 +233,12 @@ pub struct App {
     pub modules: Vec<(Box<dyn femux_plugin::InfoModule>, Option<Instant>)>,
     /// `notify.posted` titles, newest first (REQ-UI-033).
     pub notifications: std::collections::VecDeque<(Option<String>, String, m::NotifyLevel)>,
+    /// Every session, for the navigators and the side nav.
+    pub dir: crate::nav::Directory,
+    dir_fetched: Option<Instant>,
+    preview_fetched: Option<(String, Instant)>,
+    /// The navigator a prompt or confirmation returns to.
+    return_to: Option<crate::nav::NavState>,
 }
 
 impl App {
@@ -264,6 +287,10 @@ impl App {
             sidenav_open: false,
             modules: Vec::new(),
             notifications: std::collections::VecDeque::new(),
+            dir: crate::nav::Directory::default(),
+            dir_fetched: None,
+            preview_fetched: None,
+            return_to: None,
         };
         app.modules = app
             .plugins
@@ -398,6 +425,7 @@ impl App {
                 changed = true;
             }
         }
+        changed |= self.tick_navigators(now);
         if changed {
             self.dirty = true;
         }
@@ -601,6 +629,39 @@ impl App {
                 }
             }
             (Pending::Detach, _) => self.effects.push(Effect::Exit),
+            (Pending::DirList, Response::SessionList(l)) => {
+                let names: Vec<String> = l.sessions.iter().map(|s| s.name.clone()).collect();
+                self.dir.on_list(l.sessions);
+                for name in names {
+                    self.send(
+                        m::SessionTabs { name: name.clone() },
+                        Pending::DirTabs(name),
+                    );
+                }
+            }
+            (Pending::DirTabs(session), Response::SessionTabs(t)) => {
+                let panes: Vec<String> = t
+                    .tabs
+                    .iter()
+                    .flat_map(crate::nav::DirSession::tab_panes)
+                    .collect();
+                self.dir.on_tabs(&session, t.tabs);
+                for p in panes {
+                    self.send(
+                        m::PaneInfo { pane_id: p },
+                        Pending::DirPane(session.clone()),
+                    );
+                }
+            }
+            (Pending::DirPane(session), Response::PaneInfo(i)) => self.dir.on_pane(&session, i),
+            (Pending::Preview(pane), Response::ScrollbackRead(r)) => {
+                if let Overlay::Navigator(nav) = &mut self.overlay {
+                    nav.preview = Some((pane, r.lines));
+                }
+            }
+            (Pending::Switch { focus, then_kill }, Response::SessionAttach(a)) => {
+                self.attached(&a, focus, then_kill);
+            }
             _ => {}
         }
     }
@@ -618,10 +679,12 @@ impl App {
                 if chord.key == "y" || chord.key == "Y" || chord.key == "enter" {
                     match what {
                         Confirm::ClosePane(p) => self.quiet(m::LayoutClose { pane_id: p }),
+                        Confirm::KillSession(name) => self.kill_session(name),
                     }
                 } else {
                     let _ = text;
                 }
+                self.back_to_navigator();
                 return;
             }
             Overlay::Prompt {
@@ -630,15 +693,34 @@ impl App {
                 what,
             } => {
                 match chord.key.as_str() {
-                    "escape" => {}
-                    "enter" => match what {
-                        PromptKind::RenameTab(tab_id) => {
-                            self.quiet(m::TabRename {
-                                tab_id,
-                                title: input,
-                            });
+                    "escape" => self.back_to_navigator(),
+                    "enter" => {
+                        match what {
+                            PromptKind::RenameTab(tab_id) => {
+                                self.quiet(m::TabRename {
+                                    tab_id,
+                                    title: input,
+                                });
+                            }
+                            PromptKind::NewSession => {
+                                self.quiet(m::SessionCreate {
+                                    name: input,
+                                    root: None,
+                                    file: None,
+                                });
+                            }
+                            PromptKind::RenameSession(old) => {
+                                if old == self.model.session {
+                                    self.model.session = input.clone();
+                                }
+                                self.quiet(m::SessionRename {
+                                    name: old,
+                                    new: input,
+                                });
+                            }
                         }
-                    },
+                        self.back_to_navigator();
+                    }
                     "backspace" => {
                         input.pop();
                         self.overlay = Overlay::Prompt { title, input, what };
@@ -932,8 +1014,23 @@ impl App {
                     self.message = Some("nothing to paste".into());
                 }
             }
-            Action::SessionNav | Action::WindowNav | Action::SideNav => {
-                self.message = Some(format!("{} arrives in 0.4.0", a.describe()));
+            Action::SessionNav | Action::WindowNav => {
+                let kind = if a == Action::SessionNav {
+                    crate::nav::NavKind::Sessions
+                } else {
+                    crate::nav::NavKind::Windows
+                };
+                self.overlay =
+                    Overlay::Navigator(crate::nav::NavState::new(kind, &self.model.session));
+                self.refresh_dir();
+            }
+            Action::SideNav => {
+                self.sidenav_open = !self.sidenav_open;
+                let (cols, rows) = (self.cols, self.rows);
+                self.on_resize(cols, rows);
+                if self.sidenav_open {
+                    self.refresh_dir();
+                }
             }
             Action::Palette => self.open_palette(),
             Action::Detach => {
@@ -1071,8 +1168,237 @@ impl App {
 
     // ------------------------------------------------------------------ navigators
 
-    fn navigator_key(&mut self, nav: crate::nav::NavState, _k: &m::KeyEvent, _chord: &Chord) {
-        let _ = nav;
+    /// Asks for every session, its tabs and its panes (the answers fill `self.dir`).
+    pub fn refresh_dir(&mut self) {
+        self.dir_fetched = Some(Instant::now());
+        self.send(m::SessionList {}, Pending::DirList);
+    }
+
+    fn back_to_navigator(&mut self) {
+        if let Some(nav) = self.return_to.take() {
+            self.overlay = Overlay::Navigator(nav);
+            self.refresh_dir();
+        }
+    }
+
+    /// Keeps the directory and the preview fresh while they are on screen.
+    fn tick_navigators(&mut self, now: Instant) -> bool {
+        let nav_open = matches!(self.overlay, Overlay::Navigator(_));
+        let mut changed = false;
+        if (nav_open || self.sidenav_open)
+            && self
+                .dir_fetched
+                .is_none_or(|t| now.duration_since(t) >= std::time::Duration::from_secs(2))
+        {
+            self.refresh_dir();
+            changed = true;
+        }
+        let Overlay::Navigator(nav) = &self.overlay else {
+            return changed;
+        };
+        let rows = crate::nav::rows(nav, &self.dir, &self.model.session);
+        let Some(pane) = rows
+            .get(nav.selected)
+            .and_then(|r| crate::nav::preview_pane(&r.target, &self.dir))
+        else {
+            return changed;
+        };
+        let due = match &self.preview_fetched {
+            Some((p, t)) => {
+                *p != pane || now.duration_since(*t) >= std::time::Duration::from_millis(500)
+            }
+            None => true,
+        };
+        if due {
+            self.preview_fetched = Some((pane.clone(), now));
+            let rows = self.rows;
+            self.send(
+                m::ScrollbackRead {
+                    pane_id: pane.clone(),
+                    from_line: 0,
+                    count: rows as u32,
+                },
+                Pending::Preview(pane),
+            );
+            changed = true;
+        }
+        changed
+    }
+
+    fn navigator_key(&mut self, mut nav: crate::nav::NavState, k: &m::KeyEvent, chord: &Chord) {
+        let rows = crate::nav::rows(&nav, &self.dir, &self.model.session);
+        if nav.filtering {
+            match chord.key.as_str() {
+                "escape" | "enter" => nav.filtering = false,
+                "backspace" => {
+                    nav.filter.pop();
+                }
+                _ => {
+                    if let Some(t) = &k.text {
+                        nav.filter.push_str(t);
+                    }
+                }
+            }
+            nav.selected = 0;
+            self.overlay = Overlay::Navigator(nav);
+            return;
+        }
+        let selected = rows.get(nav.selected).map(|r| r.target.clone());
+        match chord.key.as_str() {
+            "q" | "escape" => return,
+            "j" | "down" => nav.selected = (nav.selected + 1).min(rows.len().saturating_sub(1)),
+            "k" | "up" => nav.selected = nav.selected.saturating_sub(1),
+            "/" => nav.filtering = true,
+            "tab" => {
+                if let Some(crate::app::NavTarget::Session(s)) = &selected
+                    && !nav.expanded.remove(s)
+                {
+                    nav.expanded.insert(s.clone());
+                }
+            }
+            "enter" => {
+                if let Some(t) = selected {
+                    self.switch_to(t);
+                }
+                return;
+            }
+            "n" if nav.kind == crate::nav::NavKind::Sessions => {
+                self.return_to = Some(nav);
+                self.overlay = Overlay::Prompt {
+                    title: "new session".into(),
+                    input: String::new(),
+                    what: PromptKind::NewSession,
+                };
+                return;
+            }
+            "r" if nav.kind == crate::nav::NavKind::Sessions => {
+                if let Some(crate::app::NavTarget::Session(s)) = selected {
+                    self.return_to = Some(nav);
+                    self.overlay = Overlay::Prompt {
+                        title: "rename session".into(),
+                        input: s.clone(),
+                        what: PromptKind::RenameSession(s),
+                    };
+                    return;
+                }
+            }
+            "x" if nav.kind == crate::nav::NavKind::Sessions => {
+                if let Some(crate::app::NavTarget::Session(s)) = selected {
+                    self.return_to = Some(nav);
+                    self.overlay = Overlay::Confirm {
+                        text: format!("kill session {s}? y/n"),
+                        what: Confirm::KillSession(s),
+                    };
+                    return;
+                }
+            }
+            _ => {}
+        }
+        self.overlay = Overlay::Navigator(nav);
+    }
+
+    /// Kills a session; killing the attached one first moves to another, if there is one.
+    fn kill_session(&mut self, name: String) {
+        if name != self.model.session {
+            self.quiet(m::SessionKill { name });
+            return;
+        }
+        let other = self
+            .dir
+            .sessions
+            .iter()
+            .map(|s| s.summary.name.clone())
+            .find(|s| *s != name);
+        match other {
+            Some(o) => self.attach_to(o, None, None, Some(name)),
+            None => self.quiet(m::SessionKill { name }),
+        }
+    }
+
+    /// Goes to a session, tab or pane, attaching to its session if it is another one.
+    pub fn switch_to(&mut self, target: crate::app::NavTarget) {
+        use crate::app::NavTarget as T;
+        let (session, tab, pane) = match target {
+            T::Session(s) => (s, None, None),
+            T::Tab { session, tab } => (session, Some(tab), None),
+            T::Pane { session, tab, pane } => (session, Some(tab), Some(pane)),
+        };
+        if session != self.model.session {
+            self.attach_to(session, tab, pane, None);
+            return;
+        }
+        let view_id = self.model.view_id.clone();
+        if let Some(tab) = tab
+            && tab != self.model.current
+        {
+            self.quiet(m::TabSelect {
+                view_id: Some(view_id.clone()),
+                tab_id: tab,
+            });
+        }
+        if let Some(pane) = pane {
+            self.quiet(m::LayoutFocus {
+                view_id: Some(view_id),
+                pane_id: Some(pane),
+                dir: None,
+            });
+        }
+    }
+
+    fn attach_to(
+        &mut self,
+        session: String,
+        tab: Option<String>,
+        focus: Option<String>,
+        then_kill: Option<String>,
+    ) {
+        let (cols, rows) = self.view_size();
+        self.send(
+            m::SessionAttach {
+                name: session,
+                tab,
+                cols: Some(cols),
+                rows: Some(rows),
+            },
+            Pending::Switch { focus, then_kill },
+        );
+    }
+
+    /// Now attached to another session: drop the old view, follow the new session's events
+    /// and frames.
+    fn attached(
+        &mut self,
+        a: &m::SessionAttachOk,
+        focus: Option<String>,
+        then_kill: Option<String>,
+    ) {
+        let old = std::mem::take(&mut self.model.view_id);
+        self.quiet(m::SessionDetach { view_id: old });
+        self.quiet(m::EventsSubscribe {
+            session: Some(a.snapshot.session.clone()),
+            ..Default::default()
+        });
+        let (model, fx) = crate::model::Model::from_attach(a);
+        self.model = model;
+        self.model_effects(fx);
+        self.copy = None;
+        self.mode = Mode::Terminal;
+        let view_id = a.view_id.clone();
+        self.quiet(m::FrameSubscribe {
+            view_id: view_id.clone(),
+        });
+        if let Some(p) = focus {
+            self.quiet(m::LayoutFocus {
+                view_id: Some(view_id),
+                pane_id: Some(p),
+                dir: None,
+            });
+        }
+        if let Some(old) = then_kill {
+            self.quiet(m::SessionKill { name: old });
+        }
+        self.refresh_dir();
+        self.dirty = true;
     }
 
     // ------------------------------------------------------------------ palette
@@ -1311,6 +1637,7 @@ impl App {
             return;
         }
         match (self.hit(x, y), kind) {
+            (Hit::Nav(target), MouseKind::Press(_)) => self.switch_to(target),
             (Hit::Tab(t), MouseKind::Press(_)) => {
                 let view_id = self.model.view_id.clone();
                 self.quiet(m::TabSelect {
