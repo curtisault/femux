@@ -485,26 +485,40 @@ fn draw_pane(
     }
 }
 
+/// Draws a pane's rows as runs of equally styled cells: one cursor move, one attribute
+/// change and one text per run rather than per cell.
 fn draw_screen(screen: &PaneScreen, c: &mut Canvas, oy: usize) {
     let r = &screen.rect;
     for (y, row) in screen.rows.iter().enumerate().take(r.h as usize) {
         let sy = oy + r.y as usize + y;
         let mut x = 0usize;
-        while x < row.len().min(r.w as usize) {
-            match &row[x] {
-                Some(cell) if !cell.ch.is_empty() => {
-                    c.put(r.x as usize + x, sy, &cell.ch, &attributes(cell));
-                    x += cell.width.max(1) as usize;
+        let end = row.len().min(r.w as usize);
+        let mut run = String::new();
+        let mut run_x = 0usize;
+        let mut run_attr: Option<CellAttributes> = None;
+        while x < end {
+            let (text, attr, width) = match &row[x] {
+                Some(cell) if !cell.ch.is_empty() => (
+                    cell.ch.as_str(),
+                    attributes(cell),
+                    cell.width.max(1) as usize,
+                ),
+                Some(cell) => (" ", attributes(cell), 1),
+                None => (" ", CellAttributes::default(), 1),
+            };
+            if run_attr.as_ref() != Some(&attr) {
+                if let Some(a) = run_attr.take() {
+                    c.put(r.x as usize + run_x, sy, &run, &a);
                 }
-                Some(cell) => {
-                    c.put(r.x as usize + x, sy, " ", &attributes(cell));
-                    x += 1;
-                }
-                None => {
-                    c.put(r.x as usize + x, sy, " ", &CellAttributes::default());
-                    x += 1;
-                }
+                run.clear();
+                run_x = x;
+                run_attr = Some(attr);
             }
+            run.push_str(text);
+            x += width;
+        }
+        if let Some(a) = run_attr {
+            c.put(r.x as usize + run_x, sy, &run, &a);
         }
     }
 }
@@ -574,9 +588,12 @@ fn draw_box(
     cursor: &mut Option<(usize, usize)>,
     input_cursor: Option<usize>,
 ) {
-    let bw = (c.w.saturating_sub(4)).clamp(10, 72);
-    let bh = (o.lines.len() + 3).clamp(3, c.h.saturating_sub(2).max(3));
-    let x0 = (c.w - bw) / 2;
+    // Never wider or taller than the terminal, however small it is.
+    let bw = (c.w.saturating_sub(4)).clamp(10, 72).min(c.w);
+    let bh = (o.lines.len() + 3)
+        .clamp(3, c.h.saturating_sub(2).max(3))
+        .min(c.h);
+    let x0 = c.w.saturating_sub(bw) / 2;
     let y0 = c.h.saturating_sub(bh) / 2;
     let bg = theme.overlay_bg;
     let frame = attr(theme.accent, bg);
@@ -587,7 +604,7 @@ fn draw_box(
     c.fill(x0, y0 + bh - 1, bw, '─', &frame);
     let tx = c.spans(x0 + 1, y0 + 1, &o.title, theme, bg);
     let _ = tx;
-    for (i, line) in o.lines.iter().enumerate().take(bh - 3) {
+    for (i, line) in o.lines.iter().enumerate().take(bh.saturating_sub(3)) {
         c.spans(x0 + 1, y0 + 2 + i, line, theme, bg);
     }
     *cursor = input_cursor.map(|ix| (x0 + 1 + ix, y0 + 1));
@@ -629,6 +646,61 @@ mod tests {
 
     fn r(x: u16, y: u16, w: u16, h: u16) -> m::Rect {
         m::Rect { x, y, w, h }
+    }
+
+    #[test]
+    fn runs_render_like_cells_and_boxes_fit_tiny_terminals() {
+        let cell = |ch: &str, bold: bool| m::Cell {
+            ch: ch.into(),
+            attrs: u16::from(bold),
+            width: 1,
+            ..Default::default()
+        };
+        let mut screen = PaneScreen::default();
+        screen.apply(&m::PaneFrame {
+            pane_id: "P".into(),
+            rect: r(1, 0, 6, 1),
+            cells: vec![m::CellRun {
+                x: 0,
+                y: 0,
+                run: vec![
+                    cell("a", false),
+                    cell("b", true),
+                    cell("c", true),
+                    cell("", false),
+                ],
+            }],
+            cursor: m::Cursor::default(),
+            scroll_offset: 0,
+        });
+        let mut s = Surface::new(8, 1);
+        let mut c = Canvas {
+            s: &mut s,
+            w: 8,
+            h: 1,
+        };
+        draw_screen(&screen, &mut c, 0);
+        assert_eq!(s.screen_chars_to_string(), " abc    \n");
+        assert_eq!(s.screen_cells()[0][2].attrs().intensity(), Intensity::Bold);
+        assert_eq!(
+            s.screen_cells()[0][1].attrs().intensity(),
+            Intensity::Normal
+        );
+        // A palette box on a 6x3 terminal must not underflow.
+        let o = PluginOverlay {
+            title: vec![Span::text("> ")],
+            lines: vec![vec![Span::text("x")]; 5],
+            place: femux_plugin::Place::Center,
+        };
+        let mut tiny = Surface::new(6, 3);
+        let mut c = Canvas {
+            s: &mut tiny,
+            w: 6,
+            h: 3,
+        };
+        let mut cursor = None;
+        draw_box(&mut c, &Theme::dark(), &o, &mut cursor, Some(2));
+        assert_eq!(cursor, Some((3, 1)));
     }
 
     #[test]
