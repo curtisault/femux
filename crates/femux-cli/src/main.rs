@@ -377,6 +377,8 @@ fn run_daemon(server: &str, socket: PathBuf, cfg: &Config, plugins: Vec<Plugin>)
     dcfg.restore = cfg.restore.clone();
     dcfg.env_allow = cfg.env.allow.clone();
     dcfg.config_path = Some(femux_config::config_path());
+    dcfg.gaps = cfg.layout.gaps;
+    dcfg.scheme = femux_daemon::scheme(cfg.layout.scheme);
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;

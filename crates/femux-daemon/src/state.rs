@@ -51,6 +51,8 @@ pub struct Tab {
     pub rects: Vec<(PaneId, Rect)>,
     /// Bumped when `rects` change; frames for this tab then go full.
     pub layout_gen: u64,
+    /// `[layout] gaps`: blank cells beside each separator.
+    pub gap: u16,
 }
 
 impl Tab {
@@ -76,9 +78,11 @@ impl Tab {
         let area = self.area();
         let mut out = match (&self.tree, self.scheme) {
             (None, _) => Vec::new(),
-            (Some(t), Scheme::Bsp) => t.rects(area),
-            (Some(t), Scheme::Master) => crate::layout::master_rects(&t.panes(), area),
-            (Some(t), Scheme::Scroll) => crate::layout::scroll_rects(&t.panes(), &self.focus, area),
+            (Some(t), Scheme::Bsp) => t.rects(area, self.gap),
+            (Some(t), Scheme::Master) => crate::layout::master_rects(&t.panes(), area, self.gap),
+            (Some(t), Scheme::Scroll) => {
+                crate::layout::scroll_rects(&t.panes(), &self.focus, area, self.gap)
+            }
         };
         for (p, r) in &self.floats {
             let x = r.x.min(area.w.saturating_sub(1));

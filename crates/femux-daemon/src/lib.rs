@@ -18,7 +18,7 @@ use std::io;
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
-pub use daemon::{Config, Daemon, SERVED, Settings};
+pub use daemon::{Config, Daemon, SERVED, Settings, scheme};
 pub use persist::encode_history;
 pub use server::peer_allowed;
 

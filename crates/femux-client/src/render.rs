@@ -151,7 +151,38 @@ pub fn dashed(glyph: &'static str) -> &'static str {
     }
 }
 
+/// Half of each separator around `r` (`[layout] gaps`): left, top, right, bottom. A
+/// separator is `1 + 2g` cells wide and its border runs down the middle, `g` cells from `r`.
+fn half_gaps(r: &m::Rect, rects: &[(String, m::Rect)]) -> (u16, u16, u16, u16) {
+    let rows = |q: &m::Rect| q.y < r.y + r.h && r.y < q.y + q.h;
+    let cols = |q: &m::Rect| q.x < r.x + r.w && r.x < q.x + q.w;
+    let half = |d: Option<u16>| d.map_or(0, |d| d.saturating_sub(1) / 2);
+    let left = rects
+        .iter()
+        .filter(|(_, q)| rows(q) && q.x + q.w <= r.x)
+        .map(|(_, q)| r.x - (q.x + q.w))
+        .min();
+    let right = rects
+        .iter()
+        .filter(|(_, q)| rows(q) && q.x >= r.x + r.w)
+        .map(|(_, q)| q.x - (r.x + r.w))
+        .min();
+    let up = rects
+        .iter()
+        .filter(|(_, q)| cols(q) && q.y + q.h <= r.y)
+        .map(|(_, q)| r.y - (q.y + q.h))
+        .min();
+    let down = rects
+        .iter()
+        .filter(|(_, q)| cols(q) && q.y >= r.y + r.h)
+        .map(|(_, q)| q.y - (r.y + r.h))
+        .min();
+    (half(left), half(up), half(right), half(down))
+}
+
 /// Border cells in the gaps between tiled rectangles: `(x, y, glyph, touches_focused)`.
+/// With `[layout] gaps` the borders run down the middle of each separator and reach across
+/// the gaps to meet at the junctions.
 pub fn borders(
     rects: &[(String, m::Rect)],
     area: (u16, u16),
@@ -161,24 +192,50 @@ pub fn borders(
     use std::collections::HashSet;
     let mut cells: HashSet<(u16, u16)> = HashSet::new();
     for (_, r) in rects {
+        let (gl, gt, gr, gb) = half_gaps(r, rects);
         let right = r.x + r.w;
         let bottom = r.y + r.h;
+        let top = r.y.saturating_sub(gt);
+        let left = r.x.saturating_sub(gl);
         if right < area.0 {
-            for y in r.y..bottom.min(area.1) {
-                cells.insert((right, y));
+            let x = right + gr;
+            let end = if bottom < area.1 {
+                bottom + gb
+            } else {
+                bottom - 1
+            };
+            for y in top..=end.min(area.1 - 1) {
+                cells.insert((x, y));
             }
         }
         if bottom < area.1 {
-            for x in r.x..right.min(area.0) {
-                cells.insert((x, bottom));
+            let y = bottom + gb;
+            let end = if right < area.0 {
+                right + gr
+            } else {
+                right - 1
+            };
+            for x in left..=end.min(area.0 - 1) {
+                cells.insert((x, y));
             }
         }
-        if right < area.0 && bottom < area.1 {
-            cells.insert((right, bottom));
-        }
     }
-    let f = rects.iter().find(|(p, _)| p == focused).map(|(_, r)| r);
-    let touches = |x: u16, y: u16| f.is_some_and(|r| on_edge(x, y, r));
+    let f = rects.iter().find(|(p, _)| p == focused).map(|(_, r)| {
+        let (gl, gt, gr, gb) = half_gaps(r, rects);
+        (
+            r.x as i32 - gl as i32 - 1,
+            r.y as i32 - gt as i32 - 1,
+            (r.x + r.w + gr) as i32,
+            (r.y + r.h + gb) as i32,
+        )
+    });
+    let touches = |x: u16, y: u16| {
+        let (x, y) = (x as i32, y as i32);
+        f.is_some_and(|(x0, y0, x1, y1)| {
+            ((x == x0 || x == x1) && (y0..=y1).contains(&y))
+                || ((y == y0 || y == y1) && (x0..=x1).contains(&x))
+        })
+    };
     let g = glyphs(style);
     let mut out: Vec<(u16, u16, &'static str, bool)> = cells
         .iter()
@@ -1005,5 +1062,30 @@ mod tests {
         assert!(at(81, 0).is_none() && at(0, 25).is_none());
         // Spaces style draws blanks.
         assert_eq!(borders(&rects, (81, 25), "a", Borders::Spaces)[0].2, " ");
+    }
+
+    #[test]
+    fn borders_run_down_the_middle_of_gaps() {
+        // The same layout with `gaps = 1`: separators are three cells wide.
+        let rects = vec![
+            ("a".to_owned(), r(0, 0, 39, 25)),
+            ("b".to_owned(), r(42, 0, 39, 11)),
+            ("c".to_owned(), r(42, 14, 39, 11)),
+        ];
+        let b = borders(&rects, (81, 25), "b", Borders::Single);
+        let at = |x: u16, y: u16| {
+            b.iter()
+                .find(|(bx, by, _, _)| (*bx, *by) == (x, y))
+                .map(|(_, _, g, f)| (*g, *f))
+        };
+        assert_eq!(at(40, 0), Some(("│", true)));
+        assert_eq!(at(40, 12), Some(("├", true)));
+        assert_eq!(at(41, 12), Some(("─", true)));
+        assert_eq!(at(60, 12), Some(("─", true)));
+        assert_eq!(at(40, 20), Some(("│", false)));
+        // The cells beside the border stay blank.
+        for (x, y) in [(39, 5), (41, 5), (60, 11), (60, 13)] {
+            assert!(at(x, y).is_none(), "{x},{y}");
+        }
     }
 }

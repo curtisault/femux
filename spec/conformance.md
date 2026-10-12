@@ -152,3 +152,9 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-UI-032 (`remote:` modules) | femux-client `ui_bar::ui_032_remote_modules_show_the_daemon_hosts_values`; femux-plugin-hosts `tests::*` | pass |
 | `femux hosts add\|list\|rm` | femux-cli `remote::hosts_add_list_rm`; femux-config `tests::hosts_file_roundtrips_and_resolves_raw_destinations` | pass |
 | 0.6.0 acceptance | femux-cli `remote::attach_over_ssh_runs_the_remote_session_and_detaches` (attach over SSH), `remote::a_dropped_link_reconnects_and_the_session_survives` (detach survives link drop), `remote::remote_notifications_play_on_the_client` (remote notifications play locally) | pass |
+
+## 0.6.1
+
+| Requirement | Tests | Status |
+| --- | --- | --- |
+| REQ-UI-010 (`[layout] scheme`, `gaps`) | femux-daemon `layout::tests::gaps_widen_every_separator_and_give_way_when_space_is_short`; femux-test `scheme::layout_config_sets_the_scheme_and_gaps`; femux-client `render::tests::borders_run_down_the_middle_of_gaps` | pass |

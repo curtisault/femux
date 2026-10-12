@@ -291,6 +291,7 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
 
 - REQ-UI-010: BSP with preselection (`prefix` then `shift+h/j/k/l` chooses where the next split goes), master-stack and scrolling schemes selectable per tab.
   Note: `shift+h/j/k/l` are the resize keys in the §5.1 table, so preselection is `prefix ctrl+h/j/k/l` (actions `preselect left|down|up|right`); the choice shows in the status line and applies to the next split. Schemes are palette actions `scheme bsp|master|scroll` (`layout.set_scheme`).
+  Note (0.6.1): `[layout] scheme` is the scheme new tabs start in. `[layout] gaps = n` widens every separator between tiled panes to `1 + 2n` cells with the border down the middle, falling back to one cell where a split is too small for it; the outer edge gets no margin. `femux reload` re-applies gaps to open tabs; the scheme applies to tabs created afterwards.
 - REQ-UI-011: Floating panes render above tiles; mouse drag moves and resizes them.
   Note: dragging a float's top border moves it, dragging its bottom-right corner resizes it; both send `layout.float` with the new rect (ADR-016 #5).
 - REQ-UI-012: Layout templates can be saved and loaded by name (`femux layout save|load`); they serialize `layout.get` output plus cwd and cmd per pane.
