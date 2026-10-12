@@ -266,6 +266,9 @@ fn transient(app: &App) -> Option<Transient> {
 }
 
 fn mode_label(app: &App, theme: &Theme) -> (&'static str, CellAttributes) {
+    if let Overlay::Inbox(_) = &app.overlay {
+        return ("INBOX", bold(attr(theme.accent_fg, theme.accent)));
+    }
     if let Overlay::Navigator(nav) = &app.overlay {
         let label = match nav.kind {
             crate::nav::NavKind::Sessions => "SESSIONS",
@@ -695,6 +698,9 @@ pub fn render(app: &mut App, theme: &Theme, s: &mut Surface) {
         }
         Overlay::Navigator(nav) => {
             crate::nav::draw_navigator(app, &nav, &mut c, theme, &mut cursor);
+        }
+        Overlay::Inbox(st) => {
+            crate::inbox::draw_inbox(&app.dir, &st, &mut c, theme, &mut cursor);
         }
         Overlay::None | Overlay::Confirm { .. } | Overlay::Prompt { .. } => {}
     }

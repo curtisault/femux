@@ -26,6 +26,11 @@ pub fn plugin() -> Plugin {
     }
 }
 
+/// The client side alone: the `prefix i` inbox binding.
+pub fn client() -> Box<dyn ClientPlugin> {
+    Box::new(Client)
+}
+
 struct Client;
 
 impl ClientPlugin for Client {

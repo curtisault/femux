@@ -134,4 +134,5 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-AGT-004 | femux-plugin-agents `tier::tests::agt_004_higher_tiers_override_and_lower_ones_wait_out_the_hold`, `detect::agt_004_a_lower_tier_waits_out_the_hold` | pass |
 | REQ-TEST-006 | femux-plugin-agents `detect::*` | pass |
 | SPEC §9.3 `femux agent …` | femux-cli `agents::agent_wait_returns_when_the_claude_code_hook_reports_done`, `agents::agent_list_and_explain_show_state_source_and_evidence`, `agents::agent_prompt_types_text_and_enter`, `cli::cli_001_every_subcommand_has_json` | pass |
+| REQ-UI-044 | femux-client `ui_inbox::ui_044_inbox_jumps_and_answers_across_sessions`, `inbox::tests::ui_044_lists_blocked_error_done_across_sessions` | pass |
 | REQ-PLUG-002 (plugin ticks, responses, CLI events) | femux-plugin-agents `detect::*`; femux-cli `agents::*` | pass |

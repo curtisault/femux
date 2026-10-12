@@ -35,6 +35,8 @@ pub enum Action {
     WindowNav,
     Palette,
     SideNav,
+    /// The agent inbox (REQ-UI-044); bound by the agents plugin.
+    Inbox,
     Detach,
     Help,
     NormalMode,
@@ -134,6 +136,7 @@ pub const ALL: &[Action] = &[
     Action::WindowNav,
     Action::Palette,
     Action::SideNav,
+    Action::Inbox,
     Action::Detach,
     Action::Help,
     Action::NormalMode,
@@ -209,6 +212,7 @@ impl Action {
             WindowNav => "windows",
             Palette => "palette",
             SideNav => "sidenav",
+            Inbox => "inbox",
             Detach => "detach",
             Help => "help",
             NormalMode => "normal",
@@ -288,6 +292,7 @@ impl Action {
             WindowNav => "window navigator".into(),
             Palette => "command palette".into(),
             SideNav => "side nav".into(),
+            Inbox => "agent inbox".into(),
             Detach => "detach".into(),
             Help => "help".into(),
             NormalMode => "sticky normal mode".into(),
@@ -304,7 +309,9 @@ impl Action {
             SplitDown | SplitRight | ClosePane | Equalize | SwapNext | Scheme(_) => "splits",
             NewTab | RenameTab | NextTab | PrevTab | Tab(_) => "tabs",
             SetMark | JumpMark | CopyMode | Paste | Detach => "session",
-            SessionNav | WindowNav | Palette | SideNav | Help | NormalMode | SendPrefix => "ui",
+            SessionNav | WindowNav | Palette | SideNav | Inbox | Help | NormalMode | SendPrefix => {
+                "ui"
+            }
             _ => "copy",
         }
     }

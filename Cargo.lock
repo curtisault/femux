@@ -623,6 +623,7 @@ name = "femux-client"
 version = "0.4.0"
 dependencies = [
  "femux-plugin",
+ "femux-plugin-agents",
  "femux-plugin-clipboard",
  "femux-plugin-infobar",
  "femux-plugin-theme",
