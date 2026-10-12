@@ -88,6 +88,8 @@ enum Cmd {
     /// The config file: check, edit.
     #[command(subcommand)]
     Config(ConfigCmd),
+    /// Apply config.toml to the running daemon and its clients (an invalid file changes nothing).
+    Reload,
     /// Print shell completions for bash, zsh or fish.
     Completions {
         #[arg(value_enum)]
@@ -329,6 +331,11 @@ fn run_daemon(server: &str, socket: PathBuf, cfg: &Config, plugins: Vec<Plugin>)
     dcfg.socket = socket.clone();
     dcfg.keep_alive = cfg.daemon.keep_alive;
     dcfg.scrollback_lines = cfg.terminal.scrollback_lines;
+    // REQ-STORE-001: the store lives in the state directory, one file per server.
+    dcfg.db = Some(femux_config::db_path(server));
+    dcfg.restore = cfg.restore.clone();
+    dcfg.env_allow = cfg.env.allow.clone();
+    dcfg.config_path = Some(femux_config::config_path());
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
@@ -829,6 +836,12 @@ fn run_cmd(cli: &Cli, cfg: &Config, socket: &Path, all_plugins: Vec<Plugin>, cmd
                 ok("", json!({"pane_id": pane, "state": state}))
             }
         },
+        Some(Cmd::Reload) => {
+            // Checked here first, so the error names the file even without a daemon.
+            Config::load(&femux_config::config_path())?;
+            connect(socket)?.call(m::ServerReload {}).or_else(err)?;
+            ok("reloaded", json!({"reloaded": true}))
+        }
         Some(Cmd::Config(c)) => match c {
             ConfigCmd::Check => config_check(),
             ConfigCmd::Edit => {
@@ -936,6 +949,9 @@ fn host(cfg: &Config, plugins: Vec<Plugin>, cmd: &Command) -> femux_client::Host
         cfg: config::client(cfg),
         plugins: plugins.into_iter().filter_map(|p| p.client).collect(),
         cli_commands,
+        reload: Some(Box::new(|| {
+            Config::load(&femux_config::config_path()).map(|c| config::client(&c))
+        })),
     }
 }
 
@@ -1044,9 +1060,27 @@ impl CliCore for LazyCore {
     }
 }
 
+/// The first positional argument (the subcommand), skipping global options and their values.
+fn subcommand_name() -> Option<String> {
+    let mut args = std::env::args().skip(1);
+    while let Some(a) = args.next() {
+        match a.as_str() {
+            "--server" | "--socket" => {
+                args.next();
+            }
+            a if a.starts_with('-') => {}
+            a => return Some(a.to_owned()),
+        }
+    }
+    None
+}
+
 fn main() -> ExitCode {
     let cfg = match Config::load(&femux_config::config_path()) {
         Ok(c) => c,
+        // `config check` and `config edit` are how a bad config gets fixed: they run on the
+        // defaults and report the error themselves.
+        Err(_) if subcommand_name().as_deref() == Some("config") => Config::default(),
         Err(e) => {
             eprintln!("femux: config: {e}");
             return ExitCode::FAILURE;

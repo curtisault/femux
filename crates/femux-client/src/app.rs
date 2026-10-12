@@ -30,6 +30,8 @@ pub enum Effect {
     Exit,
     /// Put text on the host clipboard (OSC 52).
     Clipboard(String),
+    /// The daemon reloaded its config; re-read ours ([`App::apply_config`]).
+    Reload,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -235,6 +237,24 @@ impl App {
         app
     }
 
+    /// Applies a re-read config (`femux reload`, ADR-013): bindings, prefixes, mouse, chrome.
+    pub fn apply_config(&mut self, cfg: ClientConfig) {
+        let mut bindings = Bindings::from_config(&cfg);
+        for p in &self.plugins {
+            bindings.add_plugin(&p.bindings());
+        }
+        self.bindings = bindings;
+        self.prefixes = cfg.prefix.iter().filter_map(|p| Chord::parse(p)).collect();
+        let chrome_changed = cfg.tabs != self.cfg.tabs;
+        self.cfg = cfg;
+        if chrome_changed {
+            let (cols, rows) = (self.cols, self.rows);
+            self.on_resize(cols, rows);
+        }
+        self.message = Some("config reloaded".into());
+        self.dirty = true;
+    }
+
     // ------------------------------------------------------------------ plumbing
 
     fn send(&mut self, req: impl Into<Request>, pending: Pending) -> u64 {
@@ -378,6 +398,9 @@ impl App {
     }
 
     fn on_event(&mut self, e: &Event) {
+        if let Event::ConfigReloaded(_) = e {
+            self.effects.push(Effect::Reload);
+        }
         let fx = self.model.on_event(e);
         self.model_effects(fx);
         if let Some(cm) = &self.copy
@@ -1328,6 +1351,140 @@ mod tests {
         }));
         assert_eq!(a.take_effects(), [Effect::Clipboard("other".into())]);
         assert_eq!(a.clipboard.as_deref(), Some("other"));
+    }
+
+    /// Two panes side by side, A (pid 10) restored and B (pid 20) not, with a full frame.
+    fn restored_app() -> App {
+        let pane = |id: &str| m::LayoutNode::PaneNode(m::PaneNode { id: id.into() });
+        let attach = m::SessionAttachOk {
+            view_id: "V".into(),
+            snapshot: m::SessionSnapshot {
+                session: "s".into(),
+                tabs: vec![m::TabSnapshot {
+                    id: "T".into(),
+                    focus: "B".into(),
+                    tree: m::LayoutNode::SplitNode(m::SplitNode {
+                        dir: m::SplitDir::H,
+                        ratio: m::Ratio { num: 1, den: 2 },
+                        children: vec![pane("A"), pane("B")],
+                    }),
+                    ..Default::default()
+                }],
+                current_tab: "T".into(),
+                marks: Default::default(),
+            },
+        };
+        let mut a = App::new(
+            ClientConfig::default(),
+            Vec::new(),
+            Vec::new(),
+            &attach,
+            21,
+            6,
+        );
+        for (id, req) in a.take_out() {
+            if let Request::PaneInfo(r) = req {
+                let restored = r.pane_id == "A";
+                a.on_msg(ServerMsg::Response(
+                    id,
+                    Response::PaneInfo(m::PaneInfoOk {
+                        id: r.pane_id.clone(),
+                        tab: "T".into(),
+                        session: "s".into(),
+                        pid: if restored { 10 } else { 20 },
+                        fg_pid: if restored { 10 } else { 20 },
+                        fg_cmd: "sh".into(),
+                        restored,
+                        ..Default::default()
+                    }),
+                ));
+            }
+        }
+        let rect = |x, w| m::Rect { x, y: 0, w, h: 4 };
+        a.on_msg(ServerMsg::Push(femux_proto::Push::Frame(m::Frame {
+            view_id: "V".into(),
+            frame_seq: 1,
+            full: true,
+            panes: vec![
+                m::PaneFrame {
+                    pane_id: "A".into(),
+                    rect: rect(0, 10),
+                    ..Default::default()
+                },
+                m::PaneFrame {
+                    pane_id: "B".into(),
+                    rect: rect(11, 10),
+                    ..Default::default()
+                },
+            ],
+            tab: m::TabInfo {
+                id: "T".into(),
+                title: "sh".into(),
+                index: 0,
+                count: 1,
+            },
+            images: vec![],
+        })));
+        a
+    }
+
+    fn screen(a: &mut App) -> Vec<String> {
+        let mut s = termwiz::surface::Surface::new(a.cols as usize, a.rows as usize);
+        crate::render::render(a, &crate::theme::Theme::dark(), &mut s);
+        s.screen_chars_to_string()
+            .lines()
+            .map(str::to_owned)
+            .collect()
+    }
+
+    #[test]
+    fn store_008_restored_panes_have_a_dashed_border_until_a_command_runs() {
+        let mut a = restored_app();
+        let rows = screen(&mut a);
+        // The separator between A and B is column 10; A is restored, so it is dashed.
+        assert_eq!(rows[1].chars().nth(10), Some('┆'), "{rows:?}");
+        assert!(
+            rows[0].contains('↺'),
+            "tab strip marks restored panes: {rows:?}"
+        );
+        // A command runs in A: the border is ordinary again.
+        a.on_msg(ServerMsg::Event(Event::PaneFgChanged(m::PaneFgChanged {
+            pane_id: "A".into(),
+            pid: 11,
+            cmd: "vim".into(),
+            ..Default::default()
+        })));
+        let rows = screen(&mut a);
+        assert_eq!(rows[1].chars().nth(10), Some('│'), "{rows:?}");
+        assert!(!rows[0].contains('↺'), "{rows:?}");
+    }
+
+    #[test]
+    fn config_reloaded_asks_for_the_config_and_applies_it() {
+        let mut a = app(ClientConfig::default());
+        a.on_msg(ServerMsg::Event(Event::ConfigReloaded(
+            m::ConfigReloaded::default(),
+        )));
+        assert!(a.take_effects().contains(&Effect::Reload));
+        let mut cfg = ClientConfig {
+            prefix: vec!["ctrl+b".into()],
+            ..Default::default()
+        };
+        cfg.keys_prefix.insert("v".into(), "zoom".into());
+        a.apply_config(cfg);
+        let now = Instant::now();
+        a.on_key(key("ctrl+space"), now);
+        assert!(!a.prefix_armed(), "the old prefix is gone");
+        a.take_out();
+        a.on_key(key("ctrl+b"), now);
+        assert!(a.prefix_armed());
+        a.on_key(key("v"), now);
+        assert!(
+            a.take_out()
+                .iter()
+                .any(|(_, r)| matches!(r, Request::LayoutZoom(_))),
+            "the new bindings apply"
+        );
     }
 
     /// A client plugin that forwards clipboard events like the real `clipboard` plugin.

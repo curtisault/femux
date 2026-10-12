@@ -78,6 +78,7 @@ const LEAVES: &[&[&str]] = &[
     &["completions"],
     &["config", "check"],
     &["config", "edit"],
+    &["reload"],
     &["clipboard", "set"],
     &["shell-integration"],
 ];
@@ -451,9 +452,28 @@ fn cfg_003_config_check_rejects_unknown_keys_with_lines() {
     let (ok, _, err) = env.try_run(&["config", "check"]);
     assert!(!ok, "unknown key accepted");
     assert!(err.contains("line 3") && err.contains("scrollbak"), "{err}");
-    // Every command refuses to run on a bad config rather than ignoring the key.
+    // Every command refuses to run on a bad config rather than ignoring the key...
     let (ok, _, err) = env.try_run(&["ls"]);
     assert!(!ok && err.contains("scrollbak"), "{err}");
+    // ...except config edit, which is how it gets fixed.
+    let out = env
+        .cmd(&["config", "edit"])
+        .env(
+            "EDITOR",
+            "sh -c 'printf \"[restore]\\nenabled = true\\n\" > \"$0\"'",
+        )
+        .env_remove("VISUAL")
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        env.try_run(&["ls"]).2.contains("no daemon"),
+        "fixed config lets ls run"
+    );
     env.write_config("[restore]\nenabled = true\n");
     let sessions = env.dir.path().join("config/femux/sessions");
     std::fs::create_dir_all(&sessions).unwrap();
@@ -497,4 +517,35 @@ fn cfg_003_config_check_rejects_unknown_keys_with_lines() {
         .output()
         .unwrap();
     assert!(!out.status.success());
+}
+
+/// ADR-013: `femux reload` applies config.toml to the running daemon; a bad file changes
+/// nothing and says where it is wrong.
+#[test]
+fn reload_applies_the_config_to_the_running_daemon() {
+    let env = Env::new();
+    env.write_config("[daemon]\nkeep_alive = false\n");
+    env.run(&["daemon"]);
+    env.run(&["new", "s"]);
+    env.write_config("[daemon]\nkeep_alive = true\n");
+    assert_eq!(env.json(&["reload"])["reloaded"], true);
+    // keep_alive now holds the daemon up past its last session.
+    env.run(&["kill", "s"]);
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(env.socket().exists(), "keep_alive applied");
+    env.write_config("[daemon]\nkeep_alive = true\nbogus = 1\n");
+    let (ok, _, err) = env.try_run(&["reload"]);
+    assert!(!ok && err.contains("line 3"), "{err}");
+    env.write_config("[daemon]\nkeep_alive = true\n");
+    let socket = env.socket();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        let mut c = femux_test::Client::connect(&socket, femux_test::Client::hello(80, 24))
+            .await
+            .unwrap();
+        c.call(m::ServerStop { kill_panes: true }).await.unwrap();
+    });
 }

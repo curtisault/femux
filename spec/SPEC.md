@@ -347,6 +347,7 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
 - REQ-STORE-007: A snapshot that fails to load is moved to `session-backups/<ts>.db` and never overwritten.
   Note: the WAL and shared-memory files move with it; a name already taken gets a `-1`, `-2`, … suffix.
 - REQ-STORE-008: Restored panes render with a distinct border style until a process runs in them.
+  Note: borders next to a restored pane are dashed and drawn in the warning color, and its tab shows `↺`, since a lone pane has no border to restyle. The style clears when a process other than the shell runs (ADR-017 #2).
 
 ---
 
@@ -411,6 +412,8 @@ pane_exited   = { desktop = false }
 ## 10. Configuration
 
 `~/.config/femux/config.toml`, validated on load with line-numbered errors. Reload with `femux reload`.
+
+Note: `femux reload` validates the file, then the daemon applies `keep_alive`, `[terminal] scrollback_lines` (for new panes), `[restore]` and `[env] allow`, and attached clients re-read their keys, prefix, mouse, borders, tab strip and theme. `[daemon] name` and `[plugins] enabled` take effect on the next start. An invalid file changes nothing (ADR-017 #3).
 
 ```toml
 [daemon]

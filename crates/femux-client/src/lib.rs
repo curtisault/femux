@@ -126,6 +126,8 @@ pub struct Host {
     pub plugins: Vec<Box<dyn ClientPlugin>>,
     /// CLI subcommand names for the palette (REQ-UI-043).
     pub cli_commands: Vec<String>,
+    /// Re-reads the client's config after `config.reloaded` (ADR-013).
+    pub reload: Option<Box<dyn Fn() -> Result<ClientConfig, String> + Send>>,
 }
 
 /// Chrome rows for a config (tab strip + status line), used before the app exists.
@@ -287,7 +289,8 @@ pub fn run(socket: &Path, session: Option<&str>, host: Host) -> io::Result<()> {
         Response::SessionAttach(a) => a,
         r => return Err(other(format!("unexpected {r:?}"))),
     };
-    let theme = Theme::pick(&host.cfg.theme, probe.dark, probe.bg);
+    let mut theme = Theme::pick(&host.cfg.theme, probe.dark, probe.bg);
+    let reload = host.reload;
     let mut app = App::new(
         host.cfg,
         host.plugins,
@@ -326,6 +329,16 @@ pub fn run(socket: &Path, session: Option<&str>, host: Host) -> io::Result<()> {
                 match fx {
                     Effect::Exit => return Ok(()),
                     Effect::Clipboard(text) => term.write(term::osc52(&text).as_bytes())?,
+                    Effect::Reload => match reload.as_ref().map(|r| r()) {
+                        Some(Ok(cfg)) => {
+                            theme = Theme::pick(&cfg.theme, probe.dark, probe.bg);
+                            app.apply_config(cfg);
+                            prev = Surface::new(size.0 as usize, size.1 as usize);
+                            term.write(b"\x1b[2J")?;
+                        }
+                        Some(Err(e)) => app.message = Some(e),
+                        None => {}
+                    },
                 }
             }
             let now_size = term.size();

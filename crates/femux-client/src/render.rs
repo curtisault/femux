@@ -129,6 +129,24 @@ fn glyphs(b: Borders) -> [&'static str; 11] {
     }
 }
 
+/// Whether border cell `(x, y)` lies on the frame around `r`.
+pub fn on_edge(x: u16, y: u16, r: &m::Rect) -> bool {
+    let (x0, y0, x1, y1) = (r.x, r.y, r.x + r.w, r.y + r.h);
+    let in_x = x + 1 >= x0 && x <= x1;
+    let in_y = y + 1 >= y0 && y <= y1;
+    ((x + 1 == x0 || x == x1) && in_y) || ((y + 1 == y0 || y == y1) && in_x)
+}
+
+/// The dashed form of a straight border glyph: the distinct style of restored panes
+/// (REQ-STORE-008). Junctions and corners keep their shape.
+pub fn dashed(glyph: &'static str) -> &'static str {
+    match glyph {
+        "│" | "┃" | "║" => "┆",
+        "─" | "━" | "═" => "┄",
+        g => g,
+    }
+}
+
 /// Border cells in the gaps between tiled rectangles: `(x, y, glyph, touches_focused)`.
 pub fn borders(
     rects: &[(String, m::Rect)],
@@ -156,14 +174,7 @@ pub fn borders(
         }
     }
     let f = rects.iter().find(|(p, _)| p == focused).map(|(_, r)| r);
-    let touches = |x: u16, y: u16| {
-        f.is_some_and(|r| {
-            let (x0, y0, x1, y1) = (r.x, r.y, r.x + r.w, r.y + r.h);
-            let in_x = x + 1 >= x0 && x <= x1;
-            let in_y = y + 1 >= y0 && y <= y1;
-            ((x + 1 == x0 || x == x1) && in_y) || ((y + 1 == y0 || y == y1) && in_x)
-        })
-    };
+    let touches = |x: u16, y: u16| f.is_some_and(|r| on_edge(x, y, r));
     let g = glyphs(style);
     let mut out: Vec<(u16, u16, &'static str, bool)> = cells
         .iter()
@@ -217,12 +228,25 @@ pub fn render(app: &mut App, theme: &Theme, s: &mut Surface) {
             draw_pane(app, &mut c, theme, id, oy, &mut cursor);
         }
         if !tab.zoomed {
+            let restored: Vec<&m::Rect> = tiled
+                .iter()
+                .filter(|(id, _)| app.model.panes.get(id).is_some_and(|p| p.restored))
+                .map(|(_, r)| r)
+                .collect();
             for (x, y, glyph, focused) in borders(&tiled, (vw, vh), &tab.focus, app.cfg.borders) {
-                let a = attr(
-                    if focused { theme.accent } else { theme.muted },
-                    ColorAttribute::Default,
+                let by_restored = restored.iter().any(|r| on_edge(x, y, r));
+                let color = match (focused, by_restored) {
+                    (true, _) => theme.accent,
+                    (false, true) => theme.warn,
+                    _ => theme.muted,
+                };
+                let glyph = if by_restored { dashed(glyph) } else { glyph };
+                c.put(
+                    x as usize,
+                    y as usize + oy,
+                    glyph,
+                    &attr(color, ColorAttribute::Default),
                 );
-                c.put(x as usize, y as usize + oy, glyph, &a);
             }
             for f in &tab.floats {
                 let Some(r) = app
@@ -235,8 +259,13 @@ pub fn render(app: &mut App, theme: &Theme, s: &mut Surface) {
                     continue;
                 };
                 let focused = tab.focus == f.id;
+                let restored = app.model.panes.get(&f.id).is_some_and(|p| p.restored);
                 let a = attr(
-                    if focused { theme.accent } else { theme.muted },
+                    match (focused, restored) {
+                        (true, _) => theme.accent,
+                        (false, true) => theme.warn,
+                        _ => theme.muted,
+                    },
                     ColorAttribute::Default,
                 );
                 let g = glyphs(app.cfg.borders);
@@ -260,6 +289,7 @@ pub fn render(app: &mut App, theme: &Theme, s: &mut Surface) {
                             (_, _, true, _) | (_, _, _, true) => g[1],
                             _ => continue,
                         };
+                        let glyph = if restored { dashed(glyph) } else { glyph };
                         c.put(x as usize, y as usize, glyph, &a);
                     }
                 }
@@ -304,6 +334,9 @@ pub fn render(app: &mut App, theme: &Theme, s: &mut Surface) {
             if app.model.tab_running(t) {
                 label.push(' ');
                 label.push_str(&app.cfg.running_indicator);
+            }
+            if app.model.tab_restored(t) {
+                label.push_str(" ↺");
             }
             if t.urgent {
                 label.push_str(" !");
