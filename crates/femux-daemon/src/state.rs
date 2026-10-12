@@ -184,6 +184,10 @@ pub struct State {
     pub pending_resize: HashMap<TabId, Instant>,
     /// LIFE-002 applies only after the daemon has had a session.
     pub had_session: bool,
+    /// The daemon should exit (REQ-LIFE-002, `server.stop`). Whoever applied the mutation
+    /// turns this into the shutdown signal once it is safe: a request after its reply has
+    /// been written, anything else immediately.
+    pub exit_requested: bool,
 }
 
 /// A handler error: an error code plus message.

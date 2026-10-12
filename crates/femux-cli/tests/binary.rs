@@ -158,3 +158,19 @@ fn shell_pid(socket: &Path) -> i32 {
         info.fg_pid as i32
     })
 }
+
+/// REQ-LIFE-002 from the CLI: `femux kill` on the last session reports success, then the
+/// daemon is gone. Repeated because the reply used to race the daemon's exit.
+#[test]
+fn life_002_kill_of_the_last_session_succeeds() {
+    for round in 0..8 {
+        let env = Env::new();
+        env.run(&["daemon"]);
+        env.run(&["new", "s"]);
+        let (ok, _, err) = env.try_run(&["kill", "s"]);
+        assert!(ok, "round {round}: femux kill failed: {err}");
+        wait_until("daemon exit", Duration::from_secs(5), || {
+            !env.socket().exists()
+        });
+    }
+}

@@ -92,6 +92,9 @@ pub struct Daemon {
 pub struct ConnCtx {
     pub id: u64,
     pub features: Vec<String>,
+    /// Set by a request that ends the daemon; the connection signals shutdown only after
+    /// that request's reply has been written.
+    pub exit: std::cell::Cell<bool>,
 }
 
 fn host_caps(t: &m::TermCaps) -> HostCaps {
@@ -296,6 +299,10 @@ impl Daemon {
             scope,
         );
         self.remove_pane(&mut st, id);
+        // The last pane's process exited: no request waits on a reply, so exit now.
+        if std::mem::take(&mut st.exit_requested) {
+            self.shutdown.send_replace(true);
+        }
         drop(st);
         self.dirty();
     }
@@ -417,7 +424,7 @@ impl Daemon {
         );
         // REQ-LIFE-002: exit with the last session unless keep_alive.
         if st.sessions.is_empty() && st.had_session && !self.cfg.keep_alive {
-            self.shutdown.send_replace(true);
+            st.exit_requested = true;
         }
     }
 
@@ -643,6 +650,9 @@ impl Daemon {
         };
         let mut st = self.state.lock().unwrap();
         let resp = self.dispatch(&mut st, conn, req);
+        if std::mem::take(&mut st.exit_requested) {
+            conn.exit.set(true);
+        }
         drop(st);
         self.dirty();
         resp
@@ -1402,7 +1412,7 @@ impl Daemon {
             }),
             Q::ServerStop(_) => {
                 // Without restore (0.3.0) panes cannot outlive the daemon, so kill_panes is moot.
-                self.shutdown.send_replace(true);
+                st.exit_requested = true;
                 Response::ServerStop(m::Empty {})
             }
             Q::ClipboardSet(r) => {

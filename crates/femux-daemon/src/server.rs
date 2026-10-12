@@ -164,7 +164,12 @@ async fn connection(d: Arc<Daemon>, id: u64, stream: UnixStream) {
                     .await;
             }
         }
+        // The request ended the daemon: stop reading and let the reply drain first.
+        if conn.ctx.exit.get() {
+            break;
+        }
     }
+    let exit = conn.ctx.exit.get();
 
     if let Some((sub, task)) = conn.events.take() {
         task.abort();
@@ -176,7 +181,11 @@ async fn connection(d: Arc<Daemon>, id: u64, stream: UnixStream) {
     d.conn_closed(id);
     drop(conn);
     drop(tx);
+    // The writer ends once every queued message, the last reply included, is written.
     let _ = writer.await;
+    if exit {
+        d.shutdown.send_replace(true);
+    }
 }
 
 /// Reads `hello`, answers `hello_ok`, and returns the negotiated context (REQ-PROTO-020/021).
@@ -232,7 +241,11 @@ async fn handshake(
     tx.send(Response::Hello(ok).encode(env.id).ok()?)
         .await
         .ok()?;
-    Some(ConnCtx { id, features })
+    Some(ConnCtx {
+        id,
+        features,
+        exit: Default::default(),
+    })
 }
 
 /// Requests that need the connection itself; everything else goes to the daemon.

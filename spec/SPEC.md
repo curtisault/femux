@@ -132,6 +132,7 @@ Layer rules:
 - REQ-LIFE-001: `SIGTERM` to the daemon MUST snapshot state, then exit without killing panes if restore is enabled, or kill panes with `SIGHUP` if not.
   Note: restore arrives in 0.3.0, so in 0.1.0 SIGTERM always SIGHUPs panes; `server.stop` behaves the same whatever `kill_panes` says.
 - REQ-LIFE-002: The daemon MUST exit when the last session is closed unless `daemon.keep_alive = true`.
+  Note: when a request closes the last session (or is `server.stop`), its reply is written before the daemon begins to exit.
 - REQ-LIFE-003: (Deferred, post-1.0) Live handoff of PTY fds to a new daemon via `SCM_RIGHTS`. Fd ownership MUST remain in the PTY manager so this stays possible.
 
 ---
