@@ -85,6 +85,9 @@ enum Cmd {
     /// Agent hook integration: install, uninstall.
     #[command(subcommand)]
     Integration(IntegrationCmd),
+    /// The config file: check, edit.
+    #[command(subcommand)]
+    Config(ConfigCmd),
     /// Print shell completions for bash, zsh or fish.
     Completions {
         #[arg(value_enum)]
@@ -234,6 +237,14 @@ enum KeysCmd {
     List,
     /// What a key does in each table.
     Explain { key: String },
+}
+
+#[derive(Subcommand)]
+enum ConfigCmd {
+    /// Validate config.toml and every session file; errors name their line.
+    Check,
+    /// Open config.toml in $VISUAL or $EDITOR (seeded with the defaults if missing), then check it.
+    Edit,
 }
 
 #[derive(Subcommand)]
@@ -735,7 +746,7 @@ fn run_cmd(cli: &Cli, cfg: &Config, socket: &Path, all_plugins: Vec<Plugin>, cmd
             }
         },
         Some(Cmd::Keys(k)) => {
-            let b = femux_client::bindings::Bindings::from_config(&cfg.client());
+            let b = femux_client::bindings::Bindings::from_config(&config::client(cfg));
             match k {
                 KeysCmd::List => {
                     let list = b.list();
@@ -817,6 +828,37 @@ fn run_cmd(cli: &Cli, cfg: &Config, socket: &Path, all_plugins: Vec<Plugin>, cmd
                 ok("", json!({"pane_id": pane, "state": state}))
             }
         },
+        Some(Cmd::Config(c)) => match c {
+            ConfigCmd::Check => config_check(),
+            ConfigCmd::Edit => {
+                let path = femux_config::config_path();
+                if !path.exists() {
+                    if let Some(d) = path.parent() {
+                        std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
+                    }
+                    std::fs::write(&path, EXAMPLE_CONFIG)
+                        .map_err(|e| format!("{}: {e}", path.display()))?;
+                }
+                let editor = std::env::var("VISUAL")
+                    .or_else(|_| std::env::var("EDITOR"))
+                    .unwrap_or_else(|_| "vi".into());
+                let status = Proc::new("sh")
+                    .arg("-c")
+                    .arg(format!("{editor} \"$1\""))
+                    .arg("sh")
+                    .arg(&path)
+                    .status()
+                    .map_err(|e| format!("{editor}: {e}"))?;
+                if !status.success() {
+                    return Err(format!("{editor} exited with {status}"));
+                }
+                Config::load(&path)?;
+                ok(
+                    format!("{} is valid", path.display()),
+                    json!({"path": path, "ok": true}),
+                )
+            }
+        },
         Some(Cmd::Completions { shell }) => {
             let mut cmd = cmd.clone();
             let mut buf = Vec::new();
@@ -827,6 +869,50 @@ fn run_cmd(cli: &Cli, cfg: &Config, socket: &Path, all_plugins: Vec<Plugin>, cmd
                 json!({"shell": shell.to_string(), "script": text}),
             )
         }
+    }
+}
+
+/// The commented defaults, written by `config edit` when there is no config yet.
+const EXAMPLE_CONFIG: &str = include_str!("../../../spec/config.example.toml");
+
+/// `femux config check`: config.toml, then every session file (REQ-CFG-003).
+fn config_check() -> R {
+    let mut files = Vec::new();
+    let mut errors = Vec::new();
+    let path = femux_config::config_path();
+    match Config::load(&path) {
+        Ok(_) => files.push(json!({"path": path, "ok": true, "exists": path.exists()})),
+        Err(e) => {
+            files.push(json!({"path": path, "ok": false, "error": e}));
+            errors.push(e);
+        }
+    }
+    let mut sessions: Vec<PathBuf> = std::fs::read_dir(femux_config::sessions_dir())
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "toml"))
+        .collect();
+    sessions.sort();
+    for p in sessions {
+        match femux_config::SessionFile::load(&p) {
+            Ok(_) => files.push(json!({"path": p, "ok": true})),
+            Err(e) => {
+                files.push(json!({"path": p, "ok": false, "error": e}));
+                errors.push(e);
+            }
+        }
+    }
+    if errors.is_empty() {
+        let text = files
+            .iter()
+            .map(|f| format!("ok  {}", f["path"].as_str().unwrap_or_default()))
+            .collect::<Vec<_>>()
+            .join("\n");
+        ok(text, json!({"ok": true, "files": files}))
+    } else {
+        Err(errors.join("\n"))
     }
 }
 
@@ -846,7 +932,7 @@ fn host(cfg: &Config, plugins: Vec<Plugin>, cmd: &Command) -> femux_client::Host
         }
     }
     femux_client::Host {
-        cfg: cfg.client(),
+        cfg: config::client(cfg),
         plugins: plugins.into_iter().filter_map(|p| p.client).collect(),
         cli_commands,
     }
@@ -958,7 +1044,7 @@ impl CliCore for LazyCore {
 }
 
 fn main() -> ExitCode {
-    let cfg = match Config::load(&Config::path()) {
+    let cfg = match Config::load(&femux_config::config_path()) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("femux: config: {e}");

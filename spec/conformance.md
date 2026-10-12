@@ -89,3 +89,9 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-PLUG-002 | femux-plugin `daemon_plugin::plug_002_daemon_plugin_subscribes_and_writes_metadata`; femux-client `bindings::tests::plugin_bindings_join_the_tables`, `app::tests::yank_echoes_are_not_replayed_to_the_host`; femux-plugin-which-key `tests::*`; femux-plugin-clipboard `tests::*`; femux-plugin-shell-integration `tests::*` | pass |
 | REQ-PLUG-003 | femux-test `repo::plug_003_plugins_depend_on_the_protocol_crates_only`, `repo::arch_002_clients_and_plugins_use_the_protocol_only` | pass |
 | REQ-PLUG-004 | femux-test `repo::plug_004_built_in_list_matches_crates_and_milestones` | pass |
+
+## 0.3.0
+
+| Requirement | Tests | Status |
+| --- | --- | --- |
+| REQ-CFG-003 | femux-config `tests::cfg_003_unknown_keys_are_errors_with_lines`, `tests::example_config_is_exactly_the_defaults`; femux-cli `cli::cfg_003_config_check_rejects_unknown_keys_with_lines` | pass |

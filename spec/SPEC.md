@@ -488,6 +488,7 @@ cwd = "~/writing/notes"
 - REQ-CFG-001: Tabs beyond the listed `[[tab]]` entries open as plain shells in `root`.
 - REQ-CFG-002: `femux launch writing` creates the session from its file; `femux launch writing --tabs 4 --dir ~/writing -- nvim 'git status'` is equivalent and MAY write the file with `--save`.
 - REQ-CFG-003: Unknown keys are errors, not warnings.
+  Note: every table of `config.toml` and of session files rejects unknown keys and names the line; enum-like values (`scheme`, `borders`, positions, `mode_keys`) reject unknown values the same way. A bad config stops every command. `femux config check` validates the config and every session file; `femux config edit` seeds a missing config with the defaults from `spec/config.example.toml`.
 
 ---
 
@@ -518,6 +519,7 @@ femux/
     femux-client/           modes, layout engine, tab strip, infobar host, navigators, renderer (termwiz)
     femux-cli/              the `femux` binary; embeds client and daemon
     femux-plugin/           plugin traits and the daemon-plugin runner (REQ-PLUG-002)
+    femux-config/           config.toml and session-file parsing (SPEC §10)
     femux-test/             headless harness
     plugins/
       agents/ infobar/ notify/ git/ clipboard/ graphics/ shell-integration/ broadcast/ which-key/ recorder/ hosts/ theme/ launcher/

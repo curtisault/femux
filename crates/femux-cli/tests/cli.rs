@@ -76,6 +76,8 @@ const LEAVES: &[&[&str]] = &[
     &["integration", "install"],
     &["integration", "uninstall"],
     &["completions"],
+    &["config", "check"],
+    &["config", "edit"],
     &["clipboard", "set"],
     &["shell-integration"],
 ];
@@ -438,4 +440,61 @@ fn integration_install_hook_and_uninstall() {
     );
     env.run(&["integration", "uninstall", "opencode"]);
     assert!(!home.join("config/opencode/plugin/femux.js").exists());
+}
+
+#[test]
+fn cfg_003_config_check_rejects_unknown_keys_with_lines() {
+    let env = Env::new();
+    // No config at all is valid: the defaults apply.
+    assert_eq!(env.json(&["config", "check"])["ok"], true);
+    env.write_config("[restore]\nenabled = true\nscrollbak = false\n");
+    let (ok, _, err) = env.try_run(&["config", "check"]);
+    assert!(!ok, "unknown key accepted");
+    assert!(err.contains("line 3") && err.contains("scrollbak"), "{err}");
+    // Every command refuses to run on a bad config rather than ignoring the key.
+    let (ok, _, err) = env.try_run(&["ls"]);
+    assert!(!ok && err.contains("scrollbak"), "{err}");
+    env.write_config("[restore]\nenabled = true\n");
+    let sessions = env.dir.path().join("config/femux/sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+    std::fs::write(
+        sessions.join("w.toml"),
+        "name = \"w\"\n[[tab]]\ncmd = \"vim\"\n",
+    )
+    .unwrap();
+    let (ok, _, err) = env.try_run(&["config", "check"]);
+    assert!(
+        !ok && err.contains("w.toml") && err.contains("line 3"),
+        "{err}"
+    );
+    std::fs::write(
+        sessions.join("w.toml"),
+        "name = \"w\"\n[[tab]]\ncommand = \"vim\"\n",
+    )
+    .unwrap();
+    let j = env.json(&["config", "check"]);
+    assert_eq!(j["ok"], true);
+    assert_eq!(j["files"].as_array().unwrap().len(), 2);
+    // edit seeds a missing config with the defaults and validates the result.
+    std::fs::remove_file(env.dir.path().join("config/femux/config.toml")).unwrap();
+    let out = env
+        .cmd(&["config", "edit"])
+        .env("EDITOR", "true")
+        .env_remove("VISUAL")
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let seeded = std::fs::read_to_string(env.dir.path().join("config/femux/config.toml")).unwrap();
+    assert!(seeded.contains("[restore]"));
+    let out = env
+        .cmd(&["config", "edit"])
+        .env("EDITOR", "sh -c 'echo bogus=1 >> \"$0\"'")
+        .env_remove("VISUAL")
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
 }
