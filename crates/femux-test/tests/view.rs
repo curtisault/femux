@@ -40,7 +40,7 @@ async fn view_001_each_client_has_its_own_tab_and_size() {
     let mut b = h.client().await;
     let vb = b.attach("s", 70, 20).await;
     b.call(TabSelect {
-        view_id: vb.view_id.clone(),
+        view_id: Some(vb.view_id.clone()),
         tab_id: t2.tab_id.clone(),
     })
     .await

@@ -376,6 +376,55 @@ impl Node {
     }
 }
 
+/// Builds an equalized chain of `panes` split along `dir`.
+fn chain(panes: &[PaneId], dir: SplitDir) -> Option<Node> {
+    let (first, rest) = panes.split_first()?;
+    let mut node = Node::Pane(first.clone());
+    let mut last = first.clone();
+    for p in rest {
+        node.split(&last, p.clone(), dir, Ratio::HALF, false);
+        last = p.clone();
+    }
+    node.equalize();
+    Some(node)
+}
+
+/// `master` scheme (REQ-UI-010): the first pane takes the left half, the rest stack on the
+/// right with equal heights.
+pub fn master_rects(panes: &[PaneId], area: Rect) -> Vec<(PaneId, Rect)> {
+    let Some((master, stack)) = panes.split_first() else {
+        return Vec::new();
+    };
+    let Some(stack) = chain(stack, SplitDir::V) else {
+        return vec![(master.clone(), area)];
+    };
+    let node = Node::Split {
+        dir: SplitDir::H,
+        ratio: Ratio::HALF,
+        a: Box::new(Node::Pane(master.clone())),
+        b: Box::new(stack),
+    };
+    node.rects(area)
+}
+
+/// How many panes the `scroll` scheme shows side by side.
+pub const SCROLL_VISIBLE: usize = 2;
+
+/// `scroll` scheme (REQ-UI-010): panes form a horizontal strip of equal widths; the strip is
+/// positioned so the focused pane is visible, and panes off the strip get no rectangle.
+pub fn scroll_rects(panes: &[PaneId], focus: &str, area: Rect) -> Vec<(PaneId, Rect)> {
+    let n = panes.len();
+    let k = n.min(SCROLL_VISIBLE);
+    if k == 0 {
+        return Vec::new();
+    }
+    let f = panes.iter().position(|p| p == focus).unwrap_or(0);
+    let start = f.min(n - k);
+    chain(&panes[start..start + k], SplitDir::H)
+        .map(|c| c.rects(area))
+        .unwrap_or_default()
+}
+
 /// The pane adjacent to `from` in `dir`, choosing the largest overlap on the other axis.
 pub fn neighbor(rects: &[(PaneId, Rect)], from: &str, dir: Direction) -> Option<PaneId> {
     let (_, f) = rects.iter().find(|(p, _)| p == from)?;
@@ -517,6 +566,39 @@ mod tests {
         chain.equalize();
         let widths: Vec<u16> = chain.rects(area(32, 5)).iter().map(|(_, r)| r.w).collect();
         assert_eq!(widths, [10, 10, 10]);
+    }
+
+    #[test]
+    fn master_and_scroll_schemes_follow_pane_order() {
+        let panes: Vec<PaneId> = ["a", "b", "c"].map(String::from).to_vec();
+        assert_eq!(
+            master_rects(&panes, area(81, 25)),
+            [
+                ("a".into(), r(0, 0, 40, 25)),
+                ("b".into(), r(41, 0, 40, 12)),
+                ("c".into(), r(41, 13, 40, 12))
+            ]
+        );
+        assert_eq!(
+            master_rects(&panes[..1], area(81, 25)),
+            [("a".into(), r(0, 0, 81, 25))]
+        );
+        // Two panes fit the strip; focusing the third scrolls it into view.
+        assert_eq!(
+            scroll_rects(&panes, "a", area(81, 25)),
+            [
+                ("a".into(), r(0, 0, 40, 25)),
+                ("b".into(), r(41, 0, 40, 25))
+            ]
+        );
+        assert_eq!(
+            scroll_rects(&panes, "c", area(81, 25)),
+            [
+                ("b".into(), r(0, 0, 40, 25)),
+                ("c".into(), r(41, 0, 40, 25))
+            ]
+        );
+        assert!(scroll_rects(&[], "a", area(81, 25)).is_empty());
     }
 
     #[test]

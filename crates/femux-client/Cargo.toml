@@ -7,5 +7,12 @@ license.workspace = true
 # REQ-ARCH-002: the client reaches the daemon only through femux-proto.
 [dependencies]
 femux-proto = { path = "../femux-proto" }
+femux-plugin = { path = "../femux-plugin" }
 termwiz.workspace = true
 tokio.workspace = true
+libc = "0.2"
+
+[dev-dependencies]
+femux-test = { path = "../femux-test" }
+femux-plugin-which-key = { path = "../plugins/which-key" }
+femux-plugin-clipboard = { path = "../plugins/clipboard" }

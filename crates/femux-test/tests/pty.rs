@@ -151,7 +151,7 @@ async fn pty_004_signals() {
         .await
         .unwrap();
     c.call(TabSelect {
-        view_id: view,
+        view_id: Some(view),
         tab_id: t.tab_id,
     })
     .await

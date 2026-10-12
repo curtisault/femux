@@ -163,6 +163,8 @@ pub struct Changes {
     pub bells: u32,
     pub title: Option<String>,
     pub pwd: Option<String>,
+    /// Texts written to the system clipboard by the pane program (OSC 52 and friends).
+    pub clipboard: Vec<String>,
 }
 
 /// State shared with libghostty-vt callbacks through the terminal's userdata pointer.
@@ -172,6 +174,7 @@ struct Effects {
     bells: u32,
     title_changed: bool,
     pwd_changed: bool,
+    clipboard: Vec<String>,
     host: HostCaps,
     xtversion: String,
     cell_px: (u32, u32),
@@ -226,6 +229,47 @@ unsafe extern "C" fn on_title(_t: ffi::GhosttyTerminal, ud: *mut c_void) {
 
 unsafe extern "C" fn on_pwd(_t: ffi::GhosttyTerminal, ud: *mut c_void) {
     effects(ud).pwd_changed = true;
+}
+
+/// Clipboard writes from the pane program (OSC 52, OSC 5522, OSC 1337 Copy) are accepted and
+/// queued for the daemon (REQ-SEC-002: writes are allowed from any pane). The text/plain
+/// representation is used, else the first one.
+unsafe extern "C" fn on_clipboard_write(
+    _t: ffi::GhosttyTerminal,
+    ud: *mut c_void,
+    write: *const ffi::GhosttyClipboardWrite,
+) {
+    // SAFETY: `write` and everything it borrows are valid for the duration of this callback.
+    unsafe {
+        let w = &*write;
+        let contents = if w.contents.is_null() {
+            &[][..]
+        } else {
+            std::slice::from_raw_parts(w.contents, w.contents_len)
+        };
+        let text_of = |s: &ffi::GhosttyString| {
+            if s.ptr.is_null() {
+                String::new()
+            } else {
+                String::from_utf8_lossy(std::slice::from_raw_parts(s.ptr, s.len)).into_owned()
+            }
+        };
+        let plain = contents
+            .iter()
+            .find(|c| text_of(&c.mime).starts_with("text/plain"))
+            .or(contents.first());
+        if let Some(c) = plain {
+            effects(ud).clipboard.push(text_of(&c.data));
+        }
+        if let Some(reply) = w.reply {
+            let r = ffi::GhosttyClipboardWriteReply {
+                size: std::mem::size_of::<ffi::GhosttyClipboardWriteReply>(),
+                result: ffi::GhosttyClipboardWriteResult::GHOSTTY_CLIPBOARD_WRITE_RESULT_SUCCESS,
+                remember: false,
+            };
+            reply(write, &r);
+        }
+    }
 }
 
 /// Virtual cell size used until a client reports a real one; keeps pixel reports sane.
@@ -287,7 +331,7 @@ impl Terminal {
             let ud = &mut *t.effects as *mut Effects as *const c_void;
             t.set_opt(O::GHOSTTY_TERMINAL_OPT_USERDATA, ud)?;
             // Callback options take the function pointer itself as the value.
-            let callbacks: [(O, *const c_void); 4] = [
+            let callbacks: [(O, *const c_void); 5] = [
                 (
                     O::GHOSTTY_TERMINAL_OPT_WRITE_PTY,
                     on_write_pty as *const c_void,
@@ -298,6 +342,10 @@ impl Terminal {
                     on_title as *const c_void,
                 ),
                 (O::GHOSTTY_TERMINAL_OPT_PWD_CHANGED, on_pwd as *const c_void),
+                (
+                    O::GHOSTTY_TERMINAL_OPT_CLIPBOARD_WRITE,
+                    on_clipboard_write as *const c_void,
+                ),
             ];
             for (opt, f) in callbacks {
                 t.set_opt(opt, f)?;
@@ -351,7 +399,7 @@ impl Terminal {
         std::mem::take(&mut self.effects.pty_out)
     }
 
-    /// Bells, title and cwd changes since the last call.
+    /// Bells, title, cwd and clipboard changes since the last call.
     pub fn take_changes(&mut self) -> Changes {
         let fx = &mut self.effects;
         let (title, pwd) = (
@@ -359,10 +407,12 @@ impl Terminal {
             std::mem::take(&mut fx.pwd_changed),
         );
         let bells = std::mem::take(&mut fx.bells);
+        let clipboard = std::mem::take(&mut fx.clipboard);
         Changes {
             bells,
             title: title.then(|| self.title()),
             pwd: pwd.then(|| self.pwd()),
+            clipboard,
         }
     }
 
@@ -574,6 +624,17 @@ impl Drop for Terminal {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clipboard_writes_are_reported() {
+        let mut t = Terminal::new(20, 3, 100).unwrap();
+        // OSC 52 with base64 "hello"; a read request ("?") produces nothing.
+        t.write(b"\x1b]52;c;aGVsbG8=\x07\x1b]52;c;?\x07");
+        let c = t.take_changes();
+        assert_eq!(c.clipboard, ["hello"]);
+        assert!(t.take_changes().clipboard.is_empty());
+        assert!(t.take_pty_output().is_empty(), "reads are not answered");
+    }
 
     #[test]
     fn writes_text_and_styles() {

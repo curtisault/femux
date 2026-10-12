@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 femux-proto = { path = "../femux-proto" }
+femux-plugin = { path = "../femux-plugin" }
 femux-daemon = { path = "../femux-daemon" }
 tokio.workspace = true
 serde.workspace = true

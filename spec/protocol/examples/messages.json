@@ -85,6 +85,49 @@
   },
   {
    "dir": "request",
+   "kind": "session.tabs",
+   "body": {
+    "name": "work"
+   }
+  },
+  {
+   "dir": "response",
+   "kind": "session.tabs",
+   "body": {
+    "tabs": [
+     {
+      "id": "01J9Z3K8M2N4P6Q8R0S2T4V6WA",
+      "title": "zsh",
+      "custom_title": "zsh",
+      "index": 0,
+      "tree": {
+       "t": "split",
+       "dir": "h",
+       "ratio": {
+        "num": 1,
+        "den": 2
+       },
+       "children": [
+        {
+         "t": "pane",
+         "id": "01J9Z3K8M2N4P6Q8R0S2T4V6W8"
+        },
+        {
+         "t": "pane",
+         "id": "01J9Z3K8M2N4P6Q8R0S2T4V6W9"
+        }
+       ]
+      },
+      "floats": [],
+      "zoomed": false,
+      "focus": "01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "scheme": "bsp"
+     }
+    ]
+   }
+  },
+  {
+   "dir": "request",
    "kind": "session.create",
    "body": {
     "name": "work",
@@ -118,6 +161,7 @@
       {
        "id": "01J9Z3K8M2N4P6Q8R0S2T4V6WA",
        "title": "zsh",
+       "custom_title": "zsh",
        "index": 0,
        "tree": {
         "t": "split",
@@ -229,6 +273,13 @@
    }
   },
   {
+   "dir": "request",
+   "kind": "tab.select",
+   "body": {
+    "tab_id": "01J9Z3K8M2N4P6Q8R0S2T4V6WA"
+   }
+  },
+  {
    "dir": "response",
    "kind": "tab.select",
    "body": {}
@@ -309,6 +360,14 @@
    "kind": "layout.focus",
    "body": {
     "view_id": "01J9Z3K8M2N4P6Q8R0S2T4V6WB",
+    "dir": "l"
+   }
+  },
+  {
+   "dir": "request",
+   "kind": "layout.focus",
+   "body": {
+    "pane_id": "01J9Z3K8M2N4P6Q8R0S2T4V6W8",
     "dir": "l"
    }
   },
@@ -568,6 +627,9 @@
    "body": {
     "id": "01J9Z3K8M2N4P6Q8R0S2T4V6W8",
     "tab": "01J9Z3K8M2N4P6Q8R0S2T4V6WA",
+    "session": "work",
+    "pid": 4200,
+    "cmd": "vim notes.md",
     "cwd": "/home/u",
     "fg_pid": 4242,
     "fg_cmd": "vim",
@@ -583,6 +645,8 @@
    "body": {
     "id": "01J9Z3K8M2N4P6Q8R0S2T4V6W8",
     "tab": "01J9Z3K8M2N4P6Q8R0S2T4V6WA",
+    "session": "work",
+    "pid": 0,
     "cwd": "",
     "fg_pid": 0,
     "fg_cmd": "",
@@ -720,7 +784,8 @@
        "ul": 4
       }
      ]
-    ]
+    ],
+    "first_line": -812
    }
   },
   {
@@ -896,7 +961,8 @@
     "seq": 42,
     "ts": 1760140800000,
     "session": "work",
-    "tab_id": "01J9Z3K8M2N4P6Q8R0S2T4V6WA"
+    "tab_id": "01J9Z3K8M2N4P6Q8R0S2T4V6WA",
+    "index": 1
    }
   },
   {
@@ -1091,6 +1157,27 @@
     "view_id": "01J9Z3K8M2N4P6Q8R0S2T4V6WB",
     "cols": 100,
     "rows": 30
+   }
+  },
+  {
+   "dir": "event",
+   "kind": "clipboard.changed",
+   "body": {
+    "seq": 47,
+    "ts": 1760140800000,
+    "text": "copied",
+    "source": "pane",
+    "pane_id": "01J9Z3K8M2N4P6Q8R0S2T4V6W8"
+   }
+  },
+  {
+   "dir": "event",
+   "kind": "clipboard.changed",
+   "body": {
+    "seq": 48,
+    "ts": 1760140800000,
+    "text": "from the cli",
+    "source": "client"
    }
   },
   {

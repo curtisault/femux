@@ -1,3 +1,55 @@
 [tools]
 rust = { version = "1.99.0", components = "clippy,rustfmt" }
 zig = "0.16.0"
+
+# Tasks run with the pinned toolchain above on PATH: `mise run <task>`, `mise tasks` lists them.
+
+[tasks.build]
+description = "Debug build of the workspace"
+run = "cargo build --workspace"
+
+[tasks.release]
+description = "Release build of the femux binary"
+run = "cargo build --release -p femux-cli"
+
+[tasks.install]
+description = "Install the release binary to ~/.local/bin"
+depends = ["release"]
+run = [
+  "mkdir -p ~/.local/bin",
+  "cp target/release/femux ~/.local/bin/femux",
+  # macOS caches code signatures by path; re-sign so the copied binary is not killed on exec.
+  "if [ \"$(uname)\" = Darwin ]; then codesign --force --sign - ~/.local/bin/femux; fi",
+]
+
+[tasks.test]
+description = "Run every test in the workspace"
+run = "cargo test --workspace"
+
+[tasks.lint]
+description = "Clippy with warnings as errors"
+run = "cargo clippy --workspace --all-targets -- -D warnings"
+
+[tasks.fmt]
+description = "Format the workspace"
+run = "cargo fmt --all"
+
+[tasks.fmt-check]
+description = "Fail if anything is unformatted"
+run = "cargo fmt --all -- --check"
+
+[tasks.ci]
+description = "What CI runs: format check, lint, tests (in that order)"
+run = [
+  "cargo fmt --all -- --check",
+  "cargo clippy --workspace --all-targets -- -D warnings",
+  "cargo test --workspace",
+]
+
+[tasks.bench]
+description = "VT diff-extraction benchmark"
+run = "cargo bench -p femux-vt"
+
+[tasks.clean]
+description = "Remove build artifacts"
+run = "cargo clean"

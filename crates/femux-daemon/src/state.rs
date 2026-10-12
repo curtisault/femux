@@ -68,13 +68,16 @@ impl Tab {
     }
 
     /// Rectangles of every pane (tiled, then floats clipped to the tab), ignoring zoom.
+    /// The scheme (REQ-UI-010) decides how the tiled panes are arranged: `bsp` follows the
+    /// tree, `master` and `scroll` derive from the tree's pane order.
     pub fn all_rects(&self) -> Vec<(PaneId, Rect)> {
         let area = self.area();
-        let mut out = self
-            .tree
-            .as_ref()
-            .map(|t| t.rects(area))
-            .unwrap_or_default();
+        let mut out = match (&self.tree, self.scheme) {
+            (None, _) => Vec::new(),
+            (Some(t), Scheme::Bsp) => t.rects(area),
+            (Some(t), Scheme::Master) => crate::layout::master_rects(&t.panes(), area),
+            (Some(t), Scheme::Scroll) => crate::layout::scroll_rects(&t.panes(), &self.focus, area),
+        };
         for (p, r) in &self.floats {
             let x = r.x.min(area.w.saturating_sub(1));
             let y = r.y.min(area.h.saturating_sub(1));
@@ -139,10 +142,13 @@ pub struct Pane {
 }
 
 impl Pane {
-    pub fn info(&self) -> m::PaneInfoOk {
+    pub fn info(&self, session: &str) -> m::PaneInfoOk {
         m::PaneInfoOk {
             id: self.id.clone(),
             tab: self.tab.clone(),
+            session: session.to_owned(),
+            pid: self.pid,
+            cmd: self.cmd.clone(),
             cwd: self.cwd.clone(),
             fg_pid: self.fg_pid,
             fg_cmd: self.fg_cmd.clone(),
@@ -178,6 +184,10 @@ pub struct State {
     pub pending_resize: HashMap<TabId, Instant>,
     /// LIFE-002 applies only after the daemon has had a session.
     pub had_session: bool,
+    /// The daemon should exit (REQ-LIFE-002, `server.stop`). Whoever applied the mutation
+    /// turns this into the shutdown signal once it is safe: a request after its reply has
+    /// been written, anything else immediately.
+    pub exit_requested: bool,
 }
 
 /// A handler error: an error code plus message.
@@ -292,6 +302,7 @@ impl State {
             .map(|(i, t)| m::TabSnapshot {
                 id: t.id.clone(),
                 title: self.tab_title(t),
+                custom_title: t.title.clone(),
                 index: i as u32,
                 tree: t.tree.as_ref().map(Node::to_proto).unwrap_or_default(),
                 floats: t.floats_proto(),

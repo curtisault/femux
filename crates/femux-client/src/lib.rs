@@ -1,30 +1,44 @@
-//! femux clients. 0.1.0 ships the bare viewer (ADR-014): attach to one session, show its
-//! focused pane, type into it, `prefix d` (ctrl+space d) to detach.
+//! The femux TUI client (SPEC §5): modal input, layout actions, tab strip, copy mode, the
+//! command palette, which-key, mouse. Terminal I/O lives in [`term`] and this module's
+//! [`run`]; everything else is pure and tested headlessly.
 
-pub mod viewer;
+pub mod app;
+pub mod bindings;
+pub mod config;
+pub mod copy;
+pub mod graphics;
+pub mod keys;
+pub mod model;
+pub mod probe;
+pub mod render;
+pub mod term;
+pub mod theme;
 
 use std::io;
 use std::path::Path;
 use std::sync::mpsc as std_mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use femux_plugin::ClientPlugin;
 use femux_proto::msg as m;
-use femux_proto::{Push, Request, Response, ServerMsg, decode_envelope, io_async::read_frame};
+use femux_proto::{Request, Response, ServerMsg, decode_envelope, io_async::read_frame};
 use termwiz::caps::Capabilities;
-use termwiz::surface::Change;
-use termwiz::terminal::buffered::BufferedTerminal;
-use termwiz::terminal::{Terminal, new_terminal};
+use termwiz::input::{InputEvent, MouseButtons};
+use termwiz::render::terminfo::TerminfoRenderer;
+use termwiz::surface::{Change, CursorVisibility, Position, Surface};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc;
 
-use viewer::{Action, Viewer};
+use app::{App, Effect, MouseKind};
+pub use config::ClientConfig;
+use theme::Theme;
 
 fn other(e: impl std::fmt::Display) -> io::Error {
     io::Error::other(e.to_string())
 }
 
 /// A protocol connection run on its own thread and runtime.
-struct Conn {
+pub struct Conn {
     tx: mpsc::UnboundedSender<(u64, Request)>,
     rx: std_mpsc::Receiver<ServerMsg>,
     next_id: u64,
@@ -32,7 +46,7 @@ struct Conn {
 }
 
 impl Conn {
-    fn open(socket: &Path) -> io::Result<Conn> {
+    pub fn open(socket: &Path) -> io::Result<Conn> {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
             .enable_all()
@@ -62,15 +76,20 @@ impl Conn {
         Ok(Conn {
             tx,
             rx,
-            next_id: 1,
+            // The app numbers its own requests from 1; the handshake uses the high range.
+            next_id: 1 << 40,
             _rt: rt,
         })
+    }
+
+    pub fn send_raw(&self, id: u64, req: Request) {
+        let _ = self.tx.send((id, req));
     }
 
     fn send(&mut self, req: impl Into<Request>) -> u64 {
         let id = self.next_id;
         self.next_id += 1;
-        let _ = self.tx.send((id, req.into()));
+        self.send_raw(id, req.into());
         id
     }
 
@@ -101,34 +120,133 @@ impl Conn {
     }
 }
 
+/// What the `femux` binary hands the client.
+pub struct Host {
+    pub cfg: ClientConfig,
+    pub plugins: Vec<Box<dyn ClientPlugin>>,
+    /// CLI subcommand names for the palette (REQ-UI-043).
+    pub cli_commands: Vec<String>,
+}
+
+/// Chrome rows for a config (tab strip + status line), used before the app exists.
+fn chrome_rows(cfg: &ClientConfig) -> u16 {
+    1 + u16::from(cfg.tabs != config::TabsPosition::Hidden)
+}
+
+/// Collects output for the terminfo renderer.
+struct Out(Vec<u8>, (usize, usize));
+
+impl io::Write for Out {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.0.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl termwiz::render::RenderTty for Out {
+    fn get_size_in_cells(&mut self) -> termwiz::Result<(usize, usize)> {
+        Ok(self.1)
+    }
+}
+
+/// The bytes that turn the terminal showing `prev` into `next`: only the changed cells
+/// (REQ-UI-050), wrapped in synchronized output (mode 2026) when the host supports it.
+pub fn paint(
+    renderer: &mut TerminfoRenderer,
+    prev: &Surface,
+    next: &Surface,
+    sync: bool,
+) -> io::Result<Vec<u8>> {
+    let mut changes = vec![Change::CursorVisibility(CursorVisibility::Hidden)];
+    changes.extend(prev.diff_screens(next));
+    let (cx, cy) = next.cursor_position();
+    changes.push(Change::CursorPosition {
+        x: Position::Absolute(cx),
+        y: Position::Absolute(cy),
+    });
+    changes.push(Change::CursorVisibility(next.cursor_visibility()));
+    let mut out = Out(Vec::new(), next.dimensions());
+    if sync {
+        out.0.extend_from_slice(b"\x1b[?2026h");
+    }
+    renderer.render_to(&changes, &mut out).map_err(other)?;
+    if sync {
+        out.0.extend_from_slice(b"\x1b[?2026l");
+    }
+    Ok(out.0)
+}
+
+fn mouse_kind(prev: MouseButtons, now: MouseButtons) -> MouseKind {
+    if now.contains(MouseButtons::VERT_WHEEL) {
+        return if now.contains(MouseButtons::WHEEL_POSITIVE) {
+            MouseKind::WheelUp
+        } else {
+            MouseKind::WheelDown
+        };
+    }
+    let pressed = |b: MouseButtons| now.contains(b.clone()) && !prev.contains(b);
+    if pressed(MouseButtons::LEFT) {
+        return MouseKind::Press(m::MouseButton::Left);
+    }
+    if pressed(MouseButtons::MIDDLE) {
+        return MouseKind::Press(m::MouseButton::Middle);
+    }
+    if pressed(MouseButtons::RIGHT) {
+        return MouseKind::Press(m::MouseButton::Right);
+    }
+    let any = MouseButtons::LEFT | MouseButtons::MIDDLE | MouseButtons::RIGHT;
+    if !(now & any.clone()).is_empty() {
+        MouseKind::Move
+    } else if !(prev & any).is_empty() {
+        MouseKind::Release
+    } else {
+        MouseKind::Move
+    }
+}
+
 /// Attaches to `session` (or the first session, creating `0` if there is none) and runs the
-/// bare viewer until detach or until the session goes away.
-pub fn run(socket: &Path, session: Option<&str>) -> io::Result<()> {
+/// client until detach or until the session goes away.
+pub fn run(socket: &Path, session: Option<&str>, host: Host) -> io::Result<()> {
     let caps = Capabilities::new_from_env().map_err(other)?;
-    let mut term = new_terminal(caps).map_err(other)?;
-    let size = term.get_screen_size().map_err(other)?;
+    let mut term = term::Term::open()?;
+    term.raw()?;
+    let probe = probe::run(&mut term, Duration::from_millis(250));
+    let mut early = term.parse(&probe.leftover, true);
+    let (cols, rows) = term.size();
+    let chrome = chrome_rows(&host.cfg);
 
     let mut conn = Conn::open(socket)?;
     let mut aside = Vec::new();
     let hello = m::Hello {
         proto: femux_proto::PROTO_VERSION,
-        client: format!("femux-viewer/{}", env!("CARGO_PKG_VERSION")),
+        client: format!("femux-tui/{}", env!("CARGO_PKG_VERSION")),
         features: [
-            "session", "tab", "layout", "pane", "frame", "events", "view",
+            "session",
+            "tab",
+            "layout",
+            "pane",
+            "frame",
+            "events",
+            "view",
+            "scrollback",
+            "clipboard",
         ]
         .map(String::from)
         .to_vec(),
         term: Some(m::TermCaps {
-            cols: size.cols as u16,
-            rows: size.rows as u16,
+            cols,
+            rows: rows.saturating_sub(chrome).max(1),
             colors: m::ColorDepth::Truecolor,
             kitty_graphics: false,
-            kitty_keyboard: false,
-            sixel: false,
-            sync_output: true,
-            fg: None,
-            bg: None,
-            cursor: None,
+            kitty_keyboard: probe.kitty_keyboard,
+            sixel: probe.sixel,
+            sync_output: probe.sync_output,
+            fg: probe.fg,
+            bg: probe.bg,
+            cursor: probe.cursor,
             name: std::env::var("TERM_PROGRAM").ok(),
         }),
     };
@@ -161,79 +279,127 @@ pub fn run(socket: &Path, session: Option<&str>) -> io::Result<()> {
         m::SessionAttach {
             name: name.clone(),
             tab: None,
-            cols: Some(size.cols as u16),
-            rows: Some(size.rows as u16),
+            cols: Some(cols),
+            rows: Some(rows.saturating_sub(chrome).max(1)),
         },
         &mut aside,
     )? {
         Response::SessionAttach(a) => a,
         r => return Err(other(format!("unexpected {r:?}"))),
     };
-    let mut viewer = Viewer::new(&attach);
-    conn.send(m::FrameSubscribe {
-        view_id: attach.view_id.clone(),
-    });
+    let theme = Theme::pick(&host.cfg.theme, probe.dark, probe.bg);
+    let mut app = App::new(
+        host.cfg,
+        host.plugins,
+        host.cli_commands,
+        &attach,
+        cols,
+        rows,
+    );
+    let mouse = app.cfg.mouse;
+    term.enter(mouse)?;
 
-    term.set_raw_mode().map_err(other)?;
-    term.enter_alternate_screen().map_err(other)?;
-    let mut screen = BufferedTerminal::new(term).map_err(other)?;
+    let mut renderer = TerminfoRenderer::new(caps);
+    let mut prev = Surface::new(cols as usize, rows as usize);
+    let mut size = (cols, rows);
+    let mut buttons = MouseButtons::NONE;
+    let sync = probe.sync_output;
     let result = (|| -> io::Result<()> {
         loop {
             for msg in aside
                 .drain(..)
                 .chain(conn.rx.try_iter().collect::<Vec<_>>())
             {
-                match msg {
-                    ServerMsg::Push(Push::Frame(f)) => {
-                        let ack = viewer.on_frame(&f);
-                        conn.send(ack);
+                // Handshake responses are not the app's.
+                if let ServerMsg::Response(id, _) | ServerMsg::Error(id, _) = &msg
+                    && *id >= 1 << 40
+                {
+                    continue;
+                }
+                app.on_msg(msg);
+            }
+            app.tick(Instant::now());
+            for (id, req) in app.take_out() {
+                conn.send_raw(id, req);
+            }
+            for fx in app.take_effects() {
+                match fx {
+                    Effect::Exit => return Ok(()),
+                    Effect::Clipboard(text) => term.write(term::osc52(&text).as_bytes())?,
+                }
+            }
+            let now_size = term.size();
+            if now_size != size {
+                size = now_size;
+                app.on_resize(size.0, size.1);
+                prev = Surface::new(size.0 as usize, size.1 as usize);
+                term.write(b"\x1b[2J")?;
+            }
+            if app.dirty {
+                let mut next = Surface::new(size.0 as usize, size.1 as usize);
+                render::render(&mut app, &theme, &mut next);
+                let bytes = paint(&mut renderer, &prev, &next, sync)?;
+                term.write(&bytes)?;
+                prev = next;
+            }
+            let events = if early.is_empty() {
+                term.read(Duration::from_millis(10))?
+            } else {
+                std::mem::take(&mut early)
+            };
+            for ev in events {
+                match ev {
+                    InputEvent::Key(k) => {
+                        if let Some(key) = keys::map_key(&k) {
+                            app.on_key(key, Instant::now());
+                        }
                     }
-                    ServerMsg::Event(femux_proto::Event::SessionClosed(c)) if c.name == name => {
-                        return Ok(());
+                    InputEvent::Paste(text) => app.on_paste(text),
+                    InputEvent::Mouse(me) => {
+                        let kind = mouse_kind(buttons.clone(), me.mouse_buttons.clone());
+                        buttons = me.mouse_buttons
+                            & (MouseButtons::LEFT | MouseButtons::MIDDLE | MouseButtons::RIGHT);
+                        let mods = keys::map_key(&termwiz::input::KeyEvent {
+                            key: termwiz::input::KeyCode::Char('a'),
+                            modifiers: me.modifiers,
+                        })
+                        .map(|k| k.mods)
+                        .unwrap_or_default();
+                        app.on_mouse(me.x.saturating_sub(1), me.y.saturating_sub(1), kind, mods);
                     }
-                    ServerMsg::Event(femux_proto::Event::ViewDetached(d))
-                        if d.view_id == viewer.view_id =>
-                    {
-                        return Ok(());
-                    }
-                    ServerMsg::Event(e) => viewer.on_event(&e),
+                    InputEvent::Resized { .. } => {}
                     _ => {}
-                }
-            }
-            if viewer.dirty {
-                viewer.render(&mut screen);
-                screen.flush().map_err(other)?;
-            }
-            if let Some(ev) = screen
-                .terminal()
-                .poll_input(Some(Duration::from_millis(10)))
-                .map_err(other)?
-            {
-                if let termwiz::input::InputEvent::Resized { cols, rows } = ev {
-                    screen.resize(cols, rows);
-                    viewer.dirty = true;
-                }
-                for action in viewer.on_input(&ev) {
-                    match action {
-                        Action::Send(req) => {
-                            conn.send(req);
-                        }
-                        Action::Detach => {
-                            let id = conn.send(m::SessionDetach {
-                                view_id: viewer.view_id.clone(),
-                            });
-                            let _ = conn.wait(id, &mut Vec::new());
-                            return Ok(());
-                        }
-                    }
                 }
             }
         }
     })();
-    screen.add_change(Change::ClearScreen(Default::default()));
-    let _ = screen.flush();
-    let term = screen.terminal();
-    let _ = term.exit_alternate_screen();
-    let _ = term.set_cooked_mode();
+    term.leave();
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use termwiz::caps::ProbeHints;
+
+    #[test]
+    fn paint_writes_only_the_diff_inside_synchronized_output() {
+        let caps =
+            Capabilities::new_with_hints(ProbeHints::default().term(Some("xterm-256color".into())))
+                .unwrap();
+        let mut r = TerminfoRenderer::new(caps);
+        let mut a = Surface::new(20, 3);
+        a.add_change("hello world");
+        let mut b = Surface::new(20, 3);
+        b.add_change("hello there");
+        let bytes = paint(&mut r, &a, &b, true).unwrap();
+        let s = String::from_utf8_lossy(&bytes);
+        assert!(
+            s.starts_with("\x1b[?2026h") && s.ends_with("\x1b[?2026l"),
+            "{s:?}"
+        );
+        assert!(s.contains("there") && !s.contains("hello"), "{s:?}");
+        let plain = paint(&mut r, &a, &b, false).unwrap();
+        assert!(!String::from_utf8_lossy(&plain).contains("2026"));
+    }
 }

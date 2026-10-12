@@ -76,6 +76,23 @@ async fn sess_001_hierarchy_and_unique_names() {
         [tab, t2.tab_id.clone()]
     );
     assert_eq!(snap.current_tab, t2.tab_id);
+    // session.tabs reads the same tabs without a view (ADR-016 #11).
+    let clients_before = c.call(SessionList {}).await.unwrap().sessions[1].clients;
+    let tabs = c.call(SessionTabs { name: "s".into() }).await.unwrap().tabs;
+    assert_eq!(tabs, snap.tabs);
+    assert_eq!(
+        c.call(SessionList {}).await.unwrap().sessions[1].clients,
+        clients_before
+    );
+    assert_eq!(
+        c.call(SessionTabs {
+            name: "nope".into()
+        })
+        .await
+        .unwrap_err()
+        .code,
+        femux_proto::ErrorCode::NotFound
+    );
     assert_eq!(
         snap.tabs[1].tree,
         LayoutNode::PaneNode(PaneNode { id: t2.pane_id })
@@ -261,7 +278,7 @@ async fn sess_003_one_event_per_mutation() {
         &mut c,
         "layout.focused",
         LayoutFocus {
-            view_id: view.clone(),
+            view_id: Some(view.clone()),
             pane_id: Some(a.clone()),
             dir: None,
         },
@@ -421,7 +438,7 @@ async fn sess_003_one_event_per_mutation() {
         &mut c,
         "tab.selected",
         TabSelect {
-            view_id: view.clone(),
+            view_id: Some(view.clone()),
             tab_id: t2.clone(),
         },
     )

@@ -172,6 +172,32 @@
         "cols",
         "rows"
       ]
+    },
+    "SessionTabs": {
+      "type": "object",
+      "description": "Read-only: a session's tabs as session.attach would snapshot them, without a view.",
+      "properties": {
+        "name": {
+          "$ref": "common.json#/$defs/SessionName"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "SessionTabsOk": {
+      "type": "object",
+      "properties": {
+        "tabs": {
+          "type": "array",
+          "items": {
+            "$ref": "common.json#/$defs/TabSnapshot"
+          }
+        }
+      },
+      "required": [
+        "tabs"
+      ]
     }
   },
   "x-messages": [
@@ -179,6 +205,11 @@
       "kind": "session.list",
       "request": "SessionList",
       "response": "SessionListOk"
+    },
+    {
+      "kind": "session.tabs",
+      "request": "SessionTabs",
+      "response": "SessionTabsOk"
     },
     {
       "kind": "session.create",

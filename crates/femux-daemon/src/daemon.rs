@@ -63,8 +63,9 @@ impl Config {
     }
 }
 
-/// Message families this daemon serves (REQ-PROTO-020). `clipboard` and `store` arrive later.
+/// Message families this daemon serves (REQ-PROTO-020). `store` arrives with 0.3.0.
 pub const SERVED: &[&str] = &[
+    "clipboard",
     "events",
     "frame",
     "layout",
@@ -91,6 +92,9 @@ pub struct Daemon {
 pub struct ConnCtx {
     pub id: u64,
     pub features: Vec<String>,
+    /// Set by a request that ends the daemon; the connection signals shutdown only after
+    /// that request's reply has been written.
+    pub exit: std::cell::Cell<bool>,
 }
 
 fn host_caps(t: &m::TermCaps) -> HostCaps {
@@ -295,6 +299,10 @@ impl Daemon {
             scope,
         );
         self.remove_pane(&mut st, id);
+        // The last pane's process exited: no request waits on a reply, so exit now.
+        if std::mem::take(&mut st.exit_requested) {
+            self.shutdown.send_replace(true);
+        }
         drop(st);
         self.dirty();
     }
@@ -416,7 +424,7 @@ impl Daemon {
         );
         // REQ-LIFE-002: exit with the last session unless keep_alive.
         if st.sessions.is_empty() && st.had_session && !self.cfg.keep_alive {
-            self.shutdown.send_replace(true);
+            st.exit_requested = true;
         }
     }
 
@@ -471,6 +479,7 @@ impl Daemon {
             m::TabCreated {
                 session: session.to_owned(),
                 tab_id: tab_id.clone(),
+                index: at as u32,
                 ..Default::default()
             },
             scope.clone(),
@@ -641,6 +650,9 @@ impl Daemon {
         };
         let mut st = self.state.lock().unwrap();
         let resp = self.dispatch(&mut st, conn, req);
+        if std::mem::take(&mut st.exit_requested) {
+            conn.exit.set(true);
+        }
         drop(st);
         self.dirty();
         resp
@@ -714,13 +726,13 @@ impl Daemon {
                 }
                 Q::ScrollbackRead(r) => {
                     let (vt, _) = self.terminal(&r.pane_id)?;
+                    let mut vt = vt.lock().unwrap();
                     let lines = vt
-                        .lock()
-                        .unwrap()
                         .read_lines(r.from_line, r.count.min(10_000))
                         .map_err(|e| (m::ErrorCode::Internal, e.to_string()))?;
                     Response::ScrollbackRead(m::ScrollbackReadOk {
                         lines: lines.iter().map(|l| crate::frames::cells(l)).collect(),
+                        first_line: vt.first_line(),
                     })
                 }
                 Q::ScrollbackSearch(r) => {
@@ -785,6 +797,18 @@ impl Daemon {
                     })
                     .collect();
                 Response::SessionList(m::SessionListOk { sessions })
+            }
+            Q::SessionTabs(r) => {
+                let first = st
+                    .session(&r.name)?
+                    .tabs
+                    .first()
+                    .cloned()
+                    .unwrap_or_default();
+                let snapshot = st.snapshot(&r.name, &first)?;
+                Response::SessionTabs(m::SessionTabsOk {
+                    tabs: snapshot.tabs,
+                })
             }
             Q::SessionCreate(r) => {
                 if r.file.is_some() {
@@ -926,21 +950,35 @@ impl Daemon {
             }
             Q::TabSelect(r) => {
                 let session = st.tab(&r.tab_id)?.session.clone();
-                let v = st.view_mut(&r.view_id)?;
-                if v.session != session {
-                    return Err(invalid("tab is in another session"));
+                // Without a view every view of the session switches (ADR-016 #8).
+                let views: Vec<String> = match &r.view_id {
+                    Some(v) => {
+                        if st.view(v)?.session != session {
+                            return Err(invalid("tab is in another session"));
+                        }
+                        vec![v.clone()]
+                    }
+                    None => st
+                        .views
+                        .values()
+                        .filter(|v| v.session == session)
+                        .map(|v| v.id.clone())
+                        .collect(),
+                };
+                for view_id in views {
+                    let v = st.view_mut(&view_id)?;
+                    let old = std::mem::replace(&mut v.tab, r.tab_id.clone());
+                    v.frames.need_full = true;
+                    self.emit(
+                        m::TabSelected {
+                            view_id,
+                            tab_id: r.tab_id.clone(),
+                            ..Default::default()
+                        },
+                        State::session_scope(&session),
+                    );
+                    self.schedule_resize(st, &old);
                 }
-                let old = std::mem::replace(&mut v.tab, r.tab_id.clone());
-                v.frames.need_full = true;
-                self.emit(
-                    m::TabSelected {
-                        view_id: r.view_id,
-                        tab_id: r.tab_id.clone(),
-                        ..Default::default()
-                    },
-                    State::session_scope(&session),
-                );
-                self.schedule_resize(st, &old);
                 self.schedule_resize(st, &r.tab_id);
                 Response::TabSelect(m::Empty {})
             }
@@ -994,7 +1032,10 @@ impl Daemon {
                         .ok_or_else(|| invalid("ratio must be in [0, 1]"))?,
                     None => half(),
                 };
-                let cwd = PathBuf::from(&st.pane(&r.pane_id)?.cwd);
+                let cwd = r
+                    .cwd
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| PathBuf::from(&st.pane(&r.pane_id).unwrap().cwd));
                 let size = st.pane(&r.pane_id)?.size;
                 let new = self.spawn_pane(st, &tab_id, &cwd, r.cmd, size)?;
                 let tab = st.tabs.get_mut(&tab_id).unwrap();
@@ -1032,8 +1073,17 @@ impl Daemon {
                 Response::LayoutClose(m::Empty {})
             }
             Q::LayoutFocus(r) => {
-                let tab_id = st.view(&r.view_id)?.tab.clone();
+                // With a view, the view's tab; without one, the given pane's tab (ADR-016 #9).
+                let tab_id = match (&r.view_id, &r.pane_id) {
+                    (Some(v), _) => st.view(v)?.tab.clone(),
+                    (None, Some(p)) => st.pane(p)?.tab.clone(),
+                    (None, None) => return Err(invalid("give a view_id or a pane_id")),
+                };
                 let tab = st.tab(&tab_id)?;
+                let origin = match (&r.view_id, &r.pane_id) {
+                    (None, Some(p)) => p.clone(),
+                    _ => tab.focus.clone(),
+                };
                 let target = match (r.pane_id, r.dir) {
                     (Some(p), None) => {
                         if !tab.panes().contains(&p) {
@@ -1041,9 +1091,25 @@ impl Daemon {
                         }
                         p
                     }
-                    (None, Some(d)) => neighbor(&tab.all_rects(), &tab.focus, d)
+                    (_, Some(d)) => neighbor(&tab.all_rects(), &origin, d)
+                        .or_else(|| {
+                            // The scroll strip hides panes past its edge: step along the
+                            // pane order instead so they can be reached (REQ-UI-010).
+                            if tab.scheme != m::Scheme::Scroll {
+                                return None;
+                            }
+                            let order = tab.tree.as_ref()?.panes();
+                            let i = order.iter().position(|p| *p == origin)?;
+                            match d {
+                                m::Direction::L => order.get(i + 1).cloned(),
+                                m::Direction::H => {
+                                    i.checked_sub(1).and_then(|j| order.get(j).cloned())
+                                }
+                                _ => None,
+                            }
+                        })
                         .unwrap_or_else(|| tab.focus.clone()),
-                    _ => return Err(invalid("give exactly one of pane_id or dir")),
+                    (None, None) => return Err(invalid("give a pane_id or a dir")),
                 };
                 let tab = st.tabs.get_mut(&tab_id).unwrap();
                 tab.focus = target.clone();
@@ -1056,7 +1122,8 @@ impl Daemon {
                     },
                     State::session_scope(&session),
                 );
-                if tab.zoomed {
+                // Zoom shows the focused pane; the scroll strip follows it (REQ-UI-010).
+                if tab.zoomed || tab.scheme == m::Scheme::Scroll {
                     self.apply_geometry(st, &tab_id);
                 }
                 Response::LayoutFocus(m::LayoutFocusOk { pane_id: target })
@@ -1116,6 +1183,14 @@ impl Daemon {
             Q::LayoutFloat(r) => {
                 let tab_id = st.pane(&r.pane_id)?.tab.clone();
                 let tab = st.tabs.get_mut(&tab_id).unwrap();
+                if let Some((_, rect)) = tab.floats.iter_mut().find(|(p, _)| *p == r.pane_id) {
+                    // Already floating: `rect` moves or resizes it (REQ-UI-011 mouse drags).
+                    if let Some(new) = &r.rect {
+                        *rect = Rect::from(new);
+                    }
+                    self.layout_changed(st, &tab_id);
+                    return Ok(Response::LayoutFloat(m::Empty {}));
+                }
                 let tree = tab
                     .tree
                     .take()
@@ -1222,7 +1297,10 @@ impl Daemon {
                     .map_err(|e| (m::ErrorCode::Internal, e.to_string()))?;
                 Response::PaneSignal(m::Empty {})
             }
-            Q::PaneInfo(r) => Response::PaneInfo(st.pane(&r.pane_id)?.info()),
+            Q::PaneInfo(r) => {
+                let session = st.session_of_pane(&r.pane_id).unwrap_or_default();
+                Response::PaneInfo(st.pane(&r.pane_id)?.info(&session))
+            }
             Q::PaneSetMeta(r) => {
                 let scope = st.pane_scope(&r.pane_id);
                 let pane = st
@@ -1334,13 +1412,27 @@ impl Daemon {
             }),
             Q::ServerStop(_) => {
                 // Without restore (0.3.0) panes cannot outlive the daemon, so kill_panes is moot.
-                self.shutdown.send_replace(true);
+                st.exit_requested = true;
                 Response::ServerStop(m::Empty {})
             }
-            Q::ClipboardSet(_) | Q::StoreSnapshot(_) => {
+            Q::ClipboardSet(r) => {
+                // The daemon owns no clipboard: attached clients copy the text to their host
+                // terminal when they see the event (clipboard plugin, 0.2.0).
+                self.emit(
+                    m::ClipboardChanged {
+                        text: r.text,
+                        source: m::ClipboardSource::Client,
+                        pane_id: None,
+                        ..Default::default()
+                    },
+                    Scope::default(),
+                );
+                Response::ClipboardSet(m::Empty {})
+            }
+            Q::StoreSnapshot(_) => {
                 return Err((
                     m::ErrorCode::FeatureMissing,
-                    "not available in 0.1.0".into(),
+                    "not available before 0.3.0".into(),
                 ));
             }
         })
@@ -1587,6 +1679,17 @@ impl Daemon {
             self.emit(
                 m::PaneBell {
                     pane_id: id.to_owned(),
+                    ..Default::default()
+                },
+                scope.clone(),
+            );
+        }
+        for text in c.clipboard {
+            self.emit(
+                m::ClipboardChanged {
+                    text,
+                    source: m::ClipboardSource::Pane,
+                    pane_id: Some(id.to_owned()),
                     ..Default::default()
                 },
                 scope.clone(),

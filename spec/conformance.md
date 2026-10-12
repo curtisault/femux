@@ -40,7 +40,7 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-EVT-003 | femux-daemon `bus::tests::late_subscriber_replays_since`; femux-test `events::evt_003_replay_since` | pass |
 | REQ-EVT-004 | femux-test `events::evt_004_pane_metadata` | pass |
 | REQ-LIFE-001 | femux-cli `binary::life_001_sigterm_hups_panes_and_exits` | pass |
-| REQ-LIFE-002 | femux-test `lifecycle::life_002_exit_with_last_session`, `lifecycle::life_002_keep_alive` | pass |
+| REQ-LIFE-002 | femux-test `lifecycle::life_002_exit_with_last_session`, `lifecycle::life_002_keep_alive`, `lifecycle::life_002_the_request_that_ends_the_daemon_is_answered`, `lifecycle::life_002_exit_when_the_last_shell_exits`; femux-cli `binary::life_002_kill_of_the_last_session_succeeds` | pass |
 | REQ-PROTO-001 | femux-test `protocol::proto_001_socket_and_directory_modes`; femux-proto `tests::socket_dirs` | pass |
 | REQ-PROTO-002 | femux-daemon `server::tests::other_uids_are_refused`; femux-test `protocol::proto_002_same_uid_peer_is_served` | pass |
 | REQ-PROTO-003 | femux-test `protocol::proto_003_no_tcp_listener` (Linux) | pass |
@@ -60,3 +60,32 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-TEST-001 | femux-test `acceptance::create_split_ls_detach_reattach` (uses `screen` and `screen_text`) | pass |
 | REQ-TEST-002 | femux-test `repo::test_002_every_milestone_requirement_is_mapped` | pass |
 | Acceptance (0.1.0) | femux-test `acceptance::create_split_ls_detach_reattach`; bare viewer: femux-client `viewer::tests::*`, femux-cli `binary::arch_004_plain_femux_starts_a_daemon_and_attaches` | pass |
+
+## 0.2.0
+
+| Requirement | Tests | Status |
+| --- | --- | --- |
+| REQ-UI-001 | femux-client `ui_modes::ui_001_three_modes` | pass |
+| REQ-UI-002 | femux-client `ui_modes::ui_002_prefix_is_one_shot_and_configurable`, `keys::tests::*`, `bindings::tests::every_default_binding_of_spec_5_1_exists`, `app::tests::a_bound_prefix_action_sends_the_prefix_itself` | pass |
+| REQ-UI-003 | femux-client `ui_overlays::ui_003_which_key_shows_after_the_delay`; femux-plugin-which-key `tests::groups_stay_together_in_columns`, `tests::only_in_prefix_mode` | pass |
+| REQ-UI-004 | femux-client `ui_modes::ui_004_prefixless_nav_is_off_by_default` | pass |
+| REQ-UI-010 | femux-daemon `layout::tests::master_and_scroll_schemes_follow_pane_order`; femux-test `scheme::ui_010_schemes_change_the_geometry`; femux-client `ui_layout::ui_010_preselection_places_the_next_split` | pass |
+| REQ-UI-011 | femux-client `ui_floats::ui_011_floats_render_above_tiles_and_follow_the_mouse`; femux-test `session::sess_002_layout_tree_nodes` (floats beside the tree) | pass |
+| REQ-UI-043 | femux-client `ui_overlays::ui_043_palette_fuzzy_searches_actions_and_cli_commands`, `render::tests::runs_render_like_cells_and_boxes_fit_tiny_terminals` | pass |
+| REQ-UI-020 | femux-client `ui_tabs::ui_020_tab_strip_shows_running_urgent_and_zoom`, `model::tests::tabs_are_inserted_at_the_daemons_index` | pass |
+| REQ-UI-021 | femux-client `ui_tabs::ui_021_title_precedence`; femux-daemon `state::State::tab_title` via femux-test `session::*` | pass |
+| REQ-UI-050 | femux-client `tests::paint_writes_only_the_diff_inside_synchronized_output`, `probe::tests::parses_answers_and_keeps_the_rest` | pass |
+| REQ-UI-051 | femux-client `theme::tests::picks_by_name_mode_or_background`, `probe::tests::parses_answers_and_keeps_the_rest` | pass |
+| REQ-UI-052 | femux-client `graphics::tests::placements_are_offset_and_clipped`, `graphics::tests::kitty_commands_carry_offsets_and_crops` | pass |
+| REQ-UI-053 | femux-client `ui_mouse::ui_053_mouse_focuses_forwards_and_can_be_disabled` | pass |
+| Acceptance (0.2.0) | femux-client `acceptance::all_default_bindings_work`, `acceptance::copy_mode_search_selects_and_yanks`; femux-cli `binary::arch_004_plain_femux_starts_a_daemon_and_attaches` (daily driver on a PTY) | pass |
+| REQ-UI-012 | femux-cli `cli::ui_012_layout_templates_save_load_list_export`, `layouts::tests::nodes_roundtrip_through_json` | pass |
+| REQ-CLI-001 | femux-cli `cli::cli_001_every_subcommand_has_json` | pass |
+| REQ-CLI-002 | femux-cli `cli::cli_002_commands_default_to_the_current_pane`; femux-test `session::sess_001_hierarchy_and_unique_names` (`session.tabs`) | pass |
+| REQ-CLI-003 | femux-cli `cli::cli_003_completions_come_from_the_definition` | pass |
+| REQ-AGT-005 (install/uninstall; detection is 0.5.0) | femux-cli `cli::integration_install_hook_and_uninstall`, `integration::tests::*` | pass |
+| Plugins `clipboard`, `shell-integration`, `which-key` | femux-cli `cli::plugin_subcommands_and_config_bindings`; femux-client `acceptance::copy_mode_search_selects_and_yanks` (OSC 52 + clipboard.set), `ui_overlays::ui_003_which_key_shows_after_the_delay` | pass |
+| REQ-PLUG-001 | femux-test `repo::plug_001_plugins_are_feature_gated_crates` | pass |
+| REQ-PLUG-002 | femux-plugin `daemon_plugin::plug_002_daemon_plugin_subscribes_and_writes_metadata`; femux-client `bindings::tests::plugin_bindings_join_the_tables`, `app::tests::yank_echoes_are_not_replayed_to_the_host`; femux-plugin-which-key `tests::*`; femux-plugin-clipboard `tests::*`; femux-plugin-shell-integration `tests::*` | pass |
+| REQ-PLUG-003 | femux-test `repo::plug_003_plugins_depend_on_the_protocol_crates_only`, `repo::arch_002_clients_and_plugins_use_the_protocol_only` | pass |
+| REQ-PLUG-004 | femux-test `repo::plug_004_built_in_list_matches_crates_and_milestones` | pass |

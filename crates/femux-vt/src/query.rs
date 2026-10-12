@@ -183,7 +183,10 @@ mod tests {
     fn answers_identity_queries() {
         let mut t = Terminal::new(80, 24, 100).unwrap();
         assert_eq!(ask(&mut t, b"\x1b[c"), "\x1b[?62;22c");
-        assert_eq!(ask(&mut t, b"\x1b[>c"), "\x1b[>1;100;0c");
+        assert_eq!(
+            ask(&mut t, b"\x1b[>c"),
+            format!("\x1b[>1;{};0c", version_number())
+        );
         assert_eq!(
             ask(&mut t, b"\x1b[>q"),
             format!("\x1bP>|femux {}\x1b\\", env!("CARGO_PKG_VERSION"))

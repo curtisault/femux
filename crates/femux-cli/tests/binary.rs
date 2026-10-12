@@ -1,80 +1,17 @@
 //! REQ-ARCH-004 and REQ-LIFE-001 against the real `femux` binary, plus the bare viewer end to
 //! end. The viewer runs on a PTY owned by the test, never on the developer's terminal.
 
+mod common;
+
 use std::io::{Read, Write};
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::process::CommandExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-const FEMUX: &str = env!("CARGO_BIN_EXE_femux");
-
-struct Env {
-    dir: tempfile::TempDir,
-}
-
-impl Env {
-    fn new() -> Env {
-        Env {
-            dir: tempfile::tempdir().unwrap(),
-        }
-    }
-
-    fn socket(&self) -> PathBuf {
-        self.dir.path().join("run/femux.sock")
-    }
-
-    fn cmd(&self, args: &[&str]) -> Command {
-        let mut c = Command::new(FEMUX);
-        c.arg("--socket").arg(self.socket()).args(args);
-        c.env("SHELL", "/bin/sh")
-            .env("HOME", self.dir.path())
-            .env("TERM", "xterm-256color")
-            .env_remove("FEMUX_SOCKET");
-        c
-    }
-
-    fn run(&self, args: &[&str]) -> String {
-        let out = self.cmd(args).output().unwrap();
-        assert!(
-            out.status.success(),
-            "femux {args:?}: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-        String::from_utf8(out.stdout).unwrap()
-    }
-}
-
-impl Drop for Env {
-    fn drop(&mut self) {
-        // Leave no daemon behind.
-        let _ = self.cmd(&["kill", "0"]).output();
-        let _ = self.cmd(&["kill", "s"]).output();
-    }
-}
-
-fn wait_until(what: &str, timeout: Duration, mut f: impl FnMut() -> bool) {
-    let deadline = Instant::now() + timeout;
-    while !f() {
-        assert!(Instant::now() < deadline, "timed out: {what}");
-        std::thread::sleep(Duration::from_millis(20));
-    }
-}
-
-fn exit_within(child: &mut Child, timeout: Duration) -> Option<std::process::ExitStatus> {
-    let deadline = Instant::now() + timeout;
-    loop {
-        if let Some(s) = child.try_wait().unwrap() {
-            return Some(s);
-        }
-        if Instant::now() > deadline {
-            return None;
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-}
+use common::{Env, exit_within, wait_until};
 
 /// Runs `cmd` with a new PTY as its controlling terminal; returns the child, the master and a
 /// buffer that accumulates everything the child writes.
@@ -220,4 +157,20 @@ fn shell_pid(socket: &Path) -> i32 {
             .unwrap();
         info.fg_pid as i32
     })
+}
+
+/// REQ-LIFE-002 from the CLI: `femux kill` on the last session reports success, then the
+/// daemon is gone. Repeated because the reply used to race the daemon's exit.
+#[test]
+fn life_002_kill_of_the_last_session_succeeds() {
+    for round in 0..8 {
+        let env = Env::new();
+        env.run(&["daemon"]);
+        env.run(&["new", "s"]);
+        let (ok, _, err) = env.try_run(&["kill", "s"]);
+        assert!(ok, "round {round}: femux kill failed: {err}");
+        wait_until("daemon exit", Duration::from_secs(5), || {
+            !env.socket().exists()
+        });
+    }
 }
