@@ -7,15 +7,16 @@ from the `femux` CLI. Agent tracking and the other extras are built-in plugins o
 
 ## Status
 
-femux is pre-1.0 and at version 0.2: a client and CLI meant for daily local use. Linux is the
-reference platform; macOS is supported.
+femux is pre-1.0 and at version 0.3: a client and CLI meant for daily local use, with sessions
+that can survive a daemon restart.
 
 Working now: tabs, BSP splits with preselection, master and scroll layouts, floating panes, zoom,
-marks, copy mode with regex search, a command palette, which-key hints, mouse support and the
-`femux` CLI with `--json` output.
+marks, copy mode with regex search, a command palette, which-key hints, mouse support, the
+`femux` CLI with `--json` output, session files with `femux launch`, and opt-in restore of
+sessions after the daemon restarts (`[restore] enabled = true`).
 
-Not yet: session restore across daemon restarts, the info bar and navigators, agent state
-tracking, SSH attach and image passthrough. The order they arrive in is the milestone table in
+Not yet: the info bar and navigators, agent state tracking, SSH attach and image passthrough.
+The order they arrive in is the milestone table in
 [SPEC §13](spec/SPEC.md#13-milestones-and-branches).
 
 ## Build
@@ -53,6 +54,20 @@ femux shell-integration fish | source     # fish
 
 Configuration lives in `~/.config/femux/config.toml`;
 [spec/config.example.toml](spec/config.example.toml) lists every key with its default.
+`femux config check` validates it, and `femux reload` applies it to a running daemon.
+
+A session file in `~/.config/femux/sessions/<name>.toml` describes a workspace, and
+`femux launch <name>` opens it:
+
+```toml
+root = "~/writing"
+tabs = 3
+
+[[tab]]
+title = "editor"
+command = "nvim"
+restore = true      # re-run after a daemon restart when [restore] is enabled
+```
 
 ## Documentation
 

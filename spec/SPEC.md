@@ -1,6 +1,6 @@
 # femux — Specification
 
-Version 0.2 (draft) · 2026-10-12 · License: MIT
+Version 0.3 (draft) · 2026-10-12 · License: MIT
 
 femux is a terminal multiplexer written in Rust. A session daemon owns processes, a versioned protocol carries state, and clients render. Agent tracking and every other feature are plugins over that core. This document is the single source of truth for an implementing agent. Requirement IDs (`REQ-*`) are stable; tests, commits and PRs reference them.
 
