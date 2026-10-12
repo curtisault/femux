@@ -108,3 +108,8 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-CFG-002 | femux-cli `cli::cfg_001_002_launch_from_a_file_and_from_flags`; femux-plugin-launcher `tests::*` | pass |
 | Plugin `launcher` | femux-cli `cli::cfg_001_002_launch_from_a_file_and_from_flags`; femux-test `repo::plug_003_plugins_depend_on_the_protocol_crates_only` | pass |
 | Acceptance (0.3.0) | femux-cli `binary::acceptance_0_3_kill_the_daemon_restart_and_the_layout_returns`, `cli::cfg_001_002_launch_from_a_file_and_from_flags` | pass |
+
+## 0.4.0
+
+| Requirement | Tests | Status |
+| --- | --- | --- |

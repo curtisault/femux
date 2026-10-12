@@ -78,7 +78,8 @@
       "root": "/home/u",
       "tabs": 2,
       "clients": 1,
-      "created": 1760140800000
+      "created": 1760140800000,
+      "last_activity": 1760140812345
      }
     ]
    }
@@ -1303,6 +1304,38 @@
     "data": {
      "field": "mark"
     }
+   }
+  },
+  {
+   "dir": "request",
+   "kind": "notify.post",
+   "body": {
+    "pane_id": "01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+    "title": "codex needs y/n",
+    "level": "warn"
+   }
+  },
+  {
+   "dir": "request",
+   "kind": "notify.post",
+   "body": {
+    "title": "build done"
+   }
+  },
+  {
+   "dir": "response",
+   "kind": "notify.post",
+   "body": {}
+  },
+  {
+   "dir": "event",
+   "kind": "notify.posted",
+   "body": {
+    "seq": 61,
+    "ts": 1760140800000,
+    "pane_id": "01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+    "title": "codex needs y/n",
+    "level": "warn"
    }
   }
  ]

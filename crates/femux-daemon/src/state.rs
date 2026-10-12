@@ -149,6 +149,8 @@ pub struct Pane {
     pub extra_env: Vec<(String, String)>,
     /// The pane's environment filtered by `[env] allow`: what a snapshot persists (REQ-PTY-006).
     pub saved_env: BTreeMap<String, String>,
+    /// ms since epoch of the newest output or input; 0 before any (ADR-018 #1).
+    pub activity: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl Pane {
