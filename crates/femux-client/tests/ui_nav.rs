@@ -214,7 +214,19 @@ async fn ui_042_side_nav_lists_sessions_and_tabs_and_switches_on_click() {
     })
     .await;
     let screen = d.screen();
-    for want in ["sessions", "▾ s", "▸ other", "1 sh", "2 sh", "b hides"] {
+    // Tab titles are the shell's name: sh, or bash on macOS.
+    let titles: Vec<String> = d
+        .app
+        .model
+        .tabs
+        .iter()
+        .enumerate()
+        .map(|(i, t)| format!("{} {}", i + 1, d.app.model.tab_title(t)))
+        .collect();
+    for want in ["sessions", "▾ s", "▸ other", "b hides"]
+        .into_iter()
+        .chain(titles.iter().map(String::as_str))
+    {
         assert!(screen.contains(want), "{want}:\n{screen}");
     }
     // Click the first tab, then the other session.

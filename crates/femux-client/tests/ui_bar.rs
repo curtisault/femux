@@ -287,7 +287,10 @@ async fn acceptance_0_4_bar_on_all_four_sides_with_every_built_in_module() {
         ];
         if bar.vertical() {
             // Module names label their blocks; tabs list their titles.
-            want.extend(["remote:cpu", "hostname", "notifications", "2 sh"].map(String::from));
+            want.extend(["remote:cpu", "hostname", "notifications"].map(String::from));
+            // The tab's title is the shell's name: sh, or bash on macOS.
+            let second = &d.app.model.tabs[1];
+            want.push(format!("2 {}", d.app.model.tab_title(second)));
         }
         for w in &want {
             assert!(
