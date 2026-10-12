@@ -36,8 +36,12 @@ fn main() {
     });
     assert!(status.success(), "zig build of libghostty-vt failed");
 
-    // libghostty-vt first, then the SIMD archives it depends on.
     let lib_dir = prefix.join("lib");
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        repack_for_apple_ld(&lib_dir);
+    }
+
+    // libghostty-vt first, then the SIMD archives it depends on.
     println!("cargo:rustc-link-search=native={}", lib_dir.display());
     println!("cargo:rustc-link-lib=static=ghostty-vt-static");
     for entry in std::fs::read_dir(&lib_dir).expect("zig installed no lib/ dir") {
@@ -49,6 +53,26 @@ fn main() {
         }
     }
     println!("cargo:include={}", prefix.join("include").display());
+}
+
+/// Zig's archiver does not 8-byte align Mach-O members, which Apple's ld rejects; Apple's
+/// libtool rewrites each archive with aligned members.
+fn repack_for_apple_ld(lib_dir: &std::path::Path) {
+    for entry in std::fs::read_dir(lib_dir).expect("zig installed no lib/ dir") {
+        let path = entry.unwrap().path();
+        if path.extension().is_none_or(|e| e != "a") {
+            continue;
+        }
+        let tmp = path.with_extension("repacked.a");
+        let status = Command::new("libtool")
+            .args(["-static", "-o"])
+            .arg(&tmp)
+            .arg(&path)
+            .status()
+            .expect("failed to run Apple libtool (install the Xcode command line tools)");
+        assert!(status.success(), "libtool failed on {}", path.display());
+        std::fs::rename(&tmp, &path).unwrap();
+    }
 }
 
 /// Fails early with an actionable message when Zig is missing or the wrong version.

@@ -11,6 +11,9 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     const lib = dep.artifact("ghostty-vt-static");
+    // On macOS, libSystem provides memset & co.; a bundled compiler_rt
+    // duplicates them and is a misaligned archive member for Apple's ld.
+    if (target.result.os.tag == .macos) lib.bundle_compiler_rt = false;
     b.installArtifact(lib);
 
     // As a dependency, ghostty links its vendored SIMD libraries (simdutf,
@@ -18,7 +21,10 @@ pub fn build(b: *std.Build) void {
     // Install each of them too; build.rs links every archive in lib/.
     for (lib.root_module.getGraph().modules) |m| {
         for (m.link_objects.items) |obj| switch (obj) {
-            .other_step => |c| if (c.kind == .lib) b.installArtifact(c),
+            .other_step => |c| if (c.kind == .lib) {
+                if (target.result.os.tag == .macos) c.bundle_compiler_rt = false;
+                b.installArtifact(c);
+            },
             else => {},
         };
     }
