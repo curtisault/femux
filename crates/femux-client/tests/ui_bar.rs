@@ -273,7 +273,15 @@ async fn acceptance_0_4_bar_on_all_four_sides_with_every_built_in_module() {
         std::thread::sleep(Duration::from_millis(300));
         d.app.tick(t0 + Duration::from_millis(1100));
         let screen = d.screen();
-        let host = femux_plugin_infobar::hostname();
+        // A column clips to its width, so a long hostname shows only its start there.
+        let host: String = femux_plugin_infobar::hostname()
+            .chars()
+            .take(if bar.vertical() {
+                (BAR_WIDTH - 2) as usize
+            } else {
+                usize::MAX
+            })
+            .collect();
         let clock = femux_plugin_infobar::local_time();
         let mut want = vec![
             "cpu".to_owned(),
@@ -299,5 +307,53 @@ async fn acceptance_0_4_bar_on_all_four_sides_with_every_built_in_module() {
             );
         }
         // Battery and git show only where there is a battery or a repository.
+    }
+}
+
+/// A module wider than a column bar is clipped to the bar: nothing spills into the panes.
+struct Wide;
+
+impl InfoModule for Wide {
+    fn name(&self) -> &str {
+        "wide"
+    }
+    fn render(&self, _ctx: &BarCtx, _w: usize) -> Spans {
+        vec![Span::text("W".repeat(80))]
+    }
+    fn interval(&self) -> Duration {
+        Duration::from_secs(1)
+    }
+}
+
+struct WidePlugin;
+
+impl ClientPlugin for WidePlugin {
+    fn name(&self) -> &'static str {
+        "wide"
+    }
+    fn modules(&self) -> Vec<Box<dyn InfoModule>> {
+        vec![Box::new(Wide)]
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ui_030_a_column_bar_never_draws_over_the_panes() {
+    for bar in [BarPosition::Left, BarPosition::Right] {
+        let cfg = bar_cfg(bar, &["wide"], &[]);
+        let mut d = Drive::with(cfg.clone(), vec![Box::new(WidePlugin)], 100, 30).await;
+        let pane = d.pane.clone();
+        d.wait_pane_text(&pane, "$").await;
+        let l = Layout::compute(100, 30, &cfg, false);
+        let screen: Vec<String> = d.screen().lines().map(str::to_owned).collect();
+        for (y, row) in screen.iter().enumerate() {
+            let in_panes: String = row
+                .chars()
+                .skip(l.panes.x as usize)
+                .take(l.panes.w as usize)
+                .collect();
+            assert!(!in_panes.contains('W'), "{bar:?} row {y}: {row:?}");
+        }
+        let count: usize = screen.iter().map(|r| r.matches('W').count()).sum();
+        assert_eq!(count, (BAR_WIDTH - 2) as usize, "{bar:?}");
     }
 }

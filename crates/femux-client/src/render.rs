@@ -281,6 +281,21 @@ fn mode_label(app: &App, theme: &Theme) -> (&'static str, CellAttributes) {
     }
 }
 
+/// The first `max` columns of `spans`: modules may ignore their width, the bar may not.
+pub(crate) fn clip(spans: &Spans, max: usize) -> Spans {
+    let mut out = Vec::new();
+    let mut left = max;
+    for sp in spans {
+        if left == 0 {
+            break;
+        }
+        let text: String = sp.text.chars().take(left).collect();
+        left -= text.chars().count();
+        out.push(Span::new(text, sp.style));
+    }
+    out
+}
+
 /// Splits a module's spans into lines at `\n` (vertical bars only).
 fn lines_of(spans: &Spans) -> Vec<Spans> {
     let mut out: Vec<Spans> = vec![Vec::new()];
@@ -327,6 +342,7 @@ fn draw_bar(app: &mut App, c: &mut Canvas, theme: &Theme, l: &Layout, tr: &Optio
                     .map(|s| Span::new(s.text.replace('\n', " "), s.style)),
             );
         }
+        let right_line = clip(&right_line, w.saturating_sub(chip.chars().count() + 12));
         let rw = femux_plugin::width(&right_line) + 1;
         let mut x = c.put(x0, y, &chip, &bold(attr(theme.accent_fg, theme.accent)));
         x = c.put(x, y, &format!(" {mode} "), &mode_attr);
@@ -380,7 +396,8 @@ fn draw_bar(app: &mut App, c: &mut Canvas, theme: &Theme, l: &Layout, tr: &Optio
         let sp = app.module_spans(name, &ctx, w)?;
         let mut lines = vec![vec![Span::new(name.to_owned(), Style::Muted)]];
         lines.extend(lines_of(&sp));
-        Some(lines)
+        // A column never draws past its own width.
+        Some(lines.iter().map(|l| clip(l, w)).collect())
     };
     for name in app.cfg.bar_left.clone() {
         if name == "session" {
@@ -947,6 +964,14 @@ mod tests {
         let mut cursor = None;
         draw_box(&mut c, &Theme::dark(), &o, &mut cursor, Some(2));
         assert_eq!(cursor, Some((3, 1)));
+    }
+
+    #[test]
+    fn clip_keeps_styles_and_stops_at_the_width() {
+        let sp = vec![Span::new("abc", Style::Warn), Span::text("defgh")];
+        let c = clip(&sp, 5);
+        assert_eq!(c, vec![Span::new("abc", Style::Warn), Span::text("de")]);
+        assert!(clip(&sp, 0).is_empty());
     }
 
     #[test]
