@@ -189,6 +189,12 @@ pub struct Overlay {
 pub enum HostEffect {
     /// Copy text to the host clipboard (OSC 52).
     Clipboard(String),
+    /// Ring the host terminal's bell.
+    Bell,
+    /// Play a sound file on the client's machine.
+    Sound(String),
+    /// A desktop notification (OSC 777 / OSC 99 / native).
+    Desktop { title: String, body: String },
 }
 
 #[allow(unused_variables)]

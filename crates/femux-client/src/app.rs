@@ -32,6 +32,13 @@ pub enum Effect {
     Clipboard(String),
     /// The daemon reloaded its config; re-read ours ([`App::apply_config`]).
     Reload,
+    /// Notification actions (REQ-NOTIFY-001).
+    Bell,
+    Sound(String),
+    Desktop {
+        title: String,
+        body: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -581,6 +588,11 @@ impl App {
                     } else {
                         self.effects.push(Effect::Clipboard(text));
                     }
+                }
+                HostEffect::Bell => self.effects.push(Effect::Bell),
+                HostEffect::Sound(f) => self.effects.push(Effect::Sound(f)),
+                HostEffect::Desktop { title, body } => {
+                    self.effects.push(Effect::Desktop { title, body });
                 }
             }
         }

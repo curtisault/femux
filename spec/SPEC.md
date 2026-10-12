@@ -417,6 +417,7 @@ pane_exited   = { desktop = false }
 - REQ-NOTIFY-001: Actions: `sound` (file path or `"bell"`), `desktop` (OSC 777 / OSC 99 / native fallback), `webhook` (POST JSON).
 - REQ-NOTIFY-002: `only_when_hidden` fires only when no attached view shows the pane.
 - REQ-NOTIFY-003: Notifications originating on a remote daemon are delivered as events and executed on the client.
+  Note: the notify plugin's daemon side posts `notify.post` with `event` set to the `[notify]` entry (`agent_done|agent_blocked|agent_error` when `agent.state` changes to that state, `pane_exited` when a pane's process exits), and only for entries the config has. A pane exit is posted without `pane_id`, since the pane is gone. `sound` and `desktop` run on the client from `notify.posted`, using the client machine's `[notify]`. `sound` is `"bell"` (BEL to the host terminal) or a file played with `afplay`, `paplay`, `pw-play` or `aplay`, falling back to the bell. `desktop` uses OSC 99 on kitty, OSC 777 on ghostty, WezTerm, foot, contour and rxvt, and otherwise `notify-send` (`osascript` on macOS). `webhook` runs on the daemon's side and POSTs `{event, title, level, pane_id, ts, shown}` as JSON. `only_when_hidden` reads `shown` from `notify.posted`, which the daemon sets when some attached view shows the pane.
 
 ---
 
