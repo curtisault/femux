@@ -172,3 +172,42 @@ fn build_003_ci_runs_lint_and_tests_on_both_platforms() {
         assert!(ci.contains(needle), "ci.yml lacks {needle}");
     }
 }
+
+/// REQ-TEST-002: every 0.1.0 requirement in SPEC.md has a passing test in conformance.md.
+#[test]
+fn test_002_every_milestone_requirement_is_mapped() {
+    let spec = read("spec/SPEC.md");
+    // §13, 0.1.0: ARCH-*, PTY-*, VT-001–005, QRY-*, SESS-*, VIEW-*, EVT-*, LIFE-001–002, PROTO-*, BUILD-*.
+    let whole = [
+        "ARCH", "PTY", "QRY", "SESS", "VIEW", "EVT", "PROTO", "BUILD",
+    ];
+    let ranged = [("VT", 1..=5), ("LIFE", 1..=2)];
+    let mut want = std::collections::BTreeSet::new();
+    for line in spec.lines() {
+        let Some(rest) = line.strip_prefix("- REQ-") else {
+            continue;
+        };
+        let id = rest.split(':').next().unwrap();
+        let Some((family, num)) = id.split_once('-') else {
+            continue;
+        };
+        let n: u32 = num.split_whitespace().next().unwrap().parse().unwrap();
+        if whole.contains(&family) || ranged.iter().any(|(f, r)| *f == family && r.contains(&n)) {
+            // Deferred requirements are not part of the milestone.
+            if !line.contains("(Deferred") {
+                want.insert(format!("REQ-{family}-{num}"));
+            }
+        }
+    }
+    assert!(want.len() > 40, "{want:?}");
+    let conf = read("spec/conformance.md");
+    let mut bad = Vec::new();
+    for req in &want {
+        let row = conf.lines().find(|l| l.starts_with(&format!("| {req} |")));
+        match row.map(|r| r.split('|').map(str::trim).collect::<Vec<_>>()) {
+            Some(cols) if cols[2] != "–" && !cols[2].is_empty() && cols[3] == "pass" => {}
+            other => bad.push(format!("{req}: {other:?}")),
+        }
+    }
+    assert!(bad.is_empty(), "unmapped or failing: {bad:#?}");
+}

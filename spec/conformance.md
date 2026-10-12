@@ -58,4 +58,5 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-BUILD-003 | femux-test `repo::build_003_ci_runs_lint_and_tests_on_both_platforms` | pass |
 | REQ-TEST-003 | femux-proto `schema::every_message_matches_its_schema_both_ways`, `schema::invalid_bodies_are_rejected_by_schema_and_decoder` | pass |
 | REQ-TEST-001 | femux-test `acceptance::create_split_ls_detach_reattach` (uses `screen` and `screen_text`) | pass |
-| Acceptance (0.1.0) | – | pending |
+| REQ-TEST-002 | femux-test `repo::test_002_every_milestone_requirement_is_mapped` | pass |
+| Acceptance (0.1.0) | femux-test `acceptance::create_split_ls_detach_reattach`; bare viewer: femux-client `viewer::tests::*`, femux-cli `binary::arch_004_plain_femux_starts_a_daemon_and_attaches` | pass |
