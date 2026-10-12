@@ -163,10 +163,10 @@ async fn evt_003_replay_since() {
     .await
     .unwrap();
     while late.recv(Duration::from_millis(300)).await {}
-    assert_eq!(
-        late.events.iter().map(Event::seq).collect::<Vec<_>>(),
-        [now - 1, now]
-    );
+    // Panes may emit more events (e.g. cwd_changed) after `now`; the replay starts after `since`.
+    let seqs: Vec<u64> = late.events.iter().map(Event::seq).collect();
+    assert_eq!(seqs[..2], [now - 1, now], "{seqs:?}");
+    assert!(seqs.windows(2).all(|w| w[1] == w[0] + 1), "{seqs:?}");
     // Asking for more than is retained reports the gap first.
     let mut later = h.client().await;
     later
@@ -177,11 +177,16 @@ async fn evt_003_replay_since() {
         .await
         .unwrap();
     while later.recv(Duration::from_millis(300)).await {}
-    match &later.events[0] {
-        Event::EventsLost(l) => assert_eq!((l.from, l.to), (seq0 + 1, now - 5)),
-        e => panic!("{e:?}"),
-    }
-    assert_eq!(later.events.len(), 6);
+    // The gap reaches up to the oldest retained event; the replay continues from there.
+    let Event::EventsLost(l) = &later.events[0] else {
+        panic!("{:?}", later.events[0])
+    };
+    assert_eq!(l.from, seq0 + 1);
+    assert!(l.to >= now - 5, "{l:?}");
+    let seqs: Vec<u64> = later.events[1..].iter().map(Event::seq).collect();
+    assert_eq!(seqs.len(), 5, "replay window is 5: {seqs:?}");
+    assert_eq!(seqs[0], l.to + 1);
+    assert!(seqs.windows(2).all(|w| w[1] == w[0] + 1), "{seqs:?}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
