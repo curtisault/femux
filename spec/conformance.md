@@ -72,6 +72,8 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-UI-010 | femux-daemon `layout::tests::master_and_scroll_schemes_follow_pane_order`; femux-test `scheme::ui_010_schemes_change_the_geometry`; femux-client `ui_layout::ui_010_preselection_places_the_next_split` | pass |
 | REQ-UI-011 | femux-client `ui_floats::ui_011_floats_render_above_tiles_and_follow_the_mouse`; femux-test `session::sess_002_layout_tree_nodes` (floats beside the tree) | pass |
 | REQ-UI-043 | femux-client `ui_overlays::ui_043_palette_fuzzy_searches_actions_and_cli_commands` | pass |
+| REQ-UI-020 | femux-client `ui_tabs::ui_020_tab_strip_shows_running_urgent_and_zoom` | pass |
+| REQ-UI-021 | femux-client `ui_tabs::ui_021_title_precedence`; femux-daemon `state::State::tab_title` via femux-test `session::*` | pass |
 | REQ-PLUG-001 | femux-test `repo::plug_001_plugins_are_feature_gated_crates` | pass |
 | REQ-PLUG-002 | femux-plugin `daemon_plugin::plug_002_daemon_plugin_subscribes_and_writes_metadata`; femux-plugin-which-key `tests::*`; femux-plugin-clipboard `tests::*`; femux-plugin-shell-integration `tests::*` | pass |
 | REQ-PLUG-003 | femux-test `repo::plug_003_plugins_depend_on_the_protocol_crates_only`, `repo::arch_002_clients_and_plugins_use_the_protocol_only` | pass |
