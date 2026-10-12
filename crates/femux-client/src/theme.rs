@@ -127,6 +127,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn plugin_palettes_win_and_their_errors_fall_back() {
+        let plugins = vec![femux_plugin_theme_client()];
+        let (t, err) = Theme::resolve("high-contrast", &plugins, None, None);
+        assert_eq!(err, None);
+        assert_eq!(t, Theme::from_palette(&femux_plugin_theme::high_contrast()));
+        let (t, err) = Theme::resolve("nord", &plugins, Some(false), None);
+        assert!(err.unwrap().contains("nord"));
+        assert!(!t.dark, "falls back to the terminal's light/dark");
+        // Without the plugin, dark and light still work and unknown names are dark.
+        assert!(!Theme::resolve("light", &[], None, None).0.dark);
+        assert_eq!(
+            Theme::resolve("nord", &[], None, None),
+            (Theme::dark(), None)
+        );
+    }
+
+    fn femux_plugin_theme_client() -> Box<dyn femux_plugin::ClientPlugin> {
+        femux_plugin_theme::plugin().client.unwrap()
+    }
+
+    #[test]
     fn picks_by_name_mode_or_background() {
         assert!(Theme::pick("dark", Some(false), None).dark);
         assert!(!Theme::pick("light", Some(true), None).dark);

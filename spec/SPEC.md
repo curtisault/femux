@@ -329,7 +329,7 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
 - REQ-UI-050: Output is diff-based; each frame is wrapped in synchronized output (mode 2026) when the host supports it.
   Note: support is probed at startup with `DECRQM 2026`, together with OSC 10/11/12, `DSR 996` (light/dark), the Kitty keyboard query and DA1.
 - REQ-UI-051: Theme from `[theme]` or, when `theme = "terminal"`, from OSC 10/11 queries at startup; light/dark follows mode 2031 when available.
-  Note: 0.2.0 ships a bundled `dark` and `light` theme; `terminal` picks one from the mode 2031 answer, else from the OSC 11 background's luminance. Named and file themes arrive with the `theme` plugin (0.4.0).
+  Note: `terminal` picks the built-in dark or light theme from the mode 2031 answer, else from the OSC 11 background's luminance. Other names come from the `theme` plugin (0.4.0): `dark`, `light`, `high-contrast`, or a path to a JSON file of `#rrggbb` colors over a `base`; unknown keys are errors. A theme the plugin cannot load falls back to `terminal` and says why in the status row. `femux reload` re-applies it.
 - REQ-UI-052: Kitty graphics placements are re-emitted with pane offsets and clipped at pane bounds.
   Note: 0.2.0 implements the geometry and the `a=p` re-emission for `frame.images`; the daemon sends placements from 0.7.0 (GFX-*).
 - REQ-UI-053: Mouse support is on by default and fully disableable.

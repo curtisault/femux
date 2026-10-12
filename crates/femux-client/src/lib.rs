@@ -287,7 +287,8 @@ pub fn run(socket: &Path, session: Option<&str>, host: Host) -> io::Result<()> {
         Response::SessionAttach(a) => a,
         r => return Err(other(format!("unexpected {r:?}"))),
     };
-    let mut theme = Theme::pick(&host.cfg.theme, probe.dark, probe.bg);
+    let (mut theme, theme_error) =
+        Theme::resolve(&host.cfg.theme, &host.plugins, probe.dark, probe.bg);
     let reload = host.reload;
     let mut app = App::new(
         host.cfg,
@@ -297,6 +298,9 @@ pub fn run(socket: &Path, session: Option<&str>, host: Host) -> io::Result<()> {
         cols,
         rows,
     );
+    if let Some(e) = theme_error {
+        app.message = Some(e);
+    }
     let mouse = app.cfg.mouse;
     term.enter(mouse)?;
 
@@ -329,8 +333,13 @@ pub fn run(socket: &Path, session: Option<&str>, host: Host) -> io::Result<()> {
                     Effect::Clipboard(text) => term.write(term::osc52(&text).as_bytes())?,
                     Effect::Reload => match reload.as_ref().map(|r| r()) {
                         Some(Ok(cfg)) => {
-                            theme = Theme::pick(&cfg.theme, probe.dark, probe.bg);
+                            let (t, err) =
+                                Theme::resolve(&cfg.theme, &app.plugins, probe.dark, probe.bg);
+                            theme = t;
                             app.apply_config(cfg);
+                            if let Some(e) = err {
+                                app.message = Some(e);
+                            }
                             prev = Surface::new(size.0 as usize, size.1 as usize);
                             term.write(b"\x1b[2J")?;
                         }

@@ -17,3 +17,4 @@ femux-test = { path = "../femux-test" }
 femux-plugin-which-key = { path = "../plugins/which-key" }
 femux-plugin-clipboard = { path = "../plugins/clipboard" }
 femux-plugin-infobar = { path = "../plugins/infobar" }
+femux-plugin-theme = { path = "../plugins/theme" }
