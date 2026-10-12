@@ -640,7 +640,8 @@
     "title": "vim notes",
     "meta": {
      "agent.state": "working"
-    }
+    },
+    "last_output": 1760140811000
    }
   },
   {
@@ -658,7 +659,8 @@
     "fg_cmd": "",
     "title": "",
     "exit": 1,
-    "meta": {}
+    "meta": {},
+    "last_output": 0
    }
   },
   {
@@ -1146,6 +1148,37 @@
   },
   {
    "dir": "event",
+   "kind": "pane.progress",
+   "body": {
+    "seq": 43,
+    "ts": 1760140800000,
+    "pane_id": "01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+    "state": 1,
+    "value": 40
+   }
+  },
+  {
+   "dir": "event",
+   "kind": "pane.progress",
+   "body": {
+    "seq": 44,
+    "ts": 1760140800000,
+    "pane_id": "01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+    "state": 0
+   }
+  },
+  {
+   "dir": "event",
+   "kind": "pane.report",
+   "body": {
+    "seq": 45,
+    "ts": 1760140800000,
+    "pane_id": "01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+    "data": "state=blocked"
+   }
+  },
+  {
+   "dir": "event",
    "kind": "view.attached",
    "body": {
     "seq": 42,
@@ -1312,7 +1345,8 @@
    "body": {
     "pane_id": "01J9Z3K8M2N4P6Q8R0S2T4V6W8",
     "title": "codex needs y/n",
-    "level": "warn"
+    "level": "warn",
+    "event": "agent_blocked"
    }
   },
   {
@@ -1335,7 +1369,9 @@
     "ts": 1760140800000,
     "pane_id": "01J9Z3K8M2N4P6Q8R0S2T4V6W8",
     "title": "codex needs y/n",
-    "level": "warn"
+    "level": "warn",
+    "shown": false,
+    "event": "agent_blocked"
    }
   }
  ]

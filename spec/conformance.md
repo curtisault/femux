@@ -123,3 +123,8 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-UI-042 | femux-client `ui_nav::ui_042_side_nav_lists_sessions_and_tabs_and_switches_on_click` | pass |
 | Plugin `theme` | femux-plugin-theme `tests::bundled_themes_by_name`, `tests::files_override_a_base_and_reject_unknown_keys`; femux-client `theme::tests::plugin_palettes_win_and_their_errors_fall_back` | pass |
 | Acceptance (0.4.0) | femux-client `ui_bar::acceptance_0_4_bar_on_all_four_sides_with_every_built_in_module`, `ui_nav::*` | pass |
+
+## 0.5.0
+
+| Requirement | Tests | Status |
+| --- | --- | --- |

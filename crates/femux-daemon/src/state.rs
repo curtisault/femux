@@ -151,6 +151,8 @@ pub struct Pane {
     pub saved_env: BTreeMap<String, String>,
     /// ms since epoch of the newest output or input; 0 before any (ADR-018 #1).
     pub activity: Arc<std::sync::atomic::AtomicU64>,
+    /// ms since epoch of the newest output; 0 before any (ADR-019 #3).
+    pub output: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl Pane {
@@ -163,6 +165,7 @@ impl Pane {
             cmd: self.cmd.clone(),
             restore: self.restore,
             restored: self.restored,
+            last_output: self.output.load(std::sync::atomic::Ordering::Relaxed),
             cwd: self.cwd.clone(),
             fg_pid: self.fg_pid,
             fg_cmd: self.fg_cmd.clone(),

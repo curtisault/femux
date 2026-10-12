@@ -26,6 +26,10 @@
         "level": {
           "$ref": "#/$defs/NotifyLevel",
           "description": "Default info."
+        },
+        "event": {
+          "type": "string",
+          "description": "The [notify] entry it is for (e.g. agent_done), which says what clients do with it."
         }
       },
       "required": [
@@ -50,13 +54,21 @@
         },
         "level": {
           "$ref": "#/$defs/NotifyLevel"
+        },
+        "event": {
+          "type": "string"
+        },
+        "shown": {
+          "type": "boolean",
+          "description": "Some attached view showed the pane when it was posted (REQ-NOTIFY-002); false without a pane."
         }
       },
       "required": [
         "seq",
         "ts",
         "title",
-        "level"
+        "level",
+        "shown"
       ]
     }
   },

@@ -165,6 +165,11 @@ pub struct Changes {
     pub pwd: Option<String>,
     /// Texts written to the system clipboard by the pane program (OSC 52 and friends).
     pub clipboard: Vec<String>,
+    /// OSC 9;4 progress reports: state (0 remove, 1 set, 2 error, 3 indeterminate, 4 pause)
+    /// and the percentage when given.
+    pub progress: Vec<(u8, Option<u8>)>,
+    /// Payloads of the private OSC 7777 (what follows `7777;`).
+    pub reports: Vec<String>,
 }
 
 /// State shared with libghostty-vt callbacks through the terminal's userdata pointer.
@@ -175,6 +180,7 @@ struct Effects {
     title_changed: bool,
     pwd_changed: bool,
     clipboard: Vec<String>,
+    progress: Vec<(u8, Option<u8>)>,
     host: HostCaps,
     xtversion: String,
     cell_px: (u32, u32),
@@ -196,6 +202,8 @@ pub struct Terminal {
     generation: u64,
     utf8: Vec<u8>,
     host_set: bool,
+    osc: OscScan,
+    reports: Vec<String>,
 }
 
 // SAFETY: libghostty-vt handles have no thread affinity; all access goes through `&mut self`.
@@ -229,6 +237,75 @@ unsafe extern "C" fn on_title(_t: ffi::GhosttyTerminal, ud: *mut c_void) {
 
 unsafe extern "C" fn on_pwd(_t: ffi::GhosttyTerminal, ud: *mut c_void) {
     effects(ud).pwd_changed = true;
+}
+
+unsafe extern "C" fn on_progress(
+    _t: ffi::GhosttyTerminal,
+    ud: *mut c_void,
+    report: *const ffi::GhosttyTerminalProgressReport,
+) {
+    // SAFETY: the report is valid for the duration of the callback.
+    let r = unsafe { &*report };
+    let value = (r.progress >= 0).then_some(r.progress.min(100) as u8);
+    effects(ud)
+        .progress
+        .push((r.state.0.clamp(0, 255) as u8, value));
+}
+
+/// Finds the private `OSC 7777 ; <data>` sequence in a byte stream (libghostty-vt does not
+/// parse it). Sequences may span writes; other OSCs pass through untouched.
+#[derive(Debug, Default)]
+pub(crate) struct OscScan {
+    state: u8,
+    buf: Vec<u8>,
+}
+
+const PRIVATE_OSC: &[u8] = b"7777;";
+
+impl OscScan {
+    /// Feeds bytes; returns the payloads of sequences completed in them.
+    pub(crate) fn feed(&mut self, bytes: &[u8]) -> Vec<String> {
+        const GROUND: u8 = 0;
+        const ESC: u8 = 1;
+        const OSC: u8 = 2;
+        const OSC_ESC: u8 = 3;
+        let mut out = Vec::new();
+        for &b in bytes {
+            match self.state {
+                ESC if b == b']' => {
+                    self.state = OSC;
+                    self.buf.clear();
+                }
+                OSC if b == 0x07 => {
+                    self.finish(&mut out);
+                    self.state = GROUND;
+                }
+                OSC if b == 0x1b => self.state = OSC_ESC,
+                OSC => {
+                    // Only collect what can still become `7777;...`, and not forever.
+                    let n = self.buf.len();
+                    if (n < PRIVATE_OSC.len() && b != PRIVATE_OSC[n]) || n >= 4096 {
+                        self.state = GROUND;
+                    } else {
+                        self.buf.push(b);
+                    }
+                }
+                OSC_ESC if b == b'\\' => {
+                    self.finish(&mut out);
+                    self.state = GROUND;
+                }
+                _ => self.state = if b == 0x1b { ESC } else { GROUND },
+            }
+        }
+        out
+    }
+
+    fn finish(&mut self, out: &mut Vec<String>) {
+        if let Some(data) = self.buf.strip_prefix(PRIVATE_OSC) {
+            out.push(String::from_utf8_lossy(data).into_owned());
+        }
+        self.buf.clear();
+    }
 }
 
 /// Clipboard writes from the pane program (OSC 52, OSC 5522, OSC 1337 Copy) are accepted and
@@ -292,6 +369,8 @@ impl Terminal {
             generation: 0,
             utf8: Vec::with_capacity(32),
             host_set: false,
+            osc: OscScan::default(),
+            reports: Vec::new(),
         };
         t.effects.cell_px = DEFAULT_CELL_PX;
         t.effects.size = (cols, rows);
@@ -331,7 +410,7 @@ impl Terminal {
             let ud = &mut *t.effects as *mut Effects as *const c_void;
             t.set_opt(O::GHOSTTY_TERMINAL_OPT_USERDATA, ud)?;
             // Callback options take the function pointer itself as the value.
-            let callbacks: [(O, *const c_void); 5] = [
+            let callbacks: [(O, *const c_void); 6] = [
                 (
                     O::GHOSTTY_TERMINAL_OPT_WRITE_PTY,
                     on_write_pty as *const c_void,
@@ -345,6 +424,10 @@ impl Terminal {
                 (
                     O::GHOSTTY_TERMINAL_OPT_CLIPBOARD_WRITE,
                     on_clipboard_write as *const c_void,
+                ),
+                (
+                    O::GHOSTTY_TERMINAL_OPT_PROGRESS_REPORT,
+                    on_progress as *const c_void,
                 ),
             ];
             for (opt, f) in callbacks {
@@ -377,6 +460,8 @@ impl Terminal {
 
     /// Feeds bytes read from the pane's PTY.
     pub fn write(&mut self, bytes: &[u8]) {
+        let found = self.osc.feed(bytes);
+        self.reports.extend(found);
         // SAFETY: `raw` is a live terminal and `bytes` is a valid slice.
         unsafe { ffi::ghostty_terminal_vt_write(self.raw, bytes.as_ptr(), bytes.len()) }
     }
@@ -408,11 +493,14 @@ impl Terminal {
         );
         let bells = std::mem::take(&mut fx.bells);
         let clipboard = std::mem::take(&mut fx.clipboard);
+        let progress = std::mem::take(&mut fx.progress);
         Changes {
             bells,
             title: title.then(|| self.title()),
             pwd: pwd.then(|| self.pwd()),
             clipboard,
+            progress,
+            reports: std::mem::take(&mut self.reports),
         }
     }
 
@@ -624,6 +712,24 @@ impl Drop for Terminal {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn progress_and_private_reports_are_reported() {
+        let mut t = Terminal::new(20, 3, 100).unwrap();
+        t.write(b"\x1b]9;4;1;40\x07\x1b]9;4;0\x1b\\");
+        // OSC 7777, split across writes and with both terminators; another OSC is ignored.
+        t.write(b"\x1b]2;title\x07\x1b]77");
+        t.write(b"77;state=blocked\x07x\x1b]7777;state=done\x1b\\");
+        let c = t.take_changes();
+        assert_eq!(c.progress, [(1, Some(40)), (0, None)]);
+        assert_eq!(c.reports, ["state=blocked", "state=done"]);
+        assert_eq!(c.title.as_deref(), Some("title"));
+        let c = t.take_changes();
+        assert!(c.progress.is_empty() && c.reports.is_empty());
+        // Not a 7777 sequence: nothing reported.
+        t.write(b"\x1b]7778;x\x07\x1b]777;notify;a;b\x07");
+        assert!(t.take_changes().reports.is_empty());
+    }
 
     #[test]
     fn clipboard_writes_are_reported() {
