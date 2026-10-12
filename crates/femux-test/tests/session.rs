@@ -41,6 +41,7 @@ async fn sess_001_hierarchy_and_unique_names() {
             cmd: None,
             title: Some("two".into()),
             index: None,
+            restore: None,
         })
         .await
         .unwrap();
@@ -402,6 +403,7 @@ async fn sess_003_one_event_per_mutation() {
             cmd: None,
             title: None,
             index: None,
+            restore: None,
         },
     )
     .await;
@@ -412,6 +414,7 @@ async fn sess_003_one_event_per_mutation() {
             cmd: None,
             title: None,
             index: None,
+            restore: None,
         })
         .await
         .unwrap()

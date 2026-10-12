@@ -3,7 +3,7 @@
 //! clipboard (ADR-016 #4); this plugin is where text reaches the user.
 
 use femux_plugin::{
-    CliArg, CliCommand, CliCore, CliOutput, CliPlugin, ClientPlugin, HostEffect, Plugin,
+    CliArg, CliCommand, CliCore, CliInput, CliOutput, CliPlugin, ClientPlugin, HostEffect, Plugin,
 };
 use femux_proto::Event;
 use femux_proto::msg as m;
@@ -46,15 +46,16 @@ impl CliPlugin for Cli {
                 help: "Text to copy; read from stdin when omitted",
                 required: false,
             }],
+            ..Default::default()
         }]
     }
     fn run(
         &self,
         _cmd: &str,
-        args: &[String],
+        input: &CliInput,
         core: &mut dyn CliCore,
     ) -> Result<CliOutput, String> {
-        let text = match args.first() {
+        let text = match input.args.first() {
             Some(t) => t.clone(),
             None => core.stdin(),
         };
@@ -63,6 +64,7 @@ impl CliPlugin for Cli {
         Ok(CliOutput {
             text: String::new(),
             json: serde_json::json!({ "bytes": text.len() }),
+            attach: None,
         })
     }
 }

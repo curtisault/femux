@@ -39,6 +39,17 @@ pub struct Config {
     pub home: PathBuf,
     /// Extra environment for every pane (tests use it to pin PS1 etc.).
     pub env: Vec<(String, String)>,
+    /// The store (REQ-STORE-001); `None` keeps no state on disk.
+    pub db: Option<PathBuf>,
+    /// `[restore]` (REQ-STORE-004..006).
+    pub restore: femux_config::Restore,
+    /// `[env] allow`: what of a pane's environment is persisted (REQ-PTY-006).
+    pub env_allow: Vec<String>,
+    /// The config file `server.reload` re-reads (ADR-013, ADR-017 #3).
+    pub config_path: Option<PathBuf>,
+    /// REQ-STORE-003: snapshot this long after a layout change, and this often while dirty.
+    pub snapshot_debounce: Duration,
+    pub snapshot_interval: Duration,
 }
 
 impl Config {
@@ -59,11 +70,17 @@ impl Config {
             events_replay: 1000,
             home,
             env: Vec::new(),
+            db: None,
+            restore: femux_config::Restore::default(),
+            env_allow: pty::default_env_allow(),
+            config_path: None,
+            snapshot_debounce: Duration::from_millis(500),
+            snapshot_interval: Duration::from_secs(30),
         }
     }
 }
 
-/// Message families this daemon serves (REQ-PROTO-020). `store` arrives with 0.3.0.
+/// Message families this daemon serves (REQ-PROTO-020).
 pub const SERVED: &[&str] = &[
     "clipboard",
     "events",
@@ -73,12 +90,39 @@ pub const SERVED: &[&str] = &[
     "scrollback",
     "server",
     "session",
+    "store",
     "tab",
     "view",
 ];
 
+/// What `server.reload` can change while running (ADR-013).
+#[derive(Debug, Clone)]
+pub struct Settings {
+    pub keep_alive: bool,
+    /// For panes created from now on.
+    pub scrollback_lines: usize,
+    pub restore: femux_config::Restore,
+    pub env_allow: Vec<String>,
+}
+
+/// How dirty the saved state is (REQ-STORE-003).
+pub const CLEAN: u8 = 0;
+/// Changed; snapshot on the next periodic tick.
+pub const DIRTY: u8 = 1;
+/// The layout changed; snapshot after the debounce.
+pub const LAYOUT: u8 = 2;
+
 pub struct Daemon {
     pub cfg: Config,
+    pub settings: Mutex<Settings>,
+    pub store: Arc<Mutex<Option<crate::store::Store>>>,
+    /// [`CLEAN`], [`DIRTY`] or [`LAYOUT`].
+    pub store_dirty: std::sync::atomic::AtomicU8,
+    pub store_kick: Notify,
+    /// The exit snapshot was already taken (SIGTERM takes it before panes can die).
+    pub exit_snapshot_done: std::sync::atomic::AtomicBool,
+    /// Whether exiting SIGHUPs the panes (REQ-LIFE-001).
+    pub exit_kills_panes: std::sync::atomic::AtomicBool,
     pub state: Mutex<State>,
     pub bus: Mutex<Bus>,
     /// Bumped whenever something visible may have changed; frame pumps watch it.
@@ -132,8 +176,20 @@ fn osc7_path(url: &str) -> String {
 impl Daemon {
     pub fn new(cfg: Config) -> Arc<Daemon> {
         let bus = Bus::new(cfg.events_buffer, cfg.events_replay);
+        let settings = Settings {
+            keep_alive: cfg.keep_alive,
+            scrollback_lines: cfg.scrollback_lines,
+            restore: cfg.restore.clone(),
+            env_allow: cfg.env_allow.clone(),
+        };
         Arc::new(Daemon {
             cfg,
+            settings: Mutex::new(settings),
+            store: Arc::new(Mutex::new(None)),
+            store_dirty: std::sync::atomic::AtomicU8::new(CLEAN),
+            store_kick: Notify::new(),
+            exit_snapshot_done: std::sync::atomic::AtomicBool::new(false),
+            exit_kills_panes: std::sync::atomic::AtomicBool::new(true),
             state: Mutex::new(State::default()),
             bus: Mutex::new(bus),
             epoch: watch::channel(0).0,
@@ -147,8 +203,29 @@ impl Daemon {
         self.epoch.send_modify(|e| *e += 1);
     }
 
-    fn emit(&self, e: impl Into<femux_proto::Event>, scope: Scope) {
+    pub(crate) fn emit(&self, e: impl Into<femux_proto::Event>, scope: Scope) {
+        let e = e.into();
+        self.mark_dirty(match e.kind() {
+            "session.created" | "session.renamed" | "session.closed" | "tab.created"
+            | "tab.closed" | "tab.moved" | "tab.renamed" | "layout.changed" | "layout.focused"
+            | "pane.spawned" | "pane.exited" | "pane.marked" => LAYOUT,
+            "pane.cwd_changed" | "pane.meta_changed" => DIRTY,
+            _ => CLEAN,
+        });
         emit(&self.bus, e, scope);
+    }
+
+    /// Records a change to the saved state (REQ-STORE-003).
+    pub(crate) fn mark_dirty(&self, level: u8) {
+        if level == CLEAN {
+            return;
+        }
+        let was = self
+            .store_dirty
+            .fetch_max(level, std::sync::atomic::Ordering::SeqCst);
+        if level == LAYOUT && was < LAYOUT {
+            self.store_kick.notify_one();
+        }
     }
 
     // ---------------------------------------------------------------- panes
@@ -171,6 +248,14 @@ impl Daemon {
         env
     }
 
+    /// The environment a pane's process sees, filtered by `[env] allow` for persistence.
+    fn saved_env(&self, env: &[(String, String)]) -> BTreeMap<String, String> {
+        let allow = self.settings.lock().unwrap().env_allow.clone();
+        let mut all: Vec<(String, String)> = std::env::vars().collect();
+        all.extend(env.iter().cloned());
+        pty::filter_env(&all, &allow).into_iter().cloned().collect()
+    }
+
     /// Spawns a pane process in `tab` and registers the pane (REQ-PTY-001, REQ-PTY-007).
     fn spawn_pane(
         self: &Arc<Self>,
@@ -180,16 +265,35 @@ impl Daemon {
         cmd: Option<String>,
         size: (u16, u16),
     ) -> R<PaneId> {
-        let id = new_id();
+        self.spawn_pane_with(st, tab, cwd, cmd, size, SpawnOpts::default())
+    }
+
+    /// Spawns a pane with restore-related options (REQ-STORE-004..006, REQ-PTY-005).
+    pub(crate) fn spawn_pane_with(
+        self: &Arc<Self>,
+        st: &mut State,
+        tab: &str,
+        cwd: &Path,
+        cmd: Option<String>,
+        size: (u16, u16),
+        opts: SpawnOpts,
+    ) -> R<PaneId> {
+        let id = opts.id.clone().unwrap_or_else(new_id);
+        let scrollback_lines = self.settings.lock().unwrap().scrollback_lines;
         let host = st
             .tabs
             .get(tab)
             .and_then(|t| st.sessions.get(&t.session))
             .and_then(|s| s.host.clone());
-        let mut vt = Terminal::new(size.0, size.1, self.cfg.scrollback_lines)
+        let mut vt = Terminal::new(size.0, size.1, scrollback_lines)
             .map_err(|e| (m::ErrorCode::Internal, e.to_string()))?;
         vt.set_host(&host.unwrap_or_default())
             .map_err(|e| (m::ErrorCode::Internal, e.to_string()))?;
+        if let Some(history) = &opts.history {
+            // The pane's last lines from before the restart (REQ-STORE-006).
+            vt.write(history);
+            let _ = vt.sync();
+        }
         let cwd = if cwd.is_dir() {
             cwd.to_path_buf()
         } else {
@@ -210,19 +314,47 @@ impl Daemon {
             cwd: cwd.to_string_lossy().into_owned(),
             fg_pid: 0,
             fg_cmd: String::new(),
-            meta: BTreeMap::new(),
+            meta: opts.meta,
             tasks: Vec::new(),
             resizes: 0,
+            restore: opts.restore,
+            restored: opts.restored,
+            extra_env: opts.extra_env,
+            saved_env: BTreeMap::new(),
         };
         st.panes.insert(id.clone(), pane);
-        self.start_process(st, &id)?;
+        match opts.delay {
+            // Staggered re-runs start later (REQ-STORE-005).
+            Some(d) if !d.is_zero() => {
+                let me = self.clone();
+                let pid = id.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(d).await;
+                    let mut st = me.state.lock().unwrap();
+                    if st.panes.get(&pid).is_some_and(|p| p.pid == 0) {
+                        let _ = me.start_process(&mut st, &pid);
+                    }
+                    drop(st);
+                    me.dirty();
+                });
+            }
+            _ => self.start_process(st, &id)?,
+        }
         Ok(id)
     }
 
     /// (Re)starts the process of an existing pane and its I/O tasks.
-    fn start_process(self: &Arc<Self>, st: &mut State, id: &str) -> R<()> {
-        let env = self.pane_env(id);
+    pub(crate) fn start_process(self: &Arc<Self>, st: &mut State, id: &str) -> R<()> {
+        let mut env = self.pane_env(id);
+        env.extend(
+            st.panes
+                .get(id)
+                .map(|p| p.extra_env.clone())
+                .unwrap_or_default(),
+        );
+        let saved_env = self.saved_env(&env);
         let pane = st.panes.get_mut(id).ok_or_else(|| not_found("pane"))?;
+        pane.saved_env = saved_env;
         let spec = SpawnSpec {
             shell: &self.cfg.shell,
             cmd: pane.cmd.as_deref(),
@@ -423,11 +555,13 @@ impl Daemon {
             State::session_scope(name),
         );
         // REQ-LIFE-002: exit with the last session unless keep_alive.
-        if st.sessions.is_empty() && st.had_session && !self.cfg.keep_alive {
+        if st.sessions.is_empty() && st.had_session && !self.settings.lock().unwrap().keep_alive {
             st.exit_requested = true;
         }
     }
 
+    // The arguments are tab.create's fields, one for one.
+    #[allow(clippy::too_many_arguments)]
     fn create_tab(
         self: &Arc<Self>,
         st: &mut State,
@@ -436,6 +570,7 @@ impl Daemon {
         cmd: Option<String>,
         title: Option<String>,
         index: Option<u32>,
+        restore: bool,
     ) -> R<(String, String)> {
         let s = st.session(session)?;
         let cwd = cwd.map(PathBuf::from).unwrap_or_else(|| s.root.clone());
@@ -461,7 +596,11 @@ impl Daemon {
                 layout_gen: 0,
             },
         );
-        let pane = match self.spawn_pane(st, &tab_id, &cwd, cmd, size) {
+        let opts = SpawnOpts {
+            restore,
+            ..Default::default()
+        };
+        let pane = match self.spawn_pane_with(st, &tab_id, &cwd, cmd, size, opts) {
             Ok(p) => p,
             Err(e) => {
                 st.tabs.remove(&tab_id);
@@ -641,6 +780,18 @@ impl Daemon {
                 format!("feature {:?} is not available", feature_of(kind)),
             ));
         }
+        // Requests that do I/O without the state lock.
+        match req {
+            Request::StoreSnapshot(_) => {
+                let ts = self.snapshot_now()?;
+                return Ok(Response::StoreSnapshot(m::StoreSnapshotOk { ts }));
+            }
+            Request::ServerReload(_) => {
+                self.reload()?;
+                return Ok(Response::ServerReload(m::Empty {}));
+            }
+            _ => {}
+        }
         let req = match self.handle_terminal(req) {
             Ok(done) => {
                 self.dirty();
@@ -811,9 +962,6 @@ impl Daemon {
                 })
             }
             Q::SessionCreate(r) => {
-                if r.file.is_some() {
-                    return Err(invalid("session files arrive in 0.3.0"));
-                }
                 if r.name.is_empty() {
                     return Err(invalid("session name is empty"));
                 }
@@ -833,6 +981,7 @@ impl Daemon {
                         tabs: Vec::new(),
                         marks: BTreeMap::new(),
                         host: None,
+                        file: r.file.clone(),
                     },
                 );
                 st.had_session = true;
@@ -843,7 +992,7 @@ impl Daemon {
                     },
                     State::session_scope(&r.name),
                 );
-                if let Err(e) = self.create_tab(st, &r.name, None, None, None, None) {
+                if let Err(e) = self.create_tab(st, &r.name, None, None, None, None, false) {
                     st.sessions.remove(&r.name);
                     return Err(e);
                 }
@@ -944,8 +1093,15 @@ impl Daemon {
                 Response::ViewResize(m::Empty {})
             }
             Q::TabCreate(r) => {
-                let (tab_id, pane_id) =
-                    self.create_tab(st, &r.session, r.cwd.as_deref(), r.cmd, r.title, r.index)?;
+                let (tab_id, pane_id) = self.create_tab(
+                    st,
+                    &r.session,
+                    r.cwd.as_deref(),
+                    r.cmd,
+                    r.title,
+                    r.index,
+                    r.restore.unwrap_or(false),
+                )?;
                 Response::TabCreate(m::TabCreateOk { tab_id, pane_id })
             }
             Q::TabSelect(r) => {
@@ -1359,6 +1515,7 @@ impl Daemon {
                 if r.cmd.is_some() {
                     pane.cmd = r.cmd;
                 }
+                pane.restored = false;
                 let tab_id = pane.tab.clone();
                 self.start_process(st, &r.pane_id)?;
                 self.emit(
@@ -1410,8 +1567,14 @@ impl Daemon {
                 panes: st.panes.len() as u32,
                 clients: st.conns.len() as u32,
             }),
-            Q::ServerStop(_) => {
-                // Without restore (0.3.0) panes cannot outlive the daemon, so kill_panes is moot.
+            Q::ServerStop(r) => {
+                // REQ-LIFE-001: without restore the panes are SIGHUPed; with it they are left to
+                // the hangup the kernel sends when the daemon's PTY ends close.
+                let restore = self.settings.lock().unwrap().restore.enabled;
+                self.exit_kills_panes.store(
+                    r.kill_panes || !restore,
+                    std::sync::atomic::Ordering::SeqCst,
+                );
                 st.exit_requested = true;
                 Response::ServerStop(m::Empty {})
             }
@@ -1429,11 +1592,8 @@ impl Daemon {
                 );
                 Response::ClipboardSet(m::Empty {})
             }
-            Q::StoreSnapshot(_) => {
-                return Err((
-                    m::ErrorCode::FeatureMissing,
-                    "not available before 0.3.0".into(),
-                ));
+            Q::StoreSnapshot(_) | Q::ServerReload(_) => {
+                unreachable!("handled before the state lock")
             }
         })
     }
@@ -1559,6 +1719,10 @@ async fn reader(
         if changes != femux_vt::Changes::default() {
             d.pane_changes(&id, changes);
         }
+        // Output changes what a snapshot holds only when scrollback is persisted (REQ-STORE-006).
+        if d.settings.lock().unwrap().restore.scrollback {
+            d.mark_dirty(DIRTY);
+        }
         d.dirty();
         // A flooding pane must not monopolize its terminal's lock or a worker thread.
         tokio::task::yield_now().await;
@@ -1609,6 +1773,10 @@ async fn poller(
         if pane.fg_pid != fg || pane.fg_cmd != cmd {
             pane.fg_pid = fg;
             pane.fg_cmd = cmd.clone();
+            // A command ran: the pane is no longer just a restored shell (REQ-STORE-008).
+            if fg != pane.pid {
+                pane.restored = false;
+            }
             d.emit(
                 m::PaneFgChanged {
                     pane_id: id.clone(),
@@ -1708,4 +1876,19 @@ mod tests {
         assert_eq!(osc7_path("file:///tmp"), "/tmp");
         assert_eq!(osc7_path("/plain"), "/plain");
     }
+}
+
+/// Options for [`Daemon::spawn_pane_with`].
+#[derive(Debug, Default)]
+pub(crate) struct SpawnOpts {
+    /// Reuse this id (restore keeps ids stable, REQ-PTY-005).
+    pub id: Option<PaneId>,
+    pub restore: bool,
+    pub restored: bool,
+    pub extra_env: Vec<(String, String)>,
+    pub meta: BTreeMap<String, String>,
+    /// Bytes replayed into the terminal before the process starts (REQ-STORE-006).
+    pub history: Option<Vec<u8>>,
+    /// Start the process this much later (REQ-STORE-005).
+    pub delay: Option<Duration>,
 }

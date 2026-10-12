@@ -1,0 +1,11 @@
+[package]
+name = "femux-config"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# `config.toml` and session files (SPEC §10). Parsing only: no terminal, UI or agent code, so
+# the daemon, the CLI and plugins can all depend on it.
+[dependencies]
+serde.workspace = true
+toml = "0.8"

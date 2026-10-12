@@ -253,7 +253,8 @@
     "cwd": "/tmp",
     "cmd": "htop",
     "title": "top",
-    "index": 1
+    "index": 1,
+    "restore": true
    }
   },
   {
@@ -630,6 +631,8 @@
     "session": "work",
     "pid": 4200,
     "cmd": "vim notes.md",
+    "restore": true,
+    "restored": false,
     "cwd": "/home/u",
     "fg_pid": 4242,
     "fg_cmd": "vim",
@@ -647,6 +650,8 @@
     "tab": "01J9Z3K8M2N4P6Q8R0S2T4V6WA",
     "session": "work",
     "pid": 0,
+    "restore": false,
+    "restored": false,
     "cwd": "",
     "fg_pid": 0,
     "fg_cmd": "",
@@ -927,6 +932,16 @@
    "body": {}
   },
   {
+   "dir": "request",
+   "kind": "server.reload",
+   "body": {}
+  },
+  {
+   "dir": "response",
+   "kind": "server.reload",
+   "body": {}
+  },
+  {
    "dir": "event",
    "kind": "session.created",
    "body": {
@@ -1185,6 +1200,14 @@
    "kind": "store.snapshot",
    "body": {
     "seq": 42,
+    "ts": 1760140800000
+   }
+  },
+  {
+   "dir": "event",
+   "kind": "config.reloaded",
+   "body": {
+    "seq": 60,
     "ts": 1760140800000
    }
   },

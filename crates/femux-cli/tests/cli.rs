@@ -76,8 +76,12 @@ const LEAVES: &[&[&str]] = &[
     &["integration", "install"],
     &["integration", "uninstall"],
     &["completions"],
+    &["config", "check"],
+    &["config", "edit"],
+    &["reload"],
     &["clipboard", "set"],
     &["shell-integration"],
+    &["launch"],
 ];
 
 #[test]
@@ -438,4 +442,211 @@ fn integration_install_hook_and_uninstall() {
     );
     env.run(&["integration", "uninstall", "opencode"]);
     assert!(!home.join("config/opencode/plugin/femux.js").exists());
+}
+
+#[test]
+fn cfg_003_config_check_rejects_unknown_keys_with_lines() {
+    let env = Env::new();
+    // No config at all is valid: the defaults apply.
+    assert_eq!(env.json(&["config", "check"])["ok"], true);
+    env.write_config("[restore]\nenabled = true\nscrollbak = false\n");
+    let (ok, _, err) = env.try_run(&["config", "check"]);
+    assert!(!ok, "unknown key accepted");
+    assert!(err.contains("line 3") && err.contains("scrollbak"), "{err}");
+    // Every command refuses to run on a bad config rather than ignoring the key...
+    let (ok, _, err) = env.try_run(&["ls"]);
+    assert!(!ok && err.contains("scrollbak"), "{err}");
+    // ...except config edit, which is how it gets fixed.
+    let out = env
+        .cmd(&["config", "edit"])
+        .env(
+            "EDITOR",
+            "sh -c 'printf \"[restore]\\nenabled = true\\n\" > \"$0\"'",
+        )
+        .env_remove("VISUAL")
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        env.try_run(&["ls"]).2.contains("no daemon"),
+        "fixed config lets ls run"
+    );
+    env.write_config("[restore]\nenabled = true\n");
+    let sessions = env.dir.path().join("config/femux/sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+    std::fs::write(
+        sessions.join("w.toml"),
+        "name = \"w\"\n[[tab]]\ncmd = \"vim\"\n",
+    )
+    .unwrap();
+    let (ok, _, err) = env.try_run(&["config", "check"]);
+    assert!(
+        !ok && err.contains("w.toml") && err.contains("line 3"),
+        "{err}"
+    );
+    std::fs::write(
+        sessions.join("w.toml"),
+        "name = \"w\"\n[[tab]]\ncommand = \"vim\"\n",
+    )
+    .unwrap();
+    let j = env.json(&["config", "check"]);
+    assert_eq!(j["ok"], true);
+    assert_eq!(j["files"].as_array().unwrap().len(), 2);
+    // edit seeds a missing config with the defaults and validates the result.
+    std::fs::remove_file(env.dir.path().join("config/femux/config.toml")).unwrap();
+    let out = env
+        .cmd(&["config", "edit"])
+        .env("EDITOR", "true")
+        .env_remove("VISUAL")
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let seeded = std::fs::read_to_string(env.dir.path().join("config/femux/config.toml")).unwrap();
+    assert!(seeded.contains("[restore]"));
+    let out = env
+        .cmd(&["config", "edit"])
+        .env("EDITOR", "sh -c 'echo bogus=1 >> \"$0\"'")
+        .env_remove("VISUAL")
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+}
+
+/// ADR-013: `femux reload` applies config.toml to the running daemon; a bad file changes
+/// nothing and says where it is wrong.
+#[test]
+fn reload_applies_the_config_to_the_running_daemon() {
+    let env = Env::new();
+    env.write_config("[daemon]\nkeep_alive = false\n");
+    env.run(&["daemon"]);
+    env.run(&["new", "s"]);
+    env.write_config("[daemon]\nkeep_alive = true\n");
+    assert_eq!(env.json(&["reload"])["reloaded"], true);
+    // keep_alive now holds the daemon up past its last session.
+    env.run(&["kill", "s"]);
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(env.socket().exists(), "keep_alive applied");
+    env.write_config("[daemon]\nkeep_alive = true\nbogus = 1\n");
+    let (ok, _, err) = env.try_run(&["reload"]);
+    assert!(!ok && err.contains("line 3"), "{err}");
+    env.write_config("[daemon]\nkeep_alive = true\n");
+    let socket = env.socket();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        let mut c = femux_test::Client::connect(&socket, femux_test::Client::hello(80, 24))
+            .await
+            .unwrap();
+        c.call(m::ServerStop { kill_panes: true }).await.unwrap();
+    });
+}
+
+fn pane_infos(env: &Env, session: &str) -> Vec<serde_json::Value> {
+    tabs(env, session)
+        .iter()
+        .map(|t| env.json(&["pane", "info", "--pane", &t.focus]))
+        .collect()
+}
+
+/// REQ-CFG-001/002: `femux launch` from a session file and from flags, `--save`, and a second
+/// launch attaching to the existing session instead of creating another.
+#[test]
+fn cfg_001_002_launch_from_a_file_and_from_flags() {
+    let env = Env::new();
+    let home = env.dir.path().to_path_buf();
+    std::fs::create_dir_all(home.join("writing/notes")).unwrap();
+    let sessions = home.join("config/femux/sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+    std::fs::write(
+        sessions.join("writing.toml"),
+        "name = \"writing\"\nroot = \"~/writing\"\ntabs = 4\n\n[[tab]]\ntitle = \"editor\"\ncommand = \"sleep 300\"\nrestore = true\n\n[[tab]]\ncommand = \"sleep 301\"\ncwd = \"~/writing/notes\"\n",
+    )
+    .unwrap();
+    // No daemon yet: launch starts one.
+    let j = env.json(&["launch", "writing", "--detach"]);
+    assert_eq!(
+        (j["created"].clone(), j["tabs"].clone()),
+        (true.into(), 4.into()),
+        "{j}"
+    );
+    let t = tabs(&env, "writing");
+    assert_eq!(t.len(), 4);
+    assert_eq!(t[0].custom_title.as_deref(), Some("editor"));
+    let infos = pane_infos(&env, "writing");
+    let root = home.join("writing");
+    // Compare directories as the OS resolves them (macOS reports /var as /private/var).
+    let same_dir = |reported: &serde_json::Value, want: &std::path::Path| {
+        std::path::Path::new(reported.as_str().unwrap_or_default())
+            .canonicalize()
+            .ok()
+            == want.canonicalize().ok()
+    };
+    assert_eq!(infos[0]["cmd"], "sleep 300");
+    assert_eq!(infos[0]["restore"], true);
+    assert_eq!(infos[1]["cmd"], "sleep 301");
+    assert_eq!(infos[1]["restore"], false);
+    assert!(
+        same_dir(&infos[1]["cwd"], &root.join("notes")),
+        "{}",
+        infos[1]
+    );
+    // REQ-CFG-001: tabs beyond the listed ones are plain shells in the root.
+    for i in [2, 3] {
+        assert!(infos[i]["cmd"].is_null(), "{}", infos[i]);
+        assert!(same_dir(&infos[i]["cwd"], &root), "{}", infos[i]);
+    }
+    let list = env.json(&["ls"]);
+    assert_eq!(list["sessions"][0]["root"], root.to_string_lossy().as_ref());
+    // Launching an existing session creates nothing.
+    let again = env.json(&["launch", "writing", "--detach"]);
+    assert_eq!(again["created"], false);
+    assert_eq!(tabs(&env, "writing").len(), 4);
+
+    // The flag form, saved: the same shape, and the saved file launches it again.
+    let dir = root.to_string_lossy().into_owned();
+    let j = env.json(&[
+        "launch",
+        "w2",
+        "--tabs",
+        "3",
+        "--dir",
+        &dir,
+        "--save",
+        "--detach",
+        "--",
+        "sleep 302",
+        "sleep 303",
+    ]);
+    assert_eq!(j["tabs"], 3, "{j}");
+    let saved = std::fs::read_to_string(sessions.join("w2.toml")).unwrap();
+    let parsed = femux_config::SessionFile::parse(&saved).unwrap();
+    assert_eq!(parsed.tabs, Some(3));
+    assert_eq!(parsed.tab.len(), 2);
+    assert_eq!(parsed.tab[1].command.as_deref(), Some("sleep 303"));
+    let cmds = |env: &Env| -> Vec<serde_json::Value> {
+        pane_infos(env, "w2")
+            .iter()
+            .map(|i| i["cmd"].clone())
+            .collect()
+    };
+    let first = cmds(&env);
+    env.run(&["kill", "w2"]);
+    env.json(&["launch", "w2", "--detach"]);
+    assert_eq!(cmds(&env), first);
+    assert_eq!(first[0], "sleep 302");
+    // Errors name the file and line.
+    std::fs::write(sessions.join("bad.toml"), "name = \"bad\"\nwindows = 2\n").unwrap();
+    let e = env.json(&["launch", "bad", "--detach"]);
+    let e = e["error"].as_str().unwrap();
+    assert!(e.contains("bad.toml") && e.contains("line 2"), "{e}");
 }

@@ -635,6 +635,23 @@
         "text",
         "source"
       ]
+    },
+    "ConfigReloaded": {
+      "type": "object",
+      "description": "The daemon applied a new config; clients re-read their part of it.",
+      "properties": {
+        "seq": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "ts": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch"
+        }
+      },
+      "required": [
+        "seq",
+        "ts"
+      ]
     }
   },
   "x-messages": [
@@ -741,6 +758,10 @@
     {
       "kind": "store.snapshot",
       "body": "StoreSnapshotted"
+    },
+    {
+      "kind": "config.reloaded",
+      "body": "ConfigReloaded"
     },
     {
       "kind": "events_lost",

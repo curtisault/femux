@@ -71,6 +71,8 @@ pub struct Pane {
     pub cmd: Option<String>,
     pub meta: BTreeMap<String, String>,
     pub screen: Option<PaneScreen>,
+    /// Came back from a snapshot as a plain shell; no command has run since (REQ-STORE-008).
+    pub restored: bool,
     /// `pane.info` has answered at least once.
     pub known: bool,
 }
@@ -230,6 +232,13 @@ impl Model {
             .to_owned()
     }
 
+    /// Whether any pane of `tab` is a restored shell (REQ-STORE-008).
+    pub fn tab_restored(&self, tab: &Tab) -> bool {
+        tab.panes()
+            .iter()
+            .any(|p| self.panes.get(p).is_some_and(|p| p.restored))
+    }
+
     pub fn tab_running(&self, tab: &Tab) -> bool {
         tab.panes()
             .iter()
@@ -249,6 +258,7 @@ impl Model {
         pane.title = info.title.clone();
         pane.cmd = info.cmd.clone();
         pane.meta = info.meta.clone();
+        pane.restored = info.restored;
         pane.known = true;
     }
 
@@ -367,6 +377,10 @@ impl Model {
                 if let Some(pane) = self.panes.get_mut(&p.pane_id) {
                     pane.fg_pid = p.pid;
                     pane.fg_cmd = p.cmd.clone();
+                    // A command ran in it: no longer just a restored shell (ADR-017 #2).
+                    if pane.known && pane.pid != 0 && p.pid != pane.pid {
+                        pane.restored = false;
+                    }
                 }
             }
             Event::PaneCwdChanged(p) => {

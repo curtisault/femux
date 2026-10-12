@@ -15,8 +15,8 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-PTY-002 | femux-test `pty::pty_002_foreground_process_and_cwd` | pass |
 | REQ-PTY-003 | femux-test `pty::pty_003_busy_pane_does_not_block_others` | pass |
 | REQ-PTY-004 | femux-test `pty::pty_004_signals` | pass |
-| REQ-PTY-005 | femux-test `pty::pty_005_pane_ids_are_ulids`; restart stability with restore (0.3.0) | pass |
-| REQ-PTY-006 | femux-daemon `pty::tests::env_filter_matches_names_and_prefixes`; femux-test `pty::pty_006_live_environment_is_unfiltered` | pass |
+| REQ-PTY-005 | femux-test `pty::pty_005_pane_ids_are_ulids`, `store::store_004_sessions_come_back_with_their_ids_layout_and_marks` | pass |
+| REQ-PTY-006 | femux-daemon `pty::tests::env_filter_matches_names_and_prefixes`; femux-test `pty::pty_006_live_environment_is_unfiltered`, `store::store_004_sessions_come_back_with_their_ids_layout_and_marks` (persisted env) | pass |
 | REQ-PTY-007 | femux-test `pty::pty_007_pane_environment` | pass |
 | REQ-VT-001 | femux-test `vt::vt_001_each_pane_has_its_own_terminal` | pass |
 | REQ-VT-002 | femux-vt `tests::only_dirty_rows_are_copied`, `tests::resize_reshapes_grid`; femux-test `vt::vt_002_frames_carry_cell_diffs` | pass |
@@ -39,7 +39,7 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-EVT-002 | femux-daemon `bus::tests::filters_by_kind_session_and_pane`, `bus::tests::slow_subscriber_gets_events_lost_and_continues`; femux-test `events::evt_002_filters_and_loss`, `protocol::proto_041_full_frame_after_attach_and_events_lost` | pass |
 | REQ-EVT-003 | femux-daemon `bus::tests::late_subscriber_replays_since`; femux-test `events::evt_003_replay_since` | pass |
 | REQ-EVT-004 | femux-test `events::evt_004_pane_metadata` | pass |
-| REQ-LIFE-001 | femux-cli `binary::life_001_sigterm_hups_panes_and_exits` | pass |
+| REQ-LIFE-001 | femux-cli `binary::life_001_sigterm_hups_panes_and_exits`, `binary::acceptance_0_3_kill_the_daemon_restart_and_the_layout_returns` (with restore) | pass |
 | REQ-LIFE-002 | femux-test `lifecycle::life_002_exit_with_last_session`, `lifecycle::life_002_keep_alive`, `lifecycle::life_002_the_request_that_ends_the_daemon_is_answered`, `lifecycle::life_002_exit_when_the_last_shell_exits`; femux-cli `binary::life_002_kill_of_the_last_session_succeeds` | pass |
 | REQ-PROTO-001 | femux-test `protocol::proto_001_socket_and_directory_modes`; femux-proto `tests::socket_dirs` | pass |
 | REQ-PROTO-002 | femux-daemon `server::tests::other_uids_are_refused`; femux-test `protocol::proto_002_same_uid_peer_is_served` | pass |
@@ -89,3 +89,22 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-PLUG-002 | femux-plugin `daemon_plugin::plug_002_daemon_plugin_subscribes_and_writes_metadata`; femux-client `bindings::tests::plugin_bindings_join_the_tables`, `app::tests::yank_echoes_are_not_replayed_to_the_host`; femux-plugin-which-key `tests::*`; femux-plugin-clipboard `tests::*`; femux-plugin-shell-integration `tests::*` | pass |
 | REQ-PLUG-003 | femux-test `repo::plug_003_plugins_depend_on_the_protocol_crates_only`, `repo::arch_002_clients_and_plugins_use_the_protocol_only` | pass |
 | REQ-PLUG-004 | femux-test `repo::plug_004_built_in_list_matches_crates_and_milestones` | pass |
+
+## 0.3.0
+
+| Requirement | Tests | Status |
+| --- | --- | --- |
+| REQ-CFG-003 | femux-config `tests::cfg_003_unknown_keys_are_errors_with_lines`, `tests::example_config_is_exactly_the_defaults`; femux-cli `cli::cfg_003_config_check_rejects_unknown_keys_with_lines` | pass |
+| REQ-STORE-001 | femux-daemon `store::tests::store_001_002_snapshot_roundtrip_wal_and_mode` | pass |
+| REQ-STORE-002 | femux-daemon `store::tests::store_001_002_snapshot_roundtrip_wal_and_mode`; femux-test `store::store_004_sessions_come_back_with_their_ids_layout_and_marks` | pass |
+| REQ-STORE-003 | femux-test `store::store_003_snapshots_follow_layout_changes_and_a_dirty_tick`; femux-daemon `logind::tests::*` (logind: best effort) | pass |
+| REQ-STORE-004 | femux-test `store::store_004_sessions_come_back_with_their_ids_layout_and_marks`, `store::store_004_restore_is_off_by_default` | pass |
+| REQ-STORE-005 | femux-test `store::store_005_reruns_are_staggered` | pass |
+| REQ-STORE-006 | femux-test `store::store_006_scrollback_is_opt_in`; femux-daemon `persist::tests::history_bytes_redraw_text_and_styles`, `store::tests::store_001_002_snapshot_roundtrip_wal_and_mode` (compressed) | pass |
+| REQ-STORE-007 | femux-daemon `store::tests::store_007_unloadable_files_are_backed_up_never_overwritten`; femux-test `store::store_007_a_bad_store_is_backed_up_and_the_daemon_starts` | pass |
+| REQ-STORE-008 | femux-client `app::tests::store_008_restored_panes_have_a_dashed_border_until_a_command_runs`; femux-test `store::store_004_sessions_come_back_with_their_ids_layout_and_marks` (daemon mark) | pass |
+| `femux reload` (ADR-013) | femux-test `store::server_reload_applies_the_config_or_changes_nothing`; femux-cli `cli::reload_applies_the_config_to_the_running_daemon`; femux-client `app::tests::config_reloaded_asks_for_the_config_and_applies_it` | pass |
+| REQ-CFG-001 | femux-config `tests::session_files_list_tabs_then_plain_shells`; femux-cli `cli::cfg_001_002_launch_from_a_file_and_from_flags`; femux-plugin-launcher `tests::cfg_002_flags_build_the_same_session_as_a_file` | pass |
+| REQ-CFG-002 | femux-cli `cli::cfg_001_002_launch_from_a_file_and_from_flags`; femux-plugin-launcher `tests::*` | pass |
+| Plugin `launcher` | femux-cli `cli::cfg_001_002_launch_from_a_file_and_from_flags`; femux-test `repo::plug_003_plugins_depend_on_the_protocol_crates_only` | pass |
+| Acceptance (0.3.0) | femux-cli `binary::acceptance_0_3_kill_the_daemon_restart_and_the_layout_returns`, `cli::cfg_001_002_launch_from_a_file_and_from_flags` | pass |

@@ -135,18 +135,27 @@ fn plug_001_plugins_are_feature_gated_crates() {
     assert!(example.contains("[plugins]") && example.contains("enabled = ["));
 }
 
-/// REQ-PLUG-003: plugin crates depend on femux-plugin / femux-proto and nothing else of femux.
+/// REQ-PLUG-003: plugin crates reach the core through femux-plugin / femux-proto only. The
+/// femux-config parser is allowed: it reads files and talks to nothing.
 #[test]
 fn plug_003_plugins_depend_on_the_protocol_crates_only() {
     for p in plugin_dirs() {
         let d = deps(&format!("crates/plugins/{p}/Cargo.toml"));
         for dep in d.iter().filter(|d| d.starts_with("femux-")) {
             assert!(
-                dep == "femux-plugin" || dep == "femux-proto",
+                matches!(
+                    dep.as_str(),
+                    "femux-plugin" | "femux-proto" | "femux-config"
+                ),
                 "plugin {p} depends on {dep}"
             );
         }
     }
+    let config = deps("crates/femux-config/Cargo.toml");
+    assert!(
+        config.iter().all(|d| !d.starts_with("femux-")),
+        "femux-config depends on nothing of femux: {config:?}"
+    );
 }
 
 /// REQ-PLUG-004: the built-in list, and each crate's version is its milestone.
@@ -276,8 +285,10 @@ fn test_002_every_milestone_requirement_is_mapped() {
     let spec = read("spec/SPEC.md");
     // §13, 0.1.0: ARCH-*, PTY-*, VT-001–005, QRY-*, SESS-*, VIEW-*, EVT-*, LIFE-001–002, PROTO-*, BUILD-*.
     // §13, 0.2.0: UI-001–012, UI-020–021, UI-043, UI-050–053, CLI-*, plus PLUG-* (built for its plugins).
+    // §13, 0.3.0: STORE-*, CFG-*.
     let whole = [
-        "ARCH", "PTY", "QRY", "SESS", "VIEW", "EVT", "PROTO", "BUILD", "CLI", "PLUG",
+        "ARCH", "PTY", "QRY", "SESS", "VIEW", "EVT", "PROTO", "BUILD", "CLI", "PLUG", "STORE",
+        "CFG",
     ];
     let ranged = [
         ("VT", 1..=5),

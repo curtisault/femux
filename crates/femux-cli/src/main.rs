@@ -85,6 +85,11 @@ enum Cmd {
     /// Agent hook integration: install, uninstall.
     #[command(subcommand)]
     Integration(IntegrationCmd),
+    /// The config file: check, edit.
+    #[command(subcommand)]
+    Config(ConfigCmd),
+    /// Apply config.toml to the running daemon and its clients (an invalid file changes nothing).
+    Reload,
     /// Print shell completions for bash, zsh or fish.
     Completions {
         #[arg(value_enum)]
@@ -237,6 +242,14 @@ enum KeysCmd {
 }
 
 #[derive(Subcommand)]
+enum ConfigCmd {
+    /// Validate config.toml and every session file; errors name their line.
+    Check,
+    /// Open config.toml in $VISUAL or $EDITOR (seeded with the defaults if missing), then check it.
+    Edit,
+}
+
+#[derive(Subcommand)]
 enum IntegrationCmd {
     /// Write the agent's hook config: claude-code, codex, opencode or cursor.
     Install { agent: String },
@@ -254,6 +267,8 @@ enum IntegrationCmd {
 struct Out {
     text: String,
     json: Value,
+    /// A plugin asked to attach to this session afterwards.
+    attach: Option<String>,
 }
 
 type R = Result<Out, String>;
@@ -262,6 +277,7 @@ fn ok(text: impl Into<String>, json: Value) -> R {
     Ok(Out {
         text: text.into(),
         json,
+        attach: None,
     })
 }
 
@@ -318,6 +334,11 @@ fn run_daemon(server: &str, socket: PathBuf, cfg: &Config, plugins: Vec<Plugin>)
     dcfg.socket = socket.clone();
     dcfg.keep_alive = cfg.daemon.keep_alive;
     dcfg.scrollback_lines = cfg.terminal.scrollback_lines;
+    // REQ-STORE-001: the store lives in the state directory, one file per server.
+    dcfg.db = Some(femux_config::db_path(server));
+    dcfg.restore = cfg.restore.clone();
+    dcfg.env_allow = cfg.env.allow.clone();
+    dcfg.config_path = Some(femux_config::config_path());
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
@@ -522,6 +543,7 @@ fn run_cmd(cli: &Cli, cfg: &Config, socket: &Path, all_plugins: Vec<Plugin>, cmd
                             cmd: joined(cmd),
                             title: title.clone(),
                             index: *index,
+                            restore: None,
                         })
                         .or_else(err)?;
                     ok(
@@ -735,7 +757,7 @@ fn run_cmd(cli: &Cli, cfg: &Config, socket: &Path, all_plugins: Vec<Plugin>, cmd
             }
         },
         Some(Cmd::Keys(k)) => {
-            let b = femux_client::bindings::Bindings::from_config(&cfg.client());
+            let b = femux_client::bindings::Bindings::from_config(&config::client(cfg));
             match k {
                 KeysCmd::List => {
                     let list = b.list();
@@ -817,6 +839,43 @@ fn run_cmd(cli: &Cli, cfg: &Config, socket: &Path, all_plugins: Vec<Plugin>, cmd
                 ok("", json!({"pane_id": pane, "state": state}))
             }
         },
+        Some(Cmd::Reload) => {
+            // Checked here first, so the error names the file even without a daemon.
+            Config::load(&femux_config::config_path())?;
+            connect(socket)?.call(m::ServerReload {}).or_else(err)?;
+            ok("reloaded", json!({"reloaded": true}))
+        }
+        Some(Cmd::Config(c)) => match c {
+            ConfigCmd::Check => config_check(),
+            ConfigCmd::Edit => {
+                let path = femux_config::config_path();
+                if !path.exists() {
+                    if let Some(d) = path.parent() {
+                        std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
+                    }
+                    std::fs::write(&path, EXAMPLE_CONFIG)
+                        .map_err(|e| format!("{}: {e}", path.display()))?;
+                }
+                let editor = std::env::var("VISUAL")
+                    .or_else(|_| std::env::var("EDITOR"))
+                    .unwrap_or_else(|_| "vi".into());
+                let status = Proc::new("sh")
+                    .arg("-c")
+                    .arg(format!("{editor} \"$1\""))
+                    .arg("sh")
+                    .arg(&path)
+                    .status()
+                    .map_err(|e| format!("{editor}: {e}"))?;
+                if !status.success() {
+                    return Err(format!("{editor} exited with {status}"));
+                }
+                Config::load(&path)?;
+                ok(
+                    format!("{} is valid", path.display()),
+                    json!({"path": path, "ok": true}),
+                )
+            }
+        },
         Some(Cmd::Completions { shell }) => {
             let mut cmd = cmd.clone();
             let mut buf = Vec::new();
@@ -827,6 +886,50 @@ fn run_cmd(cli: &Cli, cfg: &Config, socket: &Path, all_plugins: Vec<Plugin>, cmd
                 json!({"shell": shell.to_string(), "script": text}),
             )
         }
+    }
+}
+
+/// The commented defaults, written by `config edit` when there is no config yet.
+const EXAMPLE_CONFIG: &str = include_str!("../../../spec/config.example.toml");
+
+/// `femux config check`: config.toml, then every session file (REQ-CFG-003).
+fn config_check() -> R {
+    let mut files = Vec::new();
+    let mut errors = Vec::new();
+    let path = femux_config::config_path();
+    match Config::load(&path) {
+        Ok(_) => files.push(json!({"path": path, "ok": true, "exists": path.exists()})),
+        Err(e) => {
+            files.push(json!({"path": path, "ok": false, "error": e}));
+            errors.push(e);
+        }
+    }
+    let mut sessions: Vec<PathBuf> = std::fs::read_dir(femux_config::sessions_dir())
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "toml"))
+        .collect();
+    sessions.sort();
+    for p in sessions {
+        match femux_config::SessionFile::load(&p) {
+            Ok(_) => files.push(json!({"path": p, "ok": true})),
+            Err(e) => {
+                files.push(json!({"path": p, "ok": false, "error": e}));
+                errors.push(e);
+            }
+        }
+    }
+    if errors.is_empty() {
+        let text = files
+            .iter()
+            .map(|f| format!("ok  {}", f["path"].as_str().unwrap_or_default()))
+            .collect::<Vec<_>>()
+            .join("\n");
+        ok(text, json!({"ok": true, "files": files}))
+    } else {
+        Err(errors.join("\n"))
     }
 }
 
@@ -846,9 +949,12 @@ fn host(cfg: &Config, plugins: Vec<Plugin>, cmd: &Command) -> femux_client::Host
         }
     }
     femux_client::Host {
-        cfg: cfg.client(),
+        cfg: config::client(cfg),
         plugins: plugins.into_iter().filter_map(|p| p.client).collect(),
         cli_commands,
+        reload: Some(Box::new(|| {
+            Config::load(&femux_config::config_path()).map(|c| config::client(&c))
+        })),
     }
 }
 
@@ -864,6 +970,17 @@ fn with_plugin_commands(mut cmd: Command, plugins: &[Plugin]) -> Command {
             let mut leaf = Command::new(rest.last().copied().unwrap_or(first)).about(c.about);
             for a in &c.args {
                 leaf = leaf.arg(Arg::new(a.name).help(a.help).required(a.required));
+            }
+            for f in &c.flags {
+                let arg = Arg::new(f.name).long(f.name).help(f.help);
+                leaf = leaf.arg(if f.value {
+                    arg.num_args(1)
+                } else {
+                    arg.action(clap::ArgAction::SetTrue)
+                });
+            }
+            if let Some(t) = c.trailing {
+                leaf = leaf.arg(Arg::new(t).num_args(0..).last(true));
             }
             if rest.is_empty() {
                 cmd = cmd.subcommand(leaf);
@@ -889,7 +1006,7 @@ fn with_plugin_commands(mut cmd: Command, plugins: &[Plugin]) -> Command {
 }
 
 /// Runs a plugin subcommand if `matches` names one.
-fn run_plugin(matches: &ArgMatches, plugins: &[Plugin], socket: &Path) -> Option<R> {
+fn run_plugin(matches: &ArgMatches, plugins: &[Plugin], socket: &Path, server: &str) -> Option<R> {
     let (name, sub) = matches.subcommand()?;
     let (full, leaf) = match sub.subcommand() {
         Some((n2, s2)) => (format!("{name} {n2}"), s2),
@@ -899,18 +1016,38 @@ fn run_plugin(matches: &ArgMatches, plugins: &[Plugin], socket: &Path) -> Option
         let Some(spec) = p.commands().into_iter().find(|c| c.name == full) else {
             continue;
         };
-        let args: Vec<String> = spec
-            .args
-            .iter()
-            .filter_map(|a| leaf.get_one::<String>(a.name).cloned())
-            .collect();
+        let mut input = femux_plugin::CliInput {
+            args: spec
+                .args
+                .iter()
+                .filter_map(|a| leaf.get_one::<String>(a.name).cloned())
+                .collect(),
+            ..Default::default()
+        };
+        for f in &spec.flags {
+            if f.value {
+                if let Some(v) = leaf.get_one::<String>(f.name) {
+                    input.flags.insert(f.name.to_owned(), Some(v.clone()));
+                }
+            } else if leaf.get_flag(f.name) {
+                input.flags.insert(f.name.to_owned(), None);
+            }
+        }
+        if let Some(t) = spec.trailing {
+            input.trailing = leaf
+                .get_many::<String>(t)
+                .map(|v| v.cloned().collect())
+                .unwrap_or_default();
+        }
         let mut core = LazyCore {
             socket: socket.to_path_buf(),
+            server: server.to_owned(),
             conn: None,
         };
-        return Some(p.run(&full, &args, &mut core).map(|o| Out {
+        return Some(p.run(&full, &input, &mut core).map(|o| Out {
             text: o.text,
             json: o.json,
+            attach: o.attach,
         }));
     }
     None
@@ -919,6 +1056,7 @@ fn run_plugin(matches: &ArgMatches, plugins: &[Plugin], socket: &Path) -> Option
 /// Connects on the first request, so commands like `shell-integration` need no daemon.
 struct LazyCore {
     socket: PathBuf,
+    server: String,
     conn: Option<Conn>,
 }
 
@@ -955,11 +1093,35 @@ impl CliCore for LazyCore {
         let _ = io::Read::read_to_string(&mut io::stdin(), &mut s);
         s
     }
+    fn start_daemon(&mut self) -> Result<(), String> {
+        if running(&self.socket) {
+            return Ok(());
+        }
+        spawn_daemon(&self.server, &self.socket).map_err(|e| e.to_string())
+    }
+}
+
+/// The first positional argument (the subcommand), skipping global options and their values.
+fn subcommand_name() -> Option<String> {
+    let mut args = std::env::args().skip(1);
+    while let Some(a) = args.next() {
+        match a.as_str() {
+            "--server" | "--socket" => {
+                args.next();
+            }
+            a if a.starts_with('-') => {}
+            a => return Some(a.to_owned()),
+        }
+    }
+    None
 }
 
 fn main() -> ExitCode {
-    let cfg = match Config::load(&Config::path()) {
+    let cfg = match Config::load(&femux_config::config_path()) {
         Ok(c) => c,
+        // `config check` and `config edit` are how a bad config gets fixed: they run on the
+        // defaults and report the error themselves.
+        Err(_) if subcommand_name().as_deref() == Some("config") => Config::default(),
         Err(e) => {
             eprintln!("femux: config: {e}");
             return ExitCode::FAILURE;
@@ -978,8 +1140,23 @@ fn main() -> ExitCode {
             command: None,
         };
         let socket = socket_path(&globals, &cfg);
-        if let Some(r) = run_plugin(&matches, &plugins, &socket) {
-            return r;
+        let server = globals
+            .server
+            .clone()
+            .unwrap_or_else(|| cfg.daemon.name.clone());
+        if let Some(r) = run_plugin(&matches, &plugins, &socket, &server) {
+            let out = r?;
+            // Attach afterwards only from a terminal, outside femux, and not for --json.
+            if let Some(session) = &out.attach
+                && !json
+                && std::env::var_os("FEMUX_PANE").is_none()
+                && unsafe { libc::isatty(0) == 1 && libc::isatty(1) == 1 }
+            {
+                femux_client::run(&socket, Some(session), host(&cfg, plugins, &cmd))
+                    .map_err(|e| e.to_string())?;
+                return ok("", out.json);
+            }
+            return Ok(out);
         }
         let cli = Cli::from_arg_matches(&matches).map_err(|e| e.to_string())?;
         run_cmd(&cli, &cfg, &socket, plugins, &cmd)

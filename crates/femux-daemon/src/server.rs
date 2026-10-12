@@ -60,11 +60,19 @@ pub fn peer_allowed(peer_uid: u32, our_uid: u32) -> bool {
     peer_uid == our_uid
 }
 
-/// Serves until shutdown. Returns after SIGHUPing every pane and removing the socket.
+/// Serves until shutdown. Returns after the exit snapshot, SIGHUPing the panes unless they are
+/// meant to outlive the daemon (REQ-LIFE-001), and removing the socket.
 pub async fn serve(d: Arc<Daemon>, listener: UnixListener) {
     let next_conn = AtomicU64::new(1);
     let mut shutdown = d.shutdown.subscribe();
+    // Saved sessions come back before the first client is accepted (REQ-STORE-004).
+    d.open_store();
     tokio::spawn(resizer(d.clone()));
+    tokio::spawn(crate::persist::store_task(d.clone()));
+    #[cfg(target_os = "linux")]
+    if d.store.lock().unwrap().is_some() {
+        tokio::spawn(crate::logind::watch(d.clone()));
+    }
     // SAFETY: getuid cannot fail.
     let uid = unsafe { libc::getuid() };
     loop {
@@ -82,7 +90,10 @@ pub async fn serve(d: Arc<Daemon>, listener: UnixListener) {
             }
         }
     }
-    d.kill_all();
+    d.exit_snapshot();
+    if d.exit_kills_panes.load(std::sync::atomic::Ordering::SeqCst) {
+        d.kill_all();
+    }
     let _ = std::fs::remove_file(&d.cfg.socket);
 }
 

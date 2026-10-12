@@ -147,6 +147,7 @@ async fn pty_004_signals() {
             cmd: Some("trap 'echo got-winch' WINCH; while :; do sleep 0.1; done".into()),
             title: None,
             index: None,
+            restore: None,
         })
         .await
         .unwrap();

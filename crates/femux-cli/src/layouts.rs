@@ -153,6 +153,7 @@ pub fn load(conn: &mut Conn, session: &str, template: &Value) -> Result<String, 
             cmd,
             title: None,
             index: None,
+            restore: None,
         })
         .map_err(|e| e.message)?;
     build(conn, &tree, &created.pane_id, &spec)?;

@@ -181,12 +181,44 @@ pub struct CliArg {
     pub required: bool,
 }
 
-/// A subcommand contributed by a plugin. Every subcommand gets `--json` (REQ-CLI-001).
+/// A `--name` option of a plugin subcommand; with `value`, it takes one.
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CliFlag {
+    pub name: &'static str,
+    pub help: &'static str,
+    pub value: bool,
+}
+
+/// A subcommand contributed by a plugin. Every subcommand gets `--json` (REQ-CLI-001).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CliCommand {
     pub name: &'static str,
     pub about: &'static str,
     pub args: Vec<CliArg>,
+    pub flags: Vec<CliFlag>,
+    /// Values after `--`, under this name in help.
+    pub trailing: Option<&'static str>,
+}
+
+/// What the user typed for a plugin subcommand.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct CliInput {
+    /// Positional values in the order the command declared them (absent optional ones left out).
+    pub args: Vec<String>,
+    /// Flags given: `Some(value)` for valued flags, `None` for switches.
+    pub flags: std::collections::BTreeMap<String, Option<String>>,
+    /// Values after `--`.
+    pub trailing: Vec<String>,
+}
+
+impl CliInput {
+    pub fn flag(&self, name: &str) -> bool {
+        self.flags.contains_key(name)
+    }
+
+    pub fn value(&self, name: &str) -> Option<&str> {
+        self.flags.get(name).and_then(|v| v.as_deref())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -195,6 +227,8 @@ pub struct CliOutput {
     pub text: String,
     /// `--json` output.
     pub json: serde_json::Value,
+    /// Attach the client to this session afterwards, when run from a terminal outside femux.
+    pub attach: Option<String>,
 }
 
 /// What the CLI host offers a plugin subcommand.
@@ -205,13 +239,15 @@ pub trait CliCore {
     fn socket(&self) -> &Path;
     /// Reads all of stdin.
     fn stdin(&mut self) -> String;
+    /// Starts the daemon if none is running (as `femux new` does).
+    fn start_daemon(&mut self) -> Result<(), String>;
 }
 
 pub trait CliPlugin: Send {
     fn name(&self) -> &'static str;
     fn commands(&self) -> Vec<CliCommand>;
-    /// `args` are the positional values in the order `commands()` declared them.
-    fn run(&self, cmd: &str, args: &[String], core: &mut dyn CliCore) -> Result<CliOutput, String>;
+    fn run(&self, cmd: &str, input: &CliInput, core: &mut dyn CliCore)
+    -> Result<CliOutput, String>;
 }
 
 /// A built-in plugin: a name plus whichever surfaces it implements.

@@ -19,11 +19,14 @@ use tokio::sync::mpsc;
 
 pub use femux_daemon::Config;
 
-/// A daemon on a temp socket with a predictable shell (`/bin/sh`, `PS1='$ '`).
+/// A daemon on a temp socket with a predictable shell (`/bin/sh`, `PS1='$ '`) and a store in
+/// the temp directory.
 pub struct Harness {
     pub dir: tempfile::TempDir,
     pub socket: PathBuf,
     pub handle: Option<femux_daemon::Handle>,
+    /// The config the daemon runs with; [`Harness::restart`] reuses it.
+    pub cfg: Config,
 }
 
 impl Harness {
@@ -38,6 +41,7 @@ impl Harness {
             ("ENV".into(), String::new()),
             ("HOME".into(), dir.to_string_lossy().into_owned()),
         ];
+        cfg.db = Some(dir.join("state/test.db"));
         cfg
     }
 
@@ -50,12 +54,26 @@ impl Harness {
         let mut cfg = Harness::config(dir.path());
         f(&mut cfg);
         let socket = cfg.socket.clone();
-        let handle = femux_daemon::start(cfg).unwrap();
+        let handle = femux_daemon::start(cfg.clone()).unwrap();
         Harness {
             dir,
             socket,
             handle: Some(handle),
+            cfg,
         }
+    }
+
+    /// Stops the daemon (as `server.stop` would: exit snapshot, panes SIGHUPed) and starts a
+    /// new one on the same socket and store, after `f` adjusts its config.
+    pub fn restart_with(&mut self, f: impl FnOnce(&mut Config)) {
+        self.stop();
+        f(&mut self.cfg);
+        self.handle = Some(femux_daemon::start(self.cfg.clone()).unwrap());
+    }
+
+    /// Like [`Harness::restart_with`] with the same config.
+    pub fn restart(&mut self) {
+        self.restart_with(|_| {});
     }
 
     pub fn daemon(&self) -> &std::sync::Arc<femux_daemon::Daemon> {

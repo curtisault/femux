@@ -29,6 +29,7 @@ launcher = ["dep:femux-plugin-launcher"]
 [dependencies]
 femux-proto = { path = "../femux-proto" }
 femux-plugin = { path = "../femux-plugin" }
+femux-config = { path = "../femux-config" }
 femux-client = { path = "../femux-client" }
 femux-daemon = { path = "../femux-daemon" }
 femux-plugin-agents = { path = "../plugins/agents", optional = true }
@@ -49,7 +50,6 @@ clap_complete = "4"
 libc = "0.2"
 serde.workspace = true
 serde_json = "1"
-toml = "0.8"
 tokio.workspace = true
 
 [dev-dependencies]
