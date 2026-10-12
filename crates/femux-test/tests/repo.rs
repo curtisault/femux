@@ -262,15 +262,23 @@ fn build_003_ci_runs_lint_and_tests_on_both_platforms() {
     }
 }
 
-/// REQ-TEST-002: every 0.1.0 requirement in SPEC.md has a passing test in conformance.md.
+/// REQ-TEST-002: every requirement of a shipped milestone has a passing test in conformance.md.
 #[test]
 fn test_002_every_milestone_requirement_is_mapped() {
     let spec = read("spec/SPEC.md");
     // §13, 0.1.0: ARCH-*, PTY-*, VT-001–005, QRY-*, SESS-*, VIEW-*, EVT-*, LIFE-001–002, PROTO-*, BUILD-*.
+    // §13, 0.2.0: UI-001–012, UI-020–021, UI-043, UI-050–053, CLI-*, plus PLUG-* (built for its plugins).
     let whole = [
-        "ARCH", "PTY", "QRY", "SESS", "VIEW", "EVT", "PROTO", "BUILD",
+        "ARCH", "PTY", "QRY", "SESS", "VIEW", "EVT", "PROTO", "BUILD", "CLI", "PLUG",
     ];
-    let ranged = [("VT", 1..=5), ("LIFE", 1..=2)];
+    let ranged = [
+        ("VT", 1..=5),
+        ("LIFE", 1..=2),
+        ("UI", 1..=12),
+        ("UI", 20..=21),
+        ("UI", 43..=43),
+        ("UI", 50..=53),
+    ];
     let mut want = std::collections::BTreeSet::new();
     for line in spec.lines() {
         let Some(rest) = line.strip_prefix("- REQ-") else {

@@ -1,6 +1,6 @@
 # femux — Specification
 
-Version 0.1 (draft) · 2026-10-11 · License: MIT
+Version 0.2 (draft) · 2026-10-12 · License: MIT
 
 femux is a terminal multiplexer written in Rust. A session daemon owns processes, a versioned protocol carries state, and clients render. Agent tracking and every other feature are plugins over that core. This document is the single source of truth for an implementing agent. Requirement IDs (`REQ-*`) are stable; tests, commits and PRs reference them.
 
@@ -252,6 +252,7 @@ frame {view_id, frame_seq, full: bool, panes: [{pane_id, rect, cells: [ {x,y,run
 - REQ-UI-002: Prefix (default `ctrl+space`, list allowed) enters a one-shot `prefix` table; `prefix prefix` sends the prefix to the pane; `prefix esc` enters sticky `normal`.
   Note: sticky `normal` uses the prefix table directly; `esc` (or the prefix key) returns to `terminal`. An unbound key after the prefix is swallowed and named in the status line.
 - REQ-UI-003: A which-key overlay lists available chords after `ui.which_key_delay_ms` (default 400).
+  Note: the panel is the `which-key` plugin's; with the plugin disabled the delay passes silently and the table still works.
 - REQ-UI-004: Prefix-less bindings (`alt+h/j/k/l`) exist but are off by default.
 
 Default bindings (prefix table unless noted):
@@ -289,11 +290,14 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
 - REQ-UI-010: BSP with preselection (`prefix` then `shift+h/j/k/l` chooses where the next split goes), master-stack and scrolling schemes selectable per tab.
   Note: `shift+h/j/k/l` are the resize keys in the §5.1 table, so preselection is `prefix ctrl+h/j/k/l` (actions `preselect left|down|up|right`); the choice shows in the status line and applies to the next split. Schemes are palette actions `scheme bsp|master|scroll` (`layout.set_scheme`).
 - REQ-UI-011: Floating panes render above tiles; mouse drag moves and resizes them.
+  Note: dragging a float's top border moves it, dragging its bottom-right corner resizes it; both send `layout.float` with the new rect (ADR-016 #5).
 - REQ-UI-012: Layout templates can be saved and loaded by name (`femux layout save|load`); they serialize `layout.get` output plus cwd and cmd per pane.
+  Note: one JSON file per name under `$XDG_STATE_HOME/femux/layouts/` (macOS: `~/Library/Application Support/femux/layouts/`); `load` opens a new tab and rebuilds the tree by splitting, re-running each pane's `cmd`; `list` names the files and `export` prints a template, or the current tab when no name is given.
 
 ### 5.3 Tabs
 
 - REQ-UI-020: The tab strip shows index, title, a running indicator when the fg process is not the shell, an urgency marker on bell or agent state change in an unfocused tab, and a zoom marker.
+  Note: "not the shell" is `pane.info.fg_pid != pid` (ADR-016 #1); urgency (`!`) comes from `pane.bell` or a `pane.meta_changed` setting `agent.state` and clears when the tab is selected; zoom shows `Z`.
 - REQ-UI-021: Title precedence: user rename > OSC 2 > fg command > cwd basename.
 
 ### 5.4 Info bar
@@ -309,14 +313,19 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
 - REQ-UI-041: Window navigator (`W`): tree of sessions → tabs → panes with a live preview of the selected pane.
 - REQ-UI-042: Side nav (`b`): persistent left column listing sessions and tabs; click to switch.
 - REQ-UI-043: Command palette (`ctrl+p`, `prefix :`): fuzzy search over all bound actions and CLI subcommands.
+  Note: actions are listed by name (`femux keys list`) with their description and key; choosing a CLI subcommand types `femux <subcommand> ` into the focused pane. Matching is subsequence-based.
 - REQ-UI-044: Inbox overlay (agents plugin): list of panes in `blocked|done|error` with one-key jump and one-key respond.
 
 ### 5.6 Rendering
 
 - REQ-UI-050: Output is diff-based; each frame is wrapped in synchronized output (mode 2026) when the host supports it.
+  Note: support is probed at startup with `DECRQM 2026`, together with OSC 10/11/12, `DSR 996` (light/dark), the Kitty keyboard query and DA1.
 - REQ-UI-051: Theme from `[theme]` or, when `theme = "terminal"`, from OSC 10/11 queries at startup; light/dark follows mode 2031 when available.
+  Note: 0.2.0 ships a bundled `dark` and `light` theme; `terminal` picks one from the mode 2031 answer, else from the OSC 11 background's luminance. Named and file themes arrive with the `theme` plugin (0.4.0).
 - REQ-UI-052: Kitty graphics placements are re-emitted with pane offsets and clipped at pane bounds.
+  Note: 0.2.0 implements the geometry and the `a=p` re-emission for `frame.images`; the daemon sends placements from 0.7.0 (GFX-*).
 - REQ-UI-053: Mouse support is on by default and fully disableable.
+  Note: `[input] mouse = false` disables reporting entirely. A click focuses the pane under it and is forwarded; wheel events are forwarded to the pane (in copy mode they scroll the view); clicking the tab strip selects a tab.
 
 ---
 
@@ -349,6 +358,7 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
 
 - REQ-PLUG-001: Plugins are workspace crates under `crates/plugins/*`, each behind a Cargo feature, all enabled in release builds, activated at runtime by `[plugins] enabled`.
 - REQ-PLUG-002: Three traits: `DaemonPlugin` (event subscriber + metadata writer), `ClientPlugin` (info modules, palette actions, keybindings, overlays), `CliPlugin` (subcommands). A plugin implements any subset.
+  Note: the traits live in `crates/femux-plugin` (added to §12), which depends only on `femux-proto`; a daemon plugin runs as a protocol client, in-process or not.
 - REQ-PLUG-003: Plugins use only `femux-proto` to talk to the core; a plugin MAY run out-of-process.
 - REQ-PLUG-004: Built-in plugin list and their versions: `agents` (0.5), `infobar` (0.4), `notify` (0.5), `git` (0.8), `clipboard` (0.2), `graphics` (0.7), `shell-integration` (0.2), `broadcast` (0.8), `which-key` (0.2), `recorder` (0.8), `hosts` (0.6), `theme` (0.4), `launcher` (0.3).
 
@@ -368,6 +378,7 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
 - REQ-AGT-003 (tier 3): output heuristics (silence after burst, prompt-like last line) only when tiers 1–2 give nothing; always `source=heuristic`.
 - REQ-AGT-004: Higher tiers override lower tiers; a lower tier MUST NOT override a higher-tier state younger than `agents.hold_ms` (default 5000).
 - REQ-AGT-005: `femux integration install <claude-code|codex|opencode|cursor>` writes the agent's hook config to call tier-1 commands; `uninstall` reverts it.
+  Note: shipped in 0.2.0 with the CLI. Hooks call `femux integration hook <agent> [state]`, which sets `agent.state|source|name|since`. Claude Code (`~/.claude/settings.json`) and Codex (`notify` in `~/.codex/config.toml`) follow their documented formats; the OpenCode plugin file and Cursor `hooks.json` are best effort until 0.5.0 tests them end to end.
 
 ### 9.3 Commands
 
@@ -485,7 +496,11 @@ cwd = "~/writing/notes"
 
 - REQ-CLI-001: Every subcommand has `--json` output.
 - REQ-CLI-002: Inside a pane, commands default to that pane (`$FEMUX_PANE`).
+  Note: the pane's tab and session default the same way (`pane.info`); outside femux, `tab new` needs `--session` unless exactly one session exists. `tab select` switches every attached client of the session (ADR-016 #8); tab indexes are resolved through a short-lived view.
 - REQ-CLI-003: Shell completions for bash, zsh, fish are generated from the CLI definition.
+  Note: `femux completions <shell>`, including the subcommands plugins add.
+
+Note (§11, 0.2.0): `launch`, `agent`, `config`, `reload`, `update`, `hosts` and `notify` arrive with their milestones (0.3.0, 0.5.0, 0.3.0, 0.3.0, 1.0, 0.6.0, 0.5.0). `integration install` ships early because its hook target, `femux pane set`, exists.
 
 ---
 
@@ -501,6 +516,7 @@ femux/
     femux-daemon/           pty, vt, query proxy, session model, views, store, bus, graphics, socket
     femux-client/           modes, layout engine, tab strip, infobar host, navigators, renderer (termwiz)
     femux-cli/              the `femux` binary; embeds client and daemon
+    femux-plugin/           plugin traits and the daemon-plugin runner (REQ-PLUG-002)
     femux-test/             headless harness
     plugins/
       agents/ infobar/ notify/ git/ clipboard/ graphics/ shell-integration/ broadcast/ which-key/ recorder/ hosts/ theme/ launcher/

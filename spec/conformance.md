@@ -79,6 +79,12 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-UI-052 | femux-client `graphics::tests::placements_are_offset_and_clipped`, `graphics::tests::kitty_commands_carry_offsets_and_crops` | pass |
 | REQ-UI-053 | femux-client `ui_mouse::ui_053_mouse_focuses_forwards_and_can_be_disabled` | pass |
 | Acceptance (0.2.0) | femux-client `acceptance::all_default_bindings_work`, `acceptance::copy_mode_search_selects_and_yanks`; femux-cli `binary::arch_004_plain_femux_starts_a_daemon_and_attaches` (daily driver on a PTY) | pass |
+| REQ-UI-012 | femux-cli `cli::ui_012_layout_templates_save_load_list_export`, `layouts::tests::nodes_roundtrip_through_json` | pass |
+| REQ-CLI-001 | femux-cli `cli::cli_001_every_subcommand_has_json` | pass |
+| REQ-CLI-002 | femux-cli `cli::cli_002_commands_default_to_the_current_pane` | pass |
+| REQ-CLI-003 | femux-cli `cli::cli_003_completions_come_from_the_definition` | pass |
+| REQ-AGT-005 (install/uninstall; detection is 0.5.0) | femux-cli `cli::integration_install_hook_and_uninstall`, `integration::tests::*` | pass |
+| Plugins `clipboard`, `shell-integration`, `which-key` | femux-cli `cli::plugin_subcommands_and_config_bindings`; femux-client `acceptance::copy_mode_search_selects_and_yanks` (OSC 52 + clipboard.set), `ui_overlays::ui_003_which_key_shows_after_the_delay` | pass |
 | REQ-PLUG-001 | femux-test `repo::plug_001_plugins_are_feature_gated_crates` | pass |
 | REQ-PLUG-002 | femux-plugin `daemon_plugin::plug_002_daemon_plugin_subscribes_and_writes_metadata`; femux-plugin-which-key `tests::*`; femux-plugin-clipboard `tests::*`; femux-plugin-shell-integration `tests::*` | pass |
 | REQ-PLUG-003 | femux-test `repo::plug_003_plugins_depend_on_the_protocol_crates_only`, `repo::arch_002_clients_and_plugins_use_the_protocol_only` | pass |
