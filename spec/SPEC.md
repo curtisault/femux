@@ -397,6 +397,7 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
 - REQ-AGT-004: Higher tiers override lower tiers; a lower tier MUST NOT override a higher-tier state younger than `agents.hold_ms` (default 5000).
 - REQ-AGT-005: `femux integration install <claude-code|codex|opencode|cursor>` writes the agent's hook config to call tier-1 commands; `uninstall` reverts it.
   Note: shipped in 0.2.0 with the CLI. Hooks call `femux integration hook <agent> [state]`, which sets `agent.state|source|name|since`. Claude Code (`~/.claude/settings.json`) and Codex (`notify` in `~/.codex/config.toml`) follow their documented formats; the OpenCode plugin file and Cursor `hooks.json` are best effort until 0.5.0 tests them end to end.
+  Note (0.5.0): the Claude Code hook is tested end to end against the daemon (`femux agent wait` returns on `Stop`). OpenCode and Cursor stay best effort: their hook formats are written as documented, but no test runs those agents.
 
 ### 9.3 Commands
 

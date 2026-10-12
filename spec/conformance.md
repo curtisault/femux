@@ -129,9 +129,10 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | Requirement | Tests | Status |
 | --- | --- | --- |
 | REQ-AGT-001 | femux-plugin-agents `detect::agt_001_a_hook_state_is_tier_one_and_gets_source_and_since`, `detect::agt_001_osc_progress_and_private_reports_are_tier_one` | pass |
-| REQ-AGT-002 (Linux) | femux-plugin-agents `detect::agt_002_a_process_waiting_on_the_tty_is_blocked_then_exited_then_idle`, `procfs::tests::*` | pass |
+| REQ-AGT-002 | (Linux; macOS is hook-only) femux-plugin-agents `detect::agt_002_a_process_waiting_on_the_tty_is_blocked_then_exited_then_idle`, `procfs::tests::*` | pass |
 | REQ-AGT-003 | femux-plugin-agents `detect::agt_003_heuristics_judge_silence_after_output_by_the_last_line`, `detect::agt_003_heuristics_stay_quiet_once_tier_one_spoke`, `detect::tests::prompts_look_like_questions` | pass |
 | REQ-AGT-004 | femux-plugin-agents `tier::tests::agt_004_higher_tiers_override_and_lower_ones_wait_out_the_hold`, `detect::agt_004_a_lower_tier_waits_out_the_hold` | pass |
+| REQ-AGT-005 | femux-cli `cli::integration_install_hook_and_uninstall`, `agents::agent_wait_returns_when_the_claude_code_hook_reports_done` | pass |
 | REQ-TEST-006 | femux-plugin-agents `detect::*` | pass |
 | SPEC §9.3 `femux agent …` | femux-cli `agents::agent_wait_returns_when_the_claude_code_hook_reports_done`, `agents::agent_list_and_explain_show_state_source_and_evidence`, `agents::agent_prompt_types_text_and_enter`, `cli::cli_001_every_subcommand_has_json` | pass |
 | REQ-UI-044 | femux-client `ui_inbox::ui_044_inbox_jumps_and_answers_across_sessions`, `inbox::tests::ui_044_lists_blocked_error_done_across_sessions` | pass |

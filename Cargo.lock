@@ -587,7 +587,7 @@ checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 
 [[package]]
 name = "femux-cli"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "clap",
  "clap_complete",
@@ -620,7 +620,7 @@ dependencies = [
 
 [[package]]
 name = "femux-client"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "femux-plugin",
  "femux-plugin-agents",
@@ -639,7 +639,7 @@ dependencies = [
 
 [[package]]
 name = "femux-config"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "serde",
  "toml",
@@ -647,7 +647,7 @@ dependencies = [
 
 [[package]]
 name = "femux-daemon"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "femux-config",
  "femux-proto",
@@ -667,7 +667,7 @@ dependencies = [
 
 [[package]]
 name = "femux-plugin"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "femux-proto",
  "femux-test",
@@ -802,7 +802,7 @@ dependencies = [
 
 [[package]]
 name = "femux-proto"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "jsonschema",
  "rmp-serde",
@@ -814,7 +814,7 @@ dependencies = [
 
 [[package]]
 name = "femux-test"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "femux-daemon",
  "femux-plugin",
@@ -827,7 +827,7 @@ dependencies = [
 
 [[package]]
 name = "femux-vt"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "smol_str",
 ]
