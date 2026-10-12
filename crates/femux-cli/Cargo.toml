@@ -1,6 +1,22 @@
 [package]
 name = "femux-cli"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "femux"
+path = "src/main.rs"
 
 [dependencies]
+femux-proto = { path = "../femux-proto" }
+femux-client = { path = "../femux-client" }
+femux-daemon = { path = "../femux-daemon" }
+clap = { version = "4", features = ["derive"] }
+libc = "0.2"
+tokio.workspace = true
+
+[dev-dependencies]
+femux-test = { path = "../femux-test" }
+nix = { version = "0.31", features = ["term", "signal", "process"] }
+tempfile = "3"

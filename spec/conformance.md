@@ -10,7 +10,7 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-ARCH-001 | femux-test `repo::arch_001_daemon_has_no_ui_dependencies` | pass |
 | REQ-ARCH-002 | femux-test `repo::arch_002_clients_and_plugins_use_the_protocol_only` | pass |
 | REQ-ARCH-003 | femux-test `repo::arch_003_client_restart_keeps_panes` | pass |
-| REQ-ARCH-004 | – | pending |
+| REQ-ARCH-004 | femux-cli `binary::arch_004_plain_femux_starts_a_daemon_and_attaches`, `binary::arch_004_daemon_subcommand_detaches_and_refuses_a_second` | pass |
 | REQ-PTY-001 | femux-test `pty::pty_001_own_session_and_group` (Linux) | pass |
 | REQ-PTY-002 | femux-test `pty::pty_002_foreground_process_and_cwd` | pass |
 | REQ-PTY-003 | femux-test `pty::pty_003_busy_pane_does_not_block_others` | pass |
@@ -39,7 +39,7 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-EVT-002 | femux-daemon `bus::tests::filters_by_kind_session_and_pane`, `bus::tests::slow_subscriber_gets_events_lost_and_continues`; femux-test `events::evt_002_filters_and_loss`, `protocol::proto_041_full_frame_after_attach_and_events_lost` | pass |
 | REQ-EVT-003 | femux-daemon `bus::tests::late_subscriber_replays_since`; femux-test `events::evt_003_replay_since` | pass |
 | REQ-EVT-004 | femux-test `events::evt_004_pane_metadata` | pass |
-| REQ-LIFE-001 | – | pending |
+| REQ-LIFE-001 | femux-cli `binary::life_001_sigterm_hups_panes_and_exits` | pass |
 | REQ-LIFE-002 | femux-test `lifecycle::life_002_exit_with_last_session`, `lifecycle::life_002_keep_alive` | pass |
 | REQ-PROTO-001 | femux-test `protocol::proto_001_socket_and_directory_modes`; femux-proto `tests::socket_dirs` | pass |
 | REQ-PROTO-002 | femux-daemon `server::tests::other_uids_are_refused`; femux-test `protocol::proto_002_same_uid_peer_is_served` | pass |

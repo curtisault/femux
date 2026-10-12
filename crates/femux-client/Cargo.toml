@@ -1,6 +1,11 @@
 [package]
 name = "femux-client"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 
+# REQ-ARCH-002: the client reaches the daemon only through femux-proto.
 [dependencies]
+femux-proto = { path = "../femux-proto" }
+termwiz.workspace = true
+tokio.workspace = true
