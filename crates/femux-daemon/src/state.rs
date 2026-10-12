@@ -68,13 +68,16 @@ impl Tab {
     }
 
     /// Rectangles of every pane (tiled, then floats clipped to the tab), ignoring zoom.
+    /// The scheme (REQ-UI-010) decides how the tiled panes are arranged: `bsp` follows the
+    /// tree, `master` and `scroll` derive from the tree's pane order.
     pub fn all_rects(&self) -> Vec<(PaneId, Rect)> {
         let area = self.area();
-        let mut out = self
-            .tree
-            .as_ref()
-            .map(|t| t.rects(area))
-            .unwrap_or_default();
+        let mut out = match (&self.tree, self.scheme) {
+            (None, _) => Vec::new(),
+            (Some(t), Scheme::Bsp) => t.rects(area),
+            (Some(t), Scheme::Master) => crate::layout::master_rects(&t.panes(), area),
+            (Some(t), Scheme::Scroll) => crate::layout::scroll_rects(&t.panes(), &self.focus, area),
+        };
         for (p, r) in &self.floats {
             let x = r.x.min(area.w.saturating_sub(1));
             let y = r.y.min(area.h.saturating_sub(1));

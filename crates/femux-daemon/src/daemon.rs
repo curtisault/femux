@@ -995,7 +995,10 @@ impl Daemon {
                         .ok_or_else(|| invalid("ratio must be in [0, 1]"))?,
                     None => half(),
                 };
-                let cwd = PathBuf::from(&st.pane(&r.pane_id)?.cwd);
+                let cwd = r
+                    .cwd
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| PathBuf::from(&st.pane(&r.pane_id).unwrap().cwd));
                 let size = st.pane(&r.pane_id)?.size;
                 let new = self.spawn_pane(st, &tab_id, &cwd, r.cmd, size)?;
                 let tab = st.tabs.get_mut(&tab_id).unwrap();
@@ -1043,6 +1046,22 @@ impl Daemon {
                         p
                     }
                     (None, Some(d)) => neighbor(&tab.all_rects(), &tab.focus, d)
+                        .or_else(|| {
+                            // The scroll strip hides panes past its edge: step along the
+                            // pane order instead so they can be reached (REQ-UI-010).
+                            if tab.scheme != m::Scheme::Scroll {
+                                return None;
+                            }
+                            let order = tab.tree.as_ref()?.panes();
+                            let i = order.iter().position(|p| *p == tab.focus)?;
+                            match d {
+                                m::Direction::L => order.get(i + 1).cloned(),
+                                m::Direction::H => {
+                                    i.checked_sub(1).and_then(|j| order.get(j).cloned())
+                                }
+                                _ => None,
+                            }
+                        })
                         .unwrap_or_else(|| tab.focus.clone()),
                     _ => return Err(invalid("give exactly one of pane_id or dir")),
                 };
@@ -1057,7 +1076,8 @@ impl Daemon {
                     },
                     State::session_scope(&session),
                 );
-                if tab.zoomed {
+                // Zoom shows the focused pane; the scroll strip follows it (REQ-UI-010).
+                if tab.zoomed || tab.scheme == m::Scheme::Scroll {
                     self.apply_geometry(st, &tab_id);
                 }
                 Response::LayoutFocus(m::LayoutFocusOk { pane_id: target })
