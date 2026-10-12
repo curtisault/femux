@@ -21,3 +21,4 @@ femux-plugin-infobar = { path = "../plugins/infobar" }
 femux-plugin-theme = { path = "../plugins/theme" }
 femux-plugin-agents = { path = "../plugins/agents" }
 femux-plugin-notify = { path = "../plugins/notify" }
+femux-plugin-hosts = { path = "../plugins/hosts" }

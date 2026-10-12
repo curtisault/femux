@@ -14,13 +14,16 @@ pub mod layout;
 pub mod model;
 pub mod nav;
 pub mod probe;
+pub mod remote;
 pub mod render;
 pub mod term;
 pub mod theme;
 
 use std::io;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc as std_mpsc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use femux_plugin::ClientPlugin;
@@ -35,6 +38,7 @@ use tokio::sync::mpsc;
 
 use app::{App, Effect, MouseKind};
 pub use config::ClientConfig;
+pub use remote::{Remote, Target};
 use theme::Theme;
 
 fn other(e: impl std::fmt::Display) -> io::Error {
@@ -46,44 +50,193 @@ pub struct Conn {
     tx: mpsc::UnboundedSender<(u64, Request)>,
     rx: std_mpsc::Receiver<ServerMsg>,
     next_id: u64,
+    /// Set when the daemon's side of the link closes (the reader ends).
+    closed: Arc<AtomicBool>,
+    /// What `ssh` printed on stderr, for error messages.
+    stderr: Arc<Mutex<String>>,
+    /// `ssh -T … attach --stdio`, killed with the connection.
+    child: Option<tokio::process::Child>,
+    /// `ssh -N -L …` forwarding the socket, killed with the connection.
+    forward: Option<std::process::Child>,
     _rt: tokio::runtime::Runtime,
+}
+
+impl Drop for Conn {
+    fn drop(&mut self) {
+        if let Some(c) = &mut self.child {
+            let _ = c.start_kill();
+        }
+        if let Some(c) = &mut self.forward {
+            let _ = c.kill();
+            let _ = c.wait();
+        }
+    }
+}
+
+fn runtime() -> io::Result<tokio::runtime::Runtime> {
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()
+}
+
+/// Collects a child's stderr (the last 4 KiB) on a thread.
+fn collect_stderr(err: impl io::Read + Send + 'static) -> Arc<Mutex<String>> {
+    let buf = Arc::new(Mutex::new(String::new()));
+    let b = buf.clone();
+    std::thread::spawn(move || {
+        let mut r = io::BufReader::new(err);
+        let mut line = String::new();
+        while io::BufRead::read_line(&mut r, &mut line).is_ok_and(|n| n > 0) {
+            let mut all = b.lock().unwrap();
+            all.push_str(&line);
+            let cut = all.len().saturating_sub(4096);
+            if cut > 0 {
+                *all = all[cut..].to_owned();
+            }
+            line.clear();
+        }
+    });
+    buf
 }
 
 impl Conn {
     pub fn open(socket: &Path) -> io::Result<Conn> {
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(1)
-            .enable_all()
-            .build()?;
+        let rt = runtime()?;
         let stream = rt.block_on(tokio::net::UnixStream::connect(socket))?;
-        let (mut rd, mut wr) = stream.into_split();
+        let (rd, wr) = stream.into_split();
+        Ok(Conn::start(rt, rd, wr))
+    }
+
+    /// Connects to `target`; `batch` forbids ssh prompts (reconnects).
+    pub fn connect(target: &Target, batch: bool) -> io::Result<Conn> {
+        let r = match target {
+            Target::Local(p) => return Conn::open(p),
+            Target::Remote(r) => r,
+        };
+        if r.forward {
+            return Conn::forwarded(r, batch);
+        }
+        let rt = runtime()?;
+        let mut cmd = tokio::process::Command::from(r.stdio_command(batch));
+        cmd.stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true);
+        let mut child = {
+            let _in_rt = rt.enter();
+            cmd.spawn()
+                .map_err(|e| other(format!("{}: {e}", remote::ssh_program())))?
+        };
+        let rd = child.stdout.take().unwrap();
+        let wr = child.stdin.take().unwrap();
+        let err = child.stderr.take().unwrap().into_owned_fd()?;
+        let stderr = collect_stderr(std::fs::File::from(err));
+        let mut conn = Conn::start(rt, rd, wr);
+        conn.stderr = stderr;
+        conn.child = Some(child);
+        Ok(conn)
+    }
+
+    /// `forward = true`: asks the remote for its socket, forwards it, connects locally.
+    fn forwarded(r: &remote::Remote, batch: bool) -> io::Result<Conn> {
+        let out = r
+            .ensure_command(batch)
+            .stdin(std::process::Stdio::null())
+            .output()
+            .map_err(|e| other(format!("{}: {e}", remote::ssh_program())))?;
+        if !out.status.success() {
+            return Err(other(format!(
+                "{}: {}",
+                r.label,
+                String::from_utf8_lossy(&out.stderr).trim()
+            )));
+        }
+        let remote_sock = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+        static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let local = std::env::temp_dir().join(format!(
+            "femux-fwd-{}-{}.sock",
+            std::process::id(),
+            N.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_file(&local);
+        let mut child = r
+            .forward_command(&local, &remote_sock, batch)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| other(format!("{}: {e}", remote::ssh_program())))?;
+        let stderr = collect_stderr(child.stderr.take().unwrap());
+        let deadline = Instant::now() + Duration::from_secs(if batch { 15 } else { 120 });
+        loop {
+            if let Ok(mut c) = Conn::open(&local) {
+                c.forward = Some(child);
+                c.stderr = stderr;
+                return Ok(c);
+            }
+            if child.try_wait()?.is_some() || Instant::now() > deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(other(format!(
+                    "{}: forwarding failed: {}",
+                    r.label,
+                    stderr.lock().unwrap().trim()
+                )));
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+
+    fn start(
+        rt: tokio::runtime::Runtime,
+        mut rd: impl tokio::io::AsyncRead + Unpin + Send + 'static,
+        mut wr: impl tokio::io::AsyncWrite + Unpin + Send + 'static,
+    ) -> Conn {
         let (tx, mut out) = mpsc::unbounded_channel::<(u64, Request)>();
         let (msgs, rx) = std_mpsc::channel();
+        let closed = Arc::new(AtomicBool::new(false));
         rt.spawn(async move {
             while let Some((id, req)) = out.recv().await {
                 let Ok(bytes) = req.encode(id) else { continue };
-                if wr.write_all(&bytes).await.is_err() {
+                if wr.write_all(&bytes).await.is_err() || wr.flush().await.is_err() {
                     return;
                 }
             }
         });
+        let c = closed.clone();
         rt.spawn(async move {
             while let Ok(Some(frame)) = read_frame(&mut rd).await {
                 let Ok(msg) = decode_envelope(&frame).and_then(ServerMsg::decode) else {
                     continue;
                 };
                 if msgs.send(msg).is_err() {
-                    return;
+                    break;
                 }
             }
+            c.store(true, Ordering::SeqCst);
         });
-        Ok(Conn {
+        Conn {
             tx,
             rx,
             // The app numbers its own requests from 1; the handshake uses the high range.
             next_id: 1 << 40,
+            closed,
+            stderr: Arc::new(Mutex::new(String::new())),
+            child: None,
+            forward: None,
             _rt: rt,
-        })
+        }
+    }
+
+    /// The link closed: nothing more will arrive (after what is queued).
+    pub fn closed(&self) -> bool {
+        self.closed.load(Ordering::SeqCst)
+    }
+
+    /// What ssh reported, if anything.
+    pub fn stderr_text(&self) -> String {
+        self.stderr.lock().unwrap().trim().to_owned()
     }
 
     pub fn send_raw(&self, id: u64, req: Request) {
@@ -97,19 +250,31 @@ impl Conn {
         id
     }
 
-    /// Waits for the response to `id`, setting aside anything else.
-    fn wait(&mut self, id: u64, aside: &mut Vec<ServerMsg>) -> io::Result<Response> {
+    /// Waits up to `timeout` for the response to `id`, setting aside anything else; gives up
+    /// early when the link closes.
+    fn wait_for(
+        &mut self,
+        id: u64,
+        timeout: Duration,
+        aside: &mut Vec<ServerMsg>,
+    ) -> io::Result<Response> {
+        let deadline = Instant::now() + timeout;
         loop {
-            match self
-                .rx
-                .recv_timeout(Duration::from_secs(10))
-                .map_err(|_| other("daemon did not answer"))?
-            {
-                ServerMsg::Response(i, r) if i == id => return Ok(r),
-                ServerMsg::Error(i, e) if i == id => {
+            match self.rx.recv_timeout(Duration::from_millis(100)) {
+                Ok(ServerMsg::Response(i, r)) if i == id => return Ok(r),
+                Ok(ServerMsg::Error(i, e)) if i == id => {
                     return Err(other(format!("{:?}: {}", e.code, e.message)));
                 }
-                msg => aside.push(msg),
+                Ok(msg) => aside.push(msg),
+                Err(_) if self.closed() || Instant::now() > deadline => {
+                    let why = self.stderr_text();
+                    return Err(other(if why.is_empty() {
+                        "daemon did not answer".to_owned()
+                    } else {
+                        why
+                    }));
+                }
+                Err(_) => {}
             }
         }
     }
@@ -120,7 +285,7 @@ impl Conn {
         aside: &mut Vec<ServerMsg>,
     ) -> io::Result<Response> {
         let id = self.send(req);
-        self.wait(id, aside)
+        self.wait_for(id, Duration::from_secs(10), aside)
     }
 }
 
@@ -208,10 +373,119 @@ fn mouse_kind(prev: MouseButtons, now: MouseButtons) -> MouseKind {
     }
 }
 
-/// Attaches to `session` (or the first session, creating `0` if there is none) and runs the
-/// client until detach or until the session goes away.
-pub fn run(socket: &Path, session: Option<&str>, host: Host) -> io::Result<()> {
+/// Says hello on a fresh connection.
+fn hello(conn: &mut Conn, hello: &m::Hello, timeout: Duration) -> io::Result<Vec<ServerMsg>> {
+    let mut aside = Vec::new();
+    let id = conn.send(hello.clone());
+    conn.wait_for(id, timeout, &mut aside)?;
+    Ok(aside)
+}
+
+/// Picks the session (`session`, else the first, else a new `0`), subscribes to its events
+/// and attaches a view of `cols`×`rows`.
+fn attach_session(
+    conn: &mut Conn,
+    session: Option<&str>,
+    cols: u16,
+    rows: u16,
+    aside: &mut Vec<ServerMsg>,
+) -> io::Result<m::SessionAttachOk> {
+    let listed = match conn.call(m::SessionList {}, aside)? {
+        Response::SessionList(l) => l.sessions,
+        _ => Vec::new(),
+    };
+    let name = match session {
+        Some(s) if session_known(&listed, s) || listed.is_empty() => s.to_owned(),
+        // On reconnect the session may be gone: take another rather than fail.
+        Some(_) | None if !listed.is_empty() => listed[0].name.clone(),
+        _ => "0".to_owned(),
+    };
+    if !session_known(&listed, &name) {
+        conn.call(
+            m::SessionCreate {
+                name: name.clone(),
+                root: None,
+                file: None,
+            },
+            aside,
+        )?;
+    }
+    conn.call(
+        m::EventsSubscribe {
+            session: Some(name.clone()),
+            ..Default::default()
+        },
+        aside,
+    )?;
+    match conn.call(
+        m::SessionAttach {
+            name,
+            tab: None,
+            cols: Some(cols),
+            rows: Some(rows),
+        },
+        aside,
+    )? {
+        Response::SessionAttach(a) => Ok(a),
+        r => Err(other(format!("unexpected {r:?}"))),
+    }
+}
+
+fn session_known(list: &[m::SessionSummary], name: &str) -> bool {
+    list.iter().any(|s| s.name == name)
+}
+
+/// What the reconnect thread reports.
+enum Relink {
+    Failed {
+        attempt: u32,
+        error: String,
+        next: Duration,
+    },
+    Up(Box<Conn>, Vec<ServerMsg>),
+}
+
+/// Reconnects in the background with backoff (1 s doubling to 30 s) until it succeeds or the
+/// client stops listening. No prompts: the client owns the terminal.
+fn relink(target: Target, hello_msg: m::Hello) -> std_mpsc::Receiver<Relink> {
+    let (tx, rx) = std_mpsc::channel();
+    std::thread::spawn(move || {
+        let mut wait = Duration::from_secs(1);
+        for attempt in 1.. {
+            std::thread::sleep(wait);
+            let up = Conn::connect(&target, true).and_then(|mut c| {
+                let aside = hello(&mut c, &hello_msg, Duration::from_secs(20))?;
+                Ok((c, aside))
+            });
+            let msg = match up {
+                Ok((c, aside)) => Relink::Up(Box::new(c), aside),
+                Err(e) => {
+                    wait = (wait * 2).min(Duration::from_secs(30));
+                    Relink::Failed {
+                        attempt,
+                        error: e.to_string(),
+                        next: wait,
+                    }
+                }
+            };
+            let done = matches!(msg, Relink::Up(..));
+            if tx.send(msg).is_err() || done {
+                return;
+            }
+        }
+    });
+    rx
+}
+
+/// Attaches to `session` (or the first session, creating `0` if there is none) on `target`
+/// and runs the client until detach or until the session goes away. A remote link that drops
+/// is reconnected; the remote daemon keeps the session meanwhile.
+pub fn run(target: &Target, session: Option<&str>, host: Host) -> io::Result<()> {
     let caps = Capabilities::new_from_env().map_err(other)?;
+    // Before raw mode: ssh may need to ask about host keys or passwords.
+    if let Some(r) = target.remote() {
+        r.open_master()?;
+    }
     let mut term = term::Term::open()?;
     term.raw()?;
     let probe = probe::run(&mut term, Duration::from_millis(250));
@@ -220,9 +494,7 @@ pub fn run(socket: &Path, session: Option<&str>, host: Host) -> io::Result<()> {
     // The pane area before the app exists (no side nav yet).
     let area = layout::Layout::compute(cols, rows, &host.cfg, false).panes;
 
-    let mut conn = Conn::open(socket)?;
-    let mut aside = Vec::new();
-    let hello = m::Hello {
+    let hello_msg = m::Hello {
         proto: femux_proto::PROTO_VERSION,
         client: format!("femux-tui/{}", env!("CARGO_PKG_VERSION")),
         features: [
@@ -235,6 +507,8 @@ pub fn run(socket: &Path, session: Option<&str>, host: Host) -> io::Result<()> {
             "view",
             "scrollback",
             "clipboard",
+            "notify",
+            "plugin",
         ]
         .map(String::from)
         .to_vec(),
@@ -252,43 +526,15 @@ pub fn run(socket: &Path, session: Option<&str>, host: Host) -> io::Result<()> {
             name: std::env::var("TERM_PROGRAM").ok(),
         }),
     };
-    conn.call(hello, &mut aside)?;
-    let name = match session {
-        Some(s) => s.to_owned(),
-        None => match conn.call(m::SessionList {}, &mut aside)? {
-            Response::SessionList(l) if !l.sessions.is_empty() => l.sessions[0].name.clone(),
-            _ => {
-                conn.call(
-                    m::SessionCreate {
-                        name: "0".into(),
-                        root: None,
-                        file: None,
-                    },
-                    &mut aside,
-                )?;
-                "0".into()
-            }
-        },
+    // The first connection may prompt (passwords, host keys): give ssh time.
+    let first_wait = if target.remote().is_some() {
+        Duration::from_secs(120)
+    } else {
+        Duration::from_secs(10)
     };
-    conn.call(
-        m::EventsSubscribe {
-            session: Some(name.clone()),
-            ..Default::default()
-        },
-        &mut aside,
-    )?;
-    let attach = match conn.call(
-        m::SessionAttach {
-            name: name.clone(),
-            tab: None,
-            cols: Some(area.w),
-            rows: Some(area.h),
-        },
-        &mut aside,
-    )? {
-        Response::SessionAttach(a) => a,
-        r => return Err(other(format!("unexpected {r:?}"))),
-    };
+    let mut conn = Conn::connect(target, false)?;
+    let mut aside = hello(&mut conn, &hello_msg, first_wait)?;
+    let attach = attach_session(&mut conn, session, area.w, area.h, &mut aside)?;
     let (mut theme, theme_error) =
         Theme::resolve(&host.cfg.theme, &host.plugins, probe.dark, probe.bg);
     let reload = host.reload;
@@ -303,6 +549,8 @@ pub fn run(socket: &Path, session: Option<&str>, host: Host) -> io::Result<()> {
     if let Some(e) = theme_error {
         app.message = Some(e);
     }
+    app.remote = target.remote().map(|r| r.label.clone());
+    let mut relinking: Option<std_mpsc::Receiver<Relink>> = None;
     let mouse = app.cfg.mouse;
     term.enter(mouse)?;
 
@@ -313,6 +561,49 @@ pub fn run(socket: &Path, session: Option<&str>, host: Host) -> io::Result<()> {
     let sync = probe.sync_output;
     let result = (|| -> io::Result<()> {
         loop {
+            if relinking.is_none() && conn.closed() && conn.rx.try_recv().is_err() {
+                let Some(r) = target.remote() else {
+                    return Err(other("the daemon went away"));
+                };
+                app.link_lost(&r.label, None);
+                relinking = Some(relink(target.clone(), hello_msg.clone()));
+            }
+            if let Some(rx) = &relinking {
+                match rx.try_recv() {
+                    Ok(Relink::Failed {
+                        attempt,
+                        error,
+                        next,
+                    }) => {
+                        let label = &target.remote().unwrap().label;
+                        app.link_lost(label, Some((attempt, error, next)));
+                    }
+                    Ok(Relink::Up(mut c, mut a)) => {
+                        let (pw, ph) = app.view_size();
+                        let session = app.model.session.clone();
+                        match attach_session(&mut c, Some(&session), pw, ph, &mut a) {
+                            Ok(at) => {
+                                conn = *c;
+                                aside = a;
+                                app.reattached(&at);
+                                relinking = None;
+                                prev = Surface::new(size.0 as usize, size.1 as usize);
+                                term.write(b"\x1b[2J")?;
+                            }
+                            Err(e) => {
+                                let label = target.remote().unwrap().label.clone();
+                                app.link_lost(
+                                    &label,
+                                    Some((0, e.to_string(), Duration::from_secs(1))),
+                                );
+                                relinking = Some(relink(target.clone(), hello_msg.clone()));
+                            }
+                        }
+                    }
+                    Err(std_mpsc::TryRecvError::Empty) => {}
+                    Err(std_mpsc::TryRecvError::Disconnected) => relinking = None,
+                }
+            }
             for msg in aside
                 .drain(..)
                 .chain(conn.rx.try_iter().collect::<Vec<_>>())
@@ -327,6 +618,13 @@ pub fn run(socket: &Path, session: Option<&str>, host: Host) -> io::Result<()> {
             }
             app.tick(Instant::now());
             for (id, req) in app.take_out() {
+                // No link: detaching means leaving; anything else waits for the reattach.
+                if relinking.is_some() {
+                    if matches!(req, Request::SessionDetach(_)) {
+                        return Ok(());
+                    }
+                    continue;
+                }
                 conn.send_raw(id, req);
             }
             for fx in app.take_effects() {

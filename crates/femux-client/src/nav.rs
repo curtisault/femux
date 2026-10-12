@@ -326,7 +326,15 @@ pub(crate) fn draw_sidenav(app: &mut App, c: &mut Canvas, theme: &Theme, l: &Lay
     }
     let bottom = (a.y + a.h) as usize;
     let mut y = a.y as usize + 1;
-    c.put(x0 + 2, y, "sessions", &attr(theme.muted, bg));
+    let head = match &app.remote {
+        Some(h) => format!("sessions on {h}"),
+        None => "sessions".to_owned(),
+    };
+    let head: String = head
+        .chars()
+        .take((a.w as usize).saturating_sub(3))
+        .collect();
+    c.put(x0 + 2, y, &head, &attr(theme.muted, bg));
     y += 1;
     let current = app.model.session.clone();
     let mut names: Vec<String> = app
@@ -422,12 +430,11 @@ pub(crate) fn draw_navigator(
         NavKind::Windows => "Windows",
     };
     let x = c.put(1, 0, title, &bold(attr(theme.text, bg)));
-    c.put(
-        x + 2,
-        0,
-        &plural(app.dir.sessions.len(), "session"),
-        &attr(theme.muted, bg),
-    );
+    let mut count = plural(app.dir.sessions.len(), "session");
+    if let Some(h) = &app.remote {
+        count.push_str(&format!(" on {h}"));
+    }
+    c.put(x + 2, 0, &count, &attr(theme.muted, bg));
     let hints = match nav.kind {
         NavKind::Sessions => {
             "j/k move · enter attach · n new · r rename · x kill · tab expand · / filter · q close"

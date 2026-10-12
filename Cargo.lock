@@ -725,8 +725,13 @@ dependencies = [
 name = "femux-plugin-hosts"
 version = "0.6.0"
 dependencies = [
+ "femux-config",
  "femux-plugin",
  "femux-proto",
+ "femux-test",
+ "serde_json",
+ "sysinfo",
+ "tokio",
 ]
 
 [[package]]

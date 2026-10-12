@@ -48,14 +48,18 @@ enum Cmd {
         /// Stay in the foreground instead of detaching.
         #[arg(long)]
         foreground: bool,
+        /// Start one only if none runs, and print its socket either way.
+        #[arg(long, conflicts_with = "foreground")]
+        ensure: bool,
     },
     /// Attach the client to a session (the first one, or a new one, when omitted).
     Attach {
         session: Option<String>,
-        /// Remote host (0.6.0).
-        #[arg(long)]
+        /// Attach to the daemon on a remote host over ssh: a name from `femux hosts`, or an
+        /// ssh destination.
+        #[arg(long, conflicts_with = "stdio")]
         host: Option<String>,
-        /// Speak the protocol on stdin/stdout (0.6.0).
+        /// Speak the protocol on stdin/stdout (what `--host` runs on the remote).
         #[arg(long)]
         stdio: bool,
     },
@@ -297,6 +301,40 @@ fn socket_path(cli: &Cli, cfg: &Config) -> PathBuf {
     femux_proto::socket_path(&server)
 }
 
+fn local(socket: &Path) -> femux_client::Target {
+    femux_client::Target::Local(socket.to_path_buf())
+}
+
+/// `attach --stdio` (REQ-PROTO-003): copies bytes between stdin/stdout and the daemon's
+/// socket until either side closes. The daemon sees an ordinary client; when the SSH link
+/// drops, stdin closes, the connection with it, and the daemon detaches the view.
+fn stdio_proxy(socket: &Path) -> io::Result<()> {
+    use std::io::{Read, Write};
+    let sock = UnixStream::connect(socket)?;
+    let mut from_daemon = sock.try_clone()?;
+    let mut to_daemon = sock;
+    std::thread::spawn(move || {
+        let mut out = io::stdout().lock();
+        let mut buf = vec![0u8; 64 * 1024];
+        while let Ok(n) = from_daemon.read(&mut buf) {
+            // stdout is line buffered: flush every chunk or frames sit in the buffer.
+            if n == 0 || out.write_all(&buf[..n]).is_err() || out.flush().is_err() {
+                break;
+            }
+        }
+        std::process::exit(0);
+    });
+    let mut input = io::stdin().lock();
+    let mut buf = vec![0u8; 64 * 1024];
+    loop {
+        let n = input.read(&mut buf)?;
+        if n == 0 {
+            return Ok(());
+        }
+        to_daemon.write_all(&buf[..n])?;
+    }
+}
+
 fn running(socket: &Path) -> bool {
     UnixStream::connect(socket).is_ok()
 }
@@ -458,11 +496,13 @@ fn run_cmd(cli: &Cli, cfg: &Config, socket: &Path, all_plugins: Vec<Plugin>, cmd
             if !running(socket) {
                 spawn_daemon(&server, socket).map_err(|e| e.to_string())?;
             }
-            femux_client::run(socket, None, host(cfg, all_plugins, cmd))
+            femux_client::run(&local(socket), None, host(cfg, all_plugins, cmd))
                 .map_err(|e| e.to_string())?;
             ok("", json!({}))
         }
-        Some(Cmd::Daemon { foreground: true }) => {
+        Some(Cmd::Daemon {
+            foreground: true, ..
+        }) => {
             run_daemon(
                 &server,
                 socket.to_path_buf(),
@@ -472,7 +512,19 @@ fn run_cmd(cli: &Cli, cfg: &Config, socket: &Path, all_plugins: Vec<Plugin>, cmd
             .map_err(|e| e.to_string())?;
             ok("", json!({}))
         }
-        Some(Cmd::Daemon { foreground: false }) => {
+        Some(Cmd::Daemon {
+            foreground: false,
+            ensure: true,
+        }) => {
+            if !running(socket) {
+                spawn_daemon(&server, socket).map_err(|e| e.to_string())?;
+            }
+            ok(socket.display().to_string(), json!({"socket": socket}))
+        }
+        Some(Cmd::Daemon {
+            foreground: false,
+            ensure: false,
+        }) => {
             if running(socket) {
                 return Err(format!(
                     "a daemon is already running at {}",
@@ -487,10 +539,28 @@ fn run_cmd(cli: &Cli, cfg: &Config, socket: &Path, all_plugins: Vec<Plugin>, cmd
             host: h,
             stdio,
         }) => {
-            if h.is_some() || *stdio {
-                return Err("remote attach (--host, --stdio) arrives in 0.6.0".into());
+            if *stdio {
+                if !running(socket) {
+                    spawn_daemon(&server, socket).map_err(|e| e.to_string())?;
+                }
+                stdio_proxy(socket).map_err(|e| e.to_string())?;
+                // The link is gone: nothing may follow on stdout.
+                std::process::exit(0);
             }
-            femux_client::run(socket, session.as_deref(), host(cfg, all_plugins, cmd))
+            let target = match h {
+                None => local(socket),
+                Some(h) => {
+                    let hosts = femux_config::HostsFile::load(&femux_config::hosts_path())?;
+                    let (label, e) = hosts.resolve(h);
+                    femux_client::Target::Remote(femux_client::Remote {
+                        label,
+                        ssh: e.ssh,
+                        femux: e.femux.unwrap_or_else(|| "femux".into()),
+                        forward: e.forward,
+                    })
+                }
+            };
+            femux_client::run(&target, session.as_deref(), host(cfg, all_plugins, cmd))
                 .map_err(|e| e.to_string())?;
             ok("", json!({}))
         }
@@ -1155,7 +1225,7 @@ fn main() -> ExitCode {
                 && std::env::var_os("FEMUX_PANE").is_none()
                 && unsafe { libc::isatty(0) == 1 && libc::isatty(1) == 1 }
             {
-                femux_client::run(&socket, Some(session), host(&cfg, plugins, &cmd))
+                femux_client::run(&local(&socket), Some(session), host(&cfg, plugins, &cmd))
                     .map_err(|e| e.to_string())?;
                 return ok("", out.json);
             }

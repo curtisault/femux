@@ -95,6 +95,9 @@ pub struct BarCtx {
     /// The focused pane's working directory.
     pub cwd: Option<String>,
     pub notifications: Vec<NoteItem>,
+    /// What the daemon host's `hosts` plugin last published (`plugin.data`, ADR-020): the
+    /// values `remote:` modules show.
+    pub remote: std::collections::BTreeMap<String, String>,
     /// The bar is a column (`left`/`right`): modules may use several lines (`\n` in a span).
     pub vertical: bool,
 }

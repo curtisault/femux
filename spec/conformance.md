@@ -147,3 +147,8 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | Requirement | Tests | Status |
 | --- | --- | --- |
 | REQ-PROTO-010 (ADR-020 plugin.publish/plugin.data) | femux-test `plugin::plugin_data_reaches_every_subscriber`, `protocol::*` | pass |
+| REQ-PROTO-003 | femux-cli `remote::attach_over_ssh_runs_the_remote_session_and_detaches`, `remote::forwarded_socket_attach`, `remote::a_dropped_link_reconnects_and_the_session_survives`; femux-client `remote::tests::ssh_commands_use_openssh_with_keepalives` | pass |
+| REQ-SEC-007 | femux-cli `remote::remote_notifications_play_on_the_client` | pass |
+| REQ-UI-032 (`remote:` modules) | femux-client `ui_bar::ui_032_remote_modules_show_the_daemon_hosts_values`; femux-plugin-hosts `tests::*` | pass |
+| `femux hosts add\|list\|rm` | femux-cli `remote::hosts_add_list_rm`; femux-config `tests::hosts_file_roundtrips_and_resolves_raw_destinations` | pass |
+| 0.6.0 acceptance | femux-cli `remote::attach_over_ssh_runs_the_remote_session_and_detaches` (attach over SSH), `remote::a_dropped_link_reconnects_and_the_session_survives` (detach survives link drop), `remote::remote_notifications_play_on_the_client` (remote notifications play locally) | pass |

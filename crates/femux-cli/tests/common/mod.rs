@@ -2,8 +2,12 @@
 
 #![allow(dead_code)]
 
+use std::io::Read;
+use std::os::fd::{AsRawFd, OwnedFd};
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, Command};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 pub const FEMUX: &str = env!("CARGO_BIN_EXE_femux");
@@ -131,4 +135,47 @@ impl Env {
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
         std::fs::write(p, text).unwrap();
     }
+}
+
+/// Runs `cmd` with a new PTY as its controlling terminal; returns the child, the master and a
+/// buffer that accumulates everything the child writes.
+pub fn on_pty(mut cmd: Command) -> (Child, std::fs::File, Arc<Mutex<Vec<u8>>>) {
+    let ws = nix::pty::Winsize {
+        ws_row: 24,
+        ws_col: 80,
+        ws_xpixel: 0,
+        ws_ypixel: 0,
+    };
+    let pty = nix::pty::openpty(Some(&ws), None).unwrap();
+    let slave: OwnedFd = pty.slave;
+    cmd.stdin(slave.try_clone().unwrap())
+        .stdout(slave.try_clone().unwrap())
+        .stderr(slave);
+    // SAFETY: async-signal-safe calls only.
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::setsid();
+            libc::ioctl(0, libc::TIOCSCTTY as _, 0);
+            Ok(())
+        });
+    }
+    let child = cmd.spawn().unwrap();
+    let master = std::fs::File::from(pty.master);
+    let out = Arc::new(Mutex::new(Vec::new()));
+    let (mut r, o) = (master.try_clone().unwrap(), out.clone());
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 4096];
+        while let Ok(n) = r.read(&mut buf) {
+            if n == 0 {
+                break;
+            }
+            o.lock().unwrap().extend_from_slice(&buf[..n]);
+        }
+    });
+    let _ = master.as_raw_fd();
+    (child, master, out)
+}
+
+pub fn contains(out: &Mutex<Vec<u8>>, needle: &str) -> bool {
+    String::from_utf8_lossy(&out.lock().unwrap()).contains(needle)
 }

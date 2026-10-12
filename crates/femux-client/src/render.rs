@@ -225,6 +225,9 @@ fn transient(app: &App) -> Option<Transient> {
     }
     let mut spans: Spans = Vec::new();
     let mut cursor = false;
+    if let Some(l) = &app.link_status {
+        spans.push(Span::new(l.clone(), Style::Error));
+    }
     if let Some(d) = app.preselect {
         spans.push(Span::new(
             format!(
@@ -323,7 +326,7 @@ fn draw_bar(app: &mut App, c: &mut Canvas, theme: &Theme, l: &Layout, tr: &Optio
     let bar = l.bar;
     let bg = theme.bar_bg;
     let (mode, mode_attr) = mode_label(app, theme);
-    let chip = format!(" {} ", app.model.session);
+    let chip = format!(" {} ", app.session_chip());
     if !l.bar_vertical {
         let (x0, y, w) = (bar.x as usize, bar.y as usize, bar.w as usize);
         c.fill(x0, y, w, ' ', &attr(theme.bar_fg, bg));
@@ -476,7 +479,7 @@ fn draw_status(
             } else {
                 // After the chip and the mode.
                 let (mode, _) = mode_label(app, theme);
-                x0 + app.model.session.chars().count() + 2 + mode.len() + 2 + 1
+                x0 + app.session_chip().chars().count() + 2 + mode.len() + 2 + 1
             };
             let end = c.spans(x, y, spans, theme, bg);
             if *wants_cursor {

@@ -359,3 +359,42 @@ async fn ui_030_a_column_bar_never_draws_over_the_panes() {
         assert_eq!(count, (BAR_WIDTH - 2) as usize, "{bar:?}");
     }
 }
+
+/// REQ-UI-032 (0.6.0): `remote:` modules show what the daemon host's `hosts` plugin publishes,
+/// and a client attached through `--host` names the host in its session chip.
+#[tokio::test(flavor = "multi_thread")]
+async fn ui_032_remote_modules_show_the_daemon_hosts_values() {
+    let cfg = bar_cfg(
+        BarPosition::Bottom,
+        &["session"],
+        &["remote:hostname", "remote:cpu", "cpu"],
+    );
+    let hosts = femux_plugin_hosts::plugin().client.unwrap();
+    let mut d = Drive::with(cfg, vec![hosts, infobar()], 120, 30).await;
+    d.app.remote = Some("box".into());
+    d.obs
+        .call(m::PluginPublish {
+            plugin: "hosts".into(),
+            data: [
+                ("hostname".to_owned(), "build-box".to_owned()),
+                ("cpu".to_owned(), "12.6".to_owned()),
+            ]
+            .into(),
+        })
+        .await
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        d.app.tick(Instant::now());
+        d.settle().await;
+        let line = d.screen_line(29);
+        if line.contains("build-box:cpu 13%") {
+            assert!(line.contains(" box:s "), "{line}");
+            // The plain `cpu` is still the client's own machine.
+            assert!(line.matches("cpu").count() >= 2, "{line}");
+            break;
+        }
+        assert!(Instant::now() < deadline, "{line}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
