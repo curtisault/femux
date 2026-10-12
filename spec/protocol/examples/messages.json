@@ -118,6 +118,7 @@
       {
        "id": "01J9Z3K8M2N4P6Q8R0S2T4V6WA",
        "title": "zsh",
+       "custom_title": "zsh",
        "index": 0,
        "tree": {
         "t": "split",
@@ -568,6 +569,8 @@
    "body": {
     "id": "01J9Z3K8M2N4P6Q8R0S2T4V6W8",
     "tab": "01J9Z3K8M2N4P6Q8R0S2T4V6WA",
+    "pid": 4200,
+    "cmd": "vim notes.md",
     "cwd": "/home/u",
     "fg_pid": 4242,
     "fg_cmd": "vim",
@@ -583,6 +586,7 @@
    "body": {
     "id": "01J9Z3K8M2N4P6Q8R0S2T4V6W8",
     "tab": "01J9Z3K8M2N4P6Q8R0S2T4V6WA",
+    "pid": 0,
     "cwd": "",
     "fg_pid": 0,
     "fg_cmd": "",
@@ -720,7 +724,8 @@
        "ul": 4
       }
      ]
-    ]
+    ],
+    "first_line": -812
    }
   },
   {
@@ -1091,6 +1096,27 @@
     "view_id": "01J9Z3K8M2N4P6Q8R0S2T4V6WB",
     "cols": 100,
     "rows": 30
+   }
+  },
+  {
+   "dir": "event",
+   "kind": "clipboard.changed",
+   "body": {
+    "seq": 47,
+    "ts": 1760140800000,
+    "text": "copied",
+    "source": "pane",
+    "pane_id": "01J9Z3K8M2N4P6Q8R0S2T4V6W8"
+   }
+  },
+  {
+   "dir": "event",
+   "kind": "clipboard.changed",
+   "body": {
+    "seq": 48,
+    "ts": 1760140800000,
+    "text": "from the cli",
+    "source": "client"
    }
   },
   {

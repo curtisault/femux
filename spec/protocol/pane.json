@@ -93,6 +93,14 @@
         "tab": {
           "$ref": "common.json#/$defs/TabId"
         },
+        "pid": {
+          "$ref": "common.json#/$defs/U32",
+          "description": "Pid of the pane's own process (its shell); 0 after exit."
+        },
+        "cmd": {
+          "type": "string",
+          "description": "Command the pane was spawned with, if any (shell -c cmd)."
+        },
         "cwd": {
           "type": "string",
           "description": "Empty when unknown."
@@ -118,6 +126,7 @@
       "required": [
         "id",
         "tab",
+        "pid",
         "cwd",
         "fg_pid",
         "fg_cmd",

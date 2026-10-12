@@ -63,8 +63,9 @@ impl Config {
     }
 }
 
-/// Message families this daemon serves (REQ-PROTO-020). `clipboard` and `store` arrive later.
+/// Message families this daemon serves (REQ-PROTO-020). `store` arrives with 0.3.0.
 pub const SERVED: &[&str] = &[
+    "clipboard",
     "events",
     "frame",
     "layout",
@@ -714,13 +715,13 @@ impl Daemon {
                 }
                 Q::ScrollbackRead(r) => {
                     let (vt, _) = self.terminal(&r.pane_id)?;
+                    let mut vt = vt.lock().unwrap();
                     let lines = vt
-                        .lock()
-                        .unwrap()
                         .read_lines(r.from_line, r.count.min(10_000))
                         .map_err(|e| (m::ErrorCode::Internal, e.to_string()))?;
                     Response::ScrollbackRead(m::ScrollbackReadOk {
                         lines: lines.iter().map(|l| crate::frames::cells(l)).collect(),
+                        first_line: vt.first_line(),
                     })
                 }
                 Q::ScrollbackSearch(r) => {
@@ -1116,6 +1117,14 @@ impl Daemon {
             Q::LayoutFloat(r) => {
                 let tab_id = st.pane(&r.pane_id)?.tab.clone();
                 let tab = st.tabs.get_mut(&tab_id).unwrap();
+                if let Some((_, rect)) = tab.floats.iter_mut().find(|(p, _)| *p == r.pane_id) {
+                    // Already floating: `rect` moves or resizes it (REQ-UI-011 mouse drags).
+                    if let Some(new) = &r.rect {
+                        *rect = Rect::from(new);
+                    }
+                    self.layout_changed(st, &tab_id);
+                    return Ok(Response::LayoutFloat(m::Empty {}));
+                }
                 let tree = tab
                     .tree
                     .take()
@@ -1337,10 +1346,24 @@ impl Daemon {
                 self.shutdown.send_replace(true);
                 Response::ServerStop(m::Empty {})
             }
-            Q::ClipboardSet(_) | Q::StoreSnapshot(_) => {
+            Q::ClipboardSet(r) => {
+                // The daemon owns no clipboard: attached clients copy the text to their host
+                // terminal when they see the event (clipboard plugin, 0.2.0).
+                self.emit(
+                    m::ClipboardChanged {
+                        text: r.text,
+                        source: m::ClipboardSource::Client,
+                        pane_id: None,
+                        ..Default::default()
+                    },
+                    Scope::default(),
+                );
+                Response::ClipboardSet(m::Empty {})
+            }
+            Q::StoreSnapshot(_) => {
                 return Err((
                     m::ErrorCode::FeatureMissing,
-                    "not available in 0.1.0".into(),
+                    "not available before 0.3.0".into(),
                 ));
             }
         })
@@ -1587,6 +1610,17 @@ impl Daemon {
             self.emit(
                 m::PaneBell {
                     pane_id: id.to_owned(),
+                    ..Default::default()
+                },
+                scope.clone(),
+            );
+        }
+        for text in c.clipboard {
+            self.emit(
+                m::ClipboardChanged {
+                    text,
+                    source: m::ClipboardSource::Pane,
+                    pane_id: Some(id.to_owned()),
                     ..Default::default()
                 },
                 scope.clone(),

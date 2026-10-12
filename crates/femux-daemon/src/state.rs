@@ -143,6 +143,8 @@ impl Pane {
         m::PaneInfoOk {
             id: self.id.clone(),
             tab: self.tab.clone(),
+            pid: self.pid,
+            cmd: self.cmd.clone(),
             cwd: self.cwd.clone(),
             fg_pid: self.fg_pid,
             fg_cmd: self.fg_cmd.clone(),
@@ -292,6 +294,7 @@ impl State {
             .map(|(i, t)| m::TabSnapshot {
                 id: t.id.clone(),
                 title: self.tab_title(t),
+                custom_title: t.title.clone(),
                 index: i as u32,
                 tree: t.tree.as_ref().map(Node::to_proto).unwrap_or_default(),
                 floats: t.floats_proto(),

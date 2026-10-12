@@ -116,6 +116,7 @@ Layer rules:
 
 - REQ-EVT-001: All events carry `seq` (monotonic per daemon), `ts` (ms since epoch) and `kind`.
 - REQ-EVT-002: A subscriber specifies a filter (kinds, session, pane). A subscriber that falls more than `events.buffer` (default 4096) behind receives `events_lost{from, to}` and continues.
+  Note: an event with no session of its own (`clipboard.changed` from `clipboard.set`) passes every session filter.
 - REQ-EVT-003: The last `events.replay` (default 1,000) events are kept so a late subscriber can request `since: seq`.
 - REQ-EVT-004: Pane metadata is a map `string → string` per pane; `pane.set_meta` emits `pane.meta_changed`. Metadata is untrusted display data.
 

@@ -34,10 +34,15 @@
               "$ref": "common.json#/$defs/Cell"
             }
           }
+        },
+        "first_line": {
+          "$ref": "common.json#/$defs/I64",
+          "description": "Oldest line that can be read (0 or negative)."
         }
       },
       "required": [
-        "lines"
+        "lines",
+        "first_line"
       ]
     },
     "SearchDir": {

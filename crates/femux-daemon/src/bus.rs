@@ -38,10 +38,12 @@ impl Filter {
             .kinds
             .as_ref()
             .is_none_or(|ks| ks.iter().any(|k| k == e.kind()));
+        // Server-wide events (no session scope, e.g. clipboard.changed from clipboard.set)
+        // reach every subscriber whatever its session filter.
         let session_ok = self
             .session
             .as_ref()
-            .is_none_or(|s| scope.session.as_ref() == Some(s));
+            .is_none_or(|s| scope.session.as_ref().is_none_or(|x| x == s));
         let pane_ok = self
             .pane
             .as_ref()

@@ -593,6 +593,43 @@
         "from",
         "to"
       ]
+    },
+    "ClipboardSource": {
+      "type": "string",
+      "enum": [
+        "pane",
+        "client"
+      ],
+      "description": "pane: OSC 52 from a pane program; client: clipboard.set."
+    },
+    "ClipboardChanged": {
+      "type": "object",
+      "description": "The server clipboard changed; attached clients copy `text` to the host clipboard (OSC 52).",
+      "properties": {
+        "seq": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "ts": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch"
+        },
+        "text": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/ClipboardSource"
+        },
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId",
+          "description": "The writing pane when source is pane."
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "text",
+        "source"
+      ]
     }
   },
   "x-messages": [
@@ -691,6 +728,10 @@
     {
       "kind": "view.resized",
       "body": "ViewResized"
+    },
+    {
+      "kind": "clipboard.changed",
+      "body": "ClipboardChanged"
     },
     {
       "kind": "store.snapshot",

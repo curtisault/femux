@@ -437,6 +437,10 @@
         "title": {
           "type": "string"
         },
+        "custom_title": {
+          "type": "string",
+          "description": "Title set by tab.rename, if any. `title` is the derived title (REQ-UI-021)."
+        },
         "index": {
           "$ref": "common.json#/$defs/U32"
         },
