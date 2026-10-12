@@ -676,8 +676,13 @@ dependencies = [
 name = "femux-plugin-agents"
 version = "0.5.0"
 dependencies = [
+ "femux-config",
  "femux-plugin",
  "femux-proto",
+ "femux-test",
+ "serde_json",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]

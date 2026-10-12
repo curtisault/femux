@@ -392,6 +392,7 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
 - REQ-AGT-002 (tier 2): from `pane.fg_changed` and process state. Linux: `/proc/<pid>/stat` state and `wchan`; a fg process sleeping in a tty read with no recent output ≥ `agents.blocked_after_ms` (default 1500) → `blocked`. Shell returning to foreground → `exited` then `idle`. macOS: `proc_pidinfo` thread states, best-effort, marked `source=process` with lower confidence.
   Note: macOS is hook-only: tier 2 is not implemented there (spike §16-3 could not be run; decided 2026-10-11). macOS panes get tier 1 and tier 3 only.
 - REQ-AGT-003 (tier 3): output heuristics (silence after burst, prompt-like last line) only when tiers 1–2 give nothing; always `source=heuristic`.
+  Note: the agents plugin watches panes whose foreground command is a known agent (`claude`, `codex`, `opencode`, `cursor-agent`, `aider`, `gemini`, `goose`, `amp`, `crush`, `qwen`) or that carry `agent.name`. Tier 3 runs only where tier 2 does not (macOS, or tier 2 off); silence means no output for `agents.blocked_after_ms`, and a last screen line ending in `?` or `:`, a lone `>`, or containing `(y/n)`, `[y/N]`, `(yes/no)` or `press enter` reads as `blocked`, any other as `done`. A bare `agent.state` written by someone else counts as tier 1 with `source=hook`; the plugin adds `agent.source` and `agent.since` and ignores values that are not states. Every state the plugin accepts also writes `agent.evidence`, the one-line reason `femux agent explain` prints. After `exited`, `idle` follows 1 s later.
 - REQ-AGT-004: Higher tiers override lower tiers; a lower tier MUST NOT override a higher-tier state younger than `agents.hold_ms` (default 5000).
 - REQ-AGT-005: `femux integration install <claude-code|codex|opencode|cursor>` writes the agent's hook config to call tier-1 commands; `uninstall` reverts it.
   Note: shipped in 0.2.0 with the CLI. Hooks call `femux integration hook <agent> [state]`, which sets `agent.state|source|name|since`. Claude Code (`~/.claude/settings.json`) and Codex (`notify` in `~/.codex/config.toml`) follow their documented formats; the OpenCode plugin file and Cursor `hooks.json` are best effort until 0.5.0 tests them end to end.
@@ -399,6 +400,8 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
 ### 9.3 Commands
 
 `femux agent list`, `femux agent wait <pane> --until <state> [--timeout]`, `femux agent prompt <pane> "text" [--wait]`, `femux pane cat <pane> [--lines N]`, `femux agent explain <pane>` (prints the evidence behind the current state).
+
+Note: `<pane>` defaults to `$FEMUX_PANE` for `wait` and `explain`. `list` shows panes with an `agent.state` (`--all`: every pane). `--until` takes a state or a comma-separated list (default `done,blocked,error`); `--timeout` is in seconds and exits 1 when it runs out. `prompt` sends the text as a paste followed by Enter; with `--wait` it first waits for the agent to start working when it was `done|blocked|error`, then for `done|blocked|error|exited`.
 
 ### 9.4 Notifications (`notify` plugin)
 

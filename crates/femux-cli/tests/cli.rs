@@ -82,6 +82,10 @@ const LEAVES: &[&[&str]] = &[
     &["clipboard", "set"],
     &["shell-integration"],
     &["launch"],
+    &["agent", "list"],
+    &["agent", "wait"],
+    &["agent", "prompt"],
+    &["agent", "explain"],
 ];
 
 #[test]
