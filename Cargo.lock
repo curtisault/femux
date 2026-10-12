@@ -475,6 +475,20 @@ dependencies = [
  "clap",
  "femux-client",
  "femux-daemon",
+ "femux-plugin",
+ "femux-plugin-agents",
+ "femux-plugin-broadcast",
+ "femux-plugin-clipboard",
+ "femux-plugin-git",
+ "femux-plugin-graphics",
+ "femux-plugin-hosts",
+ "femux-plugin-infobar",
+ "femux-plugin-launcher",
+ "femux-plugin-notify",
+ "femux-plugin-recorder",
+ "femux-plugin-shell-integration",
+ "femux-plugin-theme",
+ "femux-plugin-which-key",
  "femux-proto",
  "femux-test",
  "libc",
@@ -507,56 +521,120 @@ dependencies = [
 ]
 
 [[package]]
-name = "femux-plugin-agents"
+name = "femux-plugin"
 version = "0.1.0"
+dependencies = [
+ "femux-proto",
+ "femux-test",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "femux-plugin-agents"
+version = "0.5.0"
+dependencies = [
+ "femux-plugin",
+ "femux-proto",
+]
 
 [[package]]
 name = "femux-plugin-broadcast"
-version = "0.1.0"
+version = "0.8.0"
+dependencies = [
+ "femux-plugin",
+ "femux-proto",
+]
 
 [[package]]
 name = "femux-plugin-clipboard"
-version = "0.1.0"
+version = "0.2.0"
+dependencies = [
+ "femux-plugin",
+ "femux-proto",
+ "serde_json",
+]
 
 [[package]]
 name = "femux-plugin-git"
-version = "0.1.0"
+version = "0.8.0"
+dependencies = [
+ "femux-plugin",
+ "femux-proto",
+]
 
 [[package]]
 name = "femux-plugin-graphics"
-version = "0.1.0"
+version = "0.7.0"
+dependencies = [
+ "femux-plugin",
+ "femux-proto",
+]
 
 [[package]]
 name = "femux-plugin-hosts"
-version = "0.1.0"
+version = "0.6.0"
+dependencies = [
+ "femux-plugin",
+ "femux-proto",
+]
 
 [[package]]
 name = "femux-plugin-infobar"
-version = "0.1.0"
+version = "0.4.0"
+dependencies = [
+ "femux-plugin",
+ "femux-proto",
+]
 
 [[package]]
 name = "femux-plugin-launcher"
-version = "0.1.0"
+version = "0.3.0"
+dependencies = [
+ "femux-plugin",
+ "femux-proto",
+]
 
 [[package]]
 name = "femux-plugin-notify"
-version = "0.1.0"
+version = "0.5.0"
+dependencies = [
+ "femux-plugin",
+ "femux-proto",
+]
 
 [[package]]
 name = "femux-plugin-recorder"
-version = "0.1.0"
+version = "0.8.0"
+dependencies = [
+ "femux-plugin",
+ "femux-proto",
+]
 
 [[package]]
 name = "femux-plugin-shell-integration"
-version = "0.1.0"
+version = "0.2.0"
+dependencies = [
+ "femux-plugin",
+ "femux-proto",
+ "serde_json",
+]
 
 [[package]]
 name = "femux-plugin-theme"
-version = "0.1.0"
+version = "0.4.0"
+dependencies = [
+ "femux-plugin",
+ "femux-proto",
+]
 
 [[package]]
 name = "femux-plugin-which-key"
-version = "0.1.0"
+version = "0.2.0"
+dependencies = [
+ "femux-plugin",
+ "femux-proto",
+]
 
 [[package]]
 name = "femux-proto"
@@ -575,6 +653,7 @@ name = "femux-test"
 version = "0.1.0"
 dependencies = [
  "femux-daemon",
+ "femux-plugin",
  "femux-proto",
  "serde",
  "serde_json",

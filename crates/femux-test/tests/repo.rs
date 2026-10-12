@@ -70,14 +70,23 @@ fn arch_001_daemon_has_no_ui_dependencies() {
     }
 }
 
+fn plugin_dirs() -> Vec<String> {
+    let mut out: Vec<String> = std::fs::read_dir(root().join("crates/plugins"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    out.sort();
+    out
+}
+
 #[test]
 fn arch_002_clients_and_plugins_use_the_protocol_only() {
-    let mut manifests = vec!["crates/femux-client/Cargo.toml".to_owned()];
-    for e in std::fs::read_dir(root().join("crates/plugins")).unwrap() {
-        manifests.push(format!(
-            "crates/plugins/{}/Cargo.toml",
-            e.unwrap().file_name().to_string_lossy()
-        ));
+    let mut manifests = vec![
+        "crates/femux-client/Cargo.toml".to_owned(),
+        "crates/femux-plugin/Cargo.toml".to_owned(),
+    ];
+    for p in plugin_dirs() {
+        manifests.push(format!("crates/plugins/{p}/Cargo.toml"));
     }
     for m in manifests {
         let d = deps(&m);
@@ -87,6 +96,81 @@ fn arch_002_clients_and_plugins_use_the_protocol_only() {
                 "{m} depends on {forbidden}"
             );
         }
+    }
+}
+
+/// REQ-PLUG-001: one crate per plugin under crates/plugins, one Cargo feature each in the
+/// `femux` binary, all on by default.
+#[test]
+fn plug_001_plugins_are_feature_gated_crates() {
+    let cli = read("crates/femux-cli/Cargo.toml");
+    let plugins = plugin_dirs();
+    assert!(!plugins.is_empty());
+    let default_line = cli
+        .lines()
+        .find(|l| l.starts_with("default = ["))
+        .expect("femux-cli has a default feature list");
+    for p in &plugins {
+        assert!(
+            cli.contains(&format!("{p} = [\"dep:femux-plugin-{p}\"]")),
+            "no feature for plugin {p}"
+        );
+        assert!(
+            default_line.contains(&format!("\"{p}\"")),
+            "{p} is off by default"
+        );
+        assert!(
+            cli.contains(&format!(
+                "femux-plugin-{p} = {{ path = \"../plugins/{p}\", optional = true }}"
+            )),
+            "{p} is not an optional dependency"
+        );
+        assert!(
+            read(&format!("crates/plugins/{p}/src/lib.rs")).contains("pub fn plugin() -> "),
+            "{p} exports plugin()"
+        );
+    }
+    // Runtime activation is by name from `[plugins] enabled`.
+    let example = read("spec/config.example.toml");
+    assert!(example.contains("[plugins]") && example.contains("enabled = ["));
+}
+
+/// REQ-PLUG-003: plugin crates depend on femux-plugin / femux-proto and nothing else of femux.
+#[test]
+fn plug_003_plugins_depend_on_the_protocol_crates_only() {
+    for p in plugin_dirs() {
+        let d = deps(&format!("crates/plugins/{p}/Cargo.toml"));
+        for dep in d.iter().filter(|d| d.starts_with("femux-")) {
+            assert!(
+                dep == "femux-plugin" || dep == "femux-proto",
+                "plugin {p} depends on {dep}"
+            );
+        }
+    }
+}
+
+/// REQ-PLUG-004: the built-in list, and each crate's version is its milestone.
+#[test]
+fn plug_004_built_in_list_matches_crates_and_milestones() {
+    let mut listed: Vec<String> = femux_plugin::BUILT_IN
+        .iter()
+        .map(|(n, _)| n.to_string())
+        .collect();
+    listed.sort();
+    assert_eq!(listed, plugin_dirs());
+    for (name, milestone) in femux_plugin::BUILT_IN {
+        let manifest = read(&format!("crates/plugins/{name}/Cargo.toml"));
+        assert!(
+            manifest.contains(&format!("version = \"{milestone}.0\"")),
+            "{name} is versioned {milestone}.0"
+        );
+    }
+    let spec = read("spec/SPEC.md");
+    for (name, milestone) in femux_plugin::BUILT_IN {
+        assert!(
+            spec.contains(&format!("`{name}` ({milestone})")),
+            "SPEC §8 lists {name} ({milestone})"
+        );
     }
 }
 

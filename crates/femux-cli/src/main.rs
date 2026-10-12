@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 use std::time::{Duration, Instant};
 
+mod plugins;
+
 use clap::{Parser, Subcommand};
 use femux_proto::msg as m;
 use femux_proto::{Call, Request, ServerMsg, decode_envelope, read_frame};

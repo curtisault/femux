@@ -1,14 +1,6 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+//! `notify` plugin: arrives in 0.5 (REQ-PLUG-004). The crate exists so the feature flag and
+//! the registry entry are stable from the start.
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
+pub fn plugin() -> femux_plugin::Plugin {
+    femux_plugin::Plugin::new("notify")
 }

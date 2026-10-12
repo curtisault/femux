@@ -1,0 +1,67 @@
+# femux configuration: ~/.config/femux/config.toml. Validated on load; reload with `femux reload`.
+# Every key shown here is the default (SPEC.md §10). Unknown keys are errors (REQ-CFG-003).
+
+[daemon]
+name = "default"
+keep_alive = false
+
+[input]
+prefix = ["ctrl+space"]
+mode_keys = "vi"
+prefixless_nav = false        # alt+h/j/k/l
+mouse = true                  # REQ-UI-053
+
+[layout]
+scheme = "bsp"                # bsp | master | scroll
+gaps = 0
+borders = "single"            # single | heavy | double | spaces
+
+[tabs]
+position = "top"              # top | bottom | hidden
+running_indicator = "●"
+
+[infobar]
+position = "bottom"           # top | bottom | left | right
+left  = ["session", "tabs"]
+right = ["agents", "git", "cpu", "mem", "net", "clock"]
+interval_ms = 1000
+
+[terminal]
+scrollback_lines = 10000
+kitty_graphics = true
+sixel = true
+passthrough = false
+
+[restore]
+enabled = false
+scrollback = false
+scrollback_lines = 2000
+stagger_ms = 100
+
+[env]
+allow = ["PATH", "HOME", "SHELL", "LANG", "LC_*", "TERM", "EDITOR"]
+
+[clipboard]
+read_allow = []
+
+[theme]
+name = "terminal"             # terminal | <bundled name> | path to json
+
+[agents]
+enabled = true
+blocked_after_ms = 1500
+hold_ms = 5000
+
+[notify]
+agent_done = { sound = "bell", desktop = true, only_when_hidden = true }
+
+[plugins]
+enabled = ["agents", "infobar", "notify", "clipboard", "shell-integration", "which-key", "launcher"]
+
+[ui]
+which_key_delay_ms = 400
+
+[keys.prefix]
+"s" = "split down"
+"v" = "split right"
+# any action name from `femux keys list`

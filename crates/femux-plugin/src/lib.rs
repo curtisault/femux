@@ -1,0 +1,293 @@
+//! The plugin surfaces (REQ-PLUG-002): `DaemonPlugin` (event subscriber + metadata writer),
+//! `ClientPlugin` (info modules, palette actions, keybindings, overlays) and `CliPlugin`
+//! (subcommands). A plugin implements any subset and talks to the core only through
+//! `femux-proto` (REQ-PLUG-003), so it can also run out of process.
+
+use std::path::Path;
+use std::time::Duration;
+
+pub use femux_proto as proto;
+use femux_proto::msg as m;
+use femux_proto::{ErrorBody, Event, Request, Response};
+
+/// Built-in plugins and the milestone each ships in (REQ-PLUG-004).
+pub const BUILT_IN: &[(&str, &str)] = &[
+    ("agents", "0.5"),
+    ("infobar", "0.4"),
+    ("notify", "0.5"),
+    ("git", "0.8"),
+    ("clipboard", "0.2"),
+    ("graphics", "0.7"),
+    ("shell-integration", "0.2"),
+    ("broadcast", "0.8"),
+    ("which-key", "0.2"),
+    ("recorder", "0.8"),
+    ("hosts", "0.6"),
+    ("theme", "0.4"),
+    ("launcher", "0.3"),
+];
+
+/// Semantic text styles; the client maps them to its theme.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Style {
+    #[default]
+    Text,
+    Muted,
+    Key,
+    Title,
+    Accent,
+    Warn,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Span {
+    pub text: String,
+    pub style: Style,
+}
+
+impl Span {
+    pub fn new(text: impl Into<String>, style: Style) -> Span {
+        Span {
+            text: text.into(),
+            style,
+        }
+    }
+    pub fn text(text: impl Into<String>) -> Span {
+        Span::new(text, Style::Text)
+    }
+}
+
+pub type Spans = Vec<Span>;
+
+/// Display width of a line of spans (one column per char; wide glyphs are rare in chrome).
+pub fn width(spans: &[Span]) -> usize {
+    spans.iter().map(|s| s.text.chars().count()).sum()
+}
+
+/// An info bar module (REQ-UI-031).
+pub trait InfoModule: Send {
+    fn name(&self) -> &str;
+    fn render(&self, w: usize) -> Spans;
+    fn interval(&self) -> Duration;
+}
+
+/// An action offered to the command palette (REQ-UI-043).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PaletteAction {
+    pub id: String,
+    pub label: String,
+}
+
+/// Which key table a binding lives in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Table {
+    Root,
+    Prefix,
+    Copy,
+}
+
+/// A keybinding contributed by a plugin: `key` is a chord like `ctrl+p`, `action` an action name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Binding {
+    pub table: Table,
+    pub key: String,
+    pub action: String,
+}
+
+/// One bound key as the client describes it to overlays: key, action name, group.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BoundKey {
+    pub key: String,
+    pub action: String,
+    pub group: String,
+}
+
+/// What a plugin may read when asked for an overlay.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OverlayCtx<'a> {
+    /// `terminal`, `prefix`, `normal` or `copy`.
+    pub mode: &'a str,
+    pub width: usize,
+    pub height: usize,
+    /// The prefix table, in display order.
+    pub prefix_table: &'a [BoundKey],
+    /// How the prefix is typed, e.g. `ctrl+space`.
+    pub prefix_key: &'a str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Place {
+    Bottom,
+    Center,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Overlay {
+    pub title: Spans,
+    pub lines: Vec<Spans>,
+    pub place: Place,
+}
+
+/// Something a client plugin wants done on the host terminal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostEffect {
+    /// Copy text to the host clipboard (OSC 52).
+    Clipboard(String),
+}
+
+#[allow(unused_variables)]
+pub trait ClientPlugin: Send {
+    fn name(&self) -> &'static str;
+    fn modules(&self) -> Vec<Box<dyn InfoModule>> {
+        Vec::new()
+    }
+    fn actions(&self) -> Vec<PaletteAction> {
+        Vec::new()
+    }
+    /// Runs a palette action by id; returns requests for the daemon.
+    fn run_action(&mut self, id: &str) -> Vec<Request> {
+        Vec::new()
+    }
+    fn bindings(&self) -> Vec<Binding> {
+        Vec::new()
+    }
+    fn overlay(&self, ctx: &OverlayCtx) -> Option<Overlay> {
+        None
+    }
+    fn on_event(&mut self, ev: &Event) -> Vec<HostEffect> {
+        Vec::new()
+    }
+}
+
+#[allow(unused_variables)]
+pub trait DaemonPlugin: Send {
+    fn name(&self) -> &'static str;
+    /// The events to subscribe to (default: everything).
+    fn subscription(&self) -> m::EventsSubscribe {
+        m::EventsSubscribe::default()
+    }
+    /// Requests to send once connected.
+    fn start(&mut self) -> Vec<Request> {
+        Vec::new()
+    }
+    /// Requests to send in reaction to an event (typically `pane.set_meta`).
+    fn on_event(&mut self, ev: &Event) -> Vec<Request>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CliArg {
+    pub name: &'static str,
+    pub help: &'static str,
+    pub required: bool,
+}
+
+/// A subcommand contributed by a plugin. Every subcommand gets `--json` (REQ-CLI-001).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CliCommand {
+    pub name: &'static str,
+    pub about: &'static str,
+    pub args: Vec<CliArg>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct CliOutput {
+    /// Human output.
+    pub text: String,
+    /// `--json` output.
+    pub json: serde_json::Value,
+}
+
+/// What the CLI host offers a plugin subcommand.
+pub trait CliCore {
+    fn request(&mut self, req: Request) -> Result<Response, ErrorBody>;
+    /// The pane the command runs in (`$FEMUX_PANE`, REQ-CLI-002), if any.
+    fn pane(&self) -> Option<String>;
+    fn socket(&self) -> &Path;
+    /// Reads all of stdin.
+    fn stdin(&mut self) -> String;
+}
+
+pub trait CliPlugin: Send {
+    fn name(&self) -> &'static str;
+    fn commands(&self) -> Vec<CliCommand>;
+    /// `args` are the positional values in the order `commands()` declared them.
+    fn run(&self, cmd: &str, args: &[String], core: &mut dyn CliCore) -> Result<CliOutput, String>;
+}
+
+/// A built-in plugin: a name plus whichever surfaces it implements.
+#[derive(Default)]
+pub struct Plugin {
+    pub name: &'static str,
+    pub client: Option<Box<dyn ClientPlugin>>,
+    pub daemon: Option<Box<dyn DaemonPlugin>>,
+    pub cli: Option<Box<dyn CliPlugin>>,
+}
+
+impl Plugin {
+    pub fn new(name: &'static str) -> Plugin {
+        Plugin {
+            name,
+            ..Default::default()
+        }
+    }
+}
+
+/// Runs a daemon plugin against the daemon at `socket` over the protocol: handshake,
+/// `events.subscribe`, then a request per `on_event` result. Returns when the connection
+/// closes. In-process plugins and out-of-process ones use the same loop.
+pub async fn run_daemon_plugin(
+    socket: &Path,
+    mut plugin: Box<dyn DaemonPlugin>,
+) -> std::io::Result<()> {
+    use femux_proto::io_async::read_frame;
+    use femux_proto::{ServerMsg, decode_envelope};
+    use tokio::io::AsyncWriteExt;
+
+    let stream = tokio::net::UnixStream::connect(socket).await?;
+    let (mut rd, mut wr) = stream.into_split();
+    let mut next_id = 1u64;
+    let send = async |wr: &mut tokio::net::unix::OwnedWriteHalf,
+                      req: Request,
+                      next_id: &mut u64|
+           -> std::io::Result<()> {
+        let bytes = req.encode(*next_id)?;
+        *next_id += 1;
+        wr.write_all(&bytes).await
+    };
+    let hello = m::Hello {
+        proto: femux_proto::PROTO_VERSION,
+        client: format!(
+            "femux-plugin-{}/{}",
+            plugin.name(),
+            env!("CARGO_PKG_VERSION")
+        ),
+        features: [
+            "events",
+            "pane",
+            "session",
+            "tab",
+            "layout",
+            "scrollback",
+            "clipboard",
+        ]
+        .map(String::from)
+        .to_vec(),
+        term: None,
+    };
+    send(&mut wr, hello.into(), &mut next_id).await?;
+    send(&mut wr, plugin.subscription().into(), &mut next_id).await?;
+    for req in plugin.start() {
+        send(&mut wr, req, &mut next_id).await?;
+    }
+    while let Some(frame) = read_frame(&mut rd).await? {
+        let Ok(msg) = decode_envelope(&frame).and_then(ServerMsg::decode) else {
+            continue;
+        };
+        if let ServerMsg::Event(ev) = msg {
+            for req in plugin.on_event(&ev) {
+                send(&mut wr, req, &mut next_id).await?;
+            }
+        }
+    }
+    Ok(())
+}

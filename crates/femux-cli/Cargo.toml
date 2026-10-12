@@ -8,10 +8,42 @@ license.workspace = true
 name = "femux"
 path = "src/main.rs"
 
+# REQ-PLUG-001: one feature per built-in plugin, all on by default (and so in release builds);
+# `[plugins] enabled` activates them at runtime.
+[features]
+default = ["agents", "infobar", "notify", "git", "clipboard", "graphics", "shell-integration", "broadcast", "which-key", "recorder", "hosts", "theme", "launcher"]
+agents = ["dep:femux-plugin-agents"]
+infobar = ["dep:femux-plugin-infobar"]
+notify = ["dep:femux-plugin-notify"]
+git = ["dep:femux-plugin-git"]
+clipboard = ["dep:femux-plugin-clipboard"]
+graphics = ["dep:femux-plugin-graphics"]
+shell-integration = ["dep:femux-plugin-shell-integration"]
+broadcast = ["dep:femux-plugin-broadcast"]
+which-key = ["dep:femux-plugin-which-key"]
+recorder = ["dep:femux-plugin-recorder"]
+hosts = ["dep:femux-plugin-hosts"]
+theme = ["dep:femux-plugin-theme"]
+launcher = ["dep:femux-plugin-launcher"]
+
 [dependencies]
 femux-proto = { path = "../femux-proto" }
+femux-plugin = { path = "../femux-plugin" }
 femux-client = { path = "../femux-client" }
 femux-daemon = { path = "../femux-daemon" }
+femux-plugin-agents = { path = "../plugins/agents", optional = true }
+femux-plugin-infobar = { path = "../plugins/infobar", optional = true }
+femux-plugin-notify = { path = "../plugins/notify", optional = true }
+femux-plugin-git = { path = "../plugins/git", optional = true }
+femux-plugin-clipboard = { path = "../plugins/clipboard", optional = true }
+femux-plugin-graphics = { path = "../plugins/graphics", optional = true }
+femux-plugin-shell-integration = { path = "../plugins/shell-integration", optional = true }
+femux-plugin-broadcast = { path = "../plugins/broadcast", optional = true }
+femux-plugin-which-key = { path = "../plugins/which-key", optional = true }
+femux-plugin-recorder = { path = "../plugins/recorder", optional = true }
+femux-plugin-hosts = { path = "../plugins/hosts", optional = true }
+femux-plugin-theme = { path = "../plugins/theme", optional = true }
+femux-plugin-launcher = { path = "../plugins/launcher", optional = true }
 clap = { version = "4", features = ["derive"] }
 libc = "0.2"
 tokio.workspace = true
