@@ -1,0 +1,214 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://femux.dev/protocol/session.json",
+  "title": "femux protocol: sessions and views",
+  "$defs": {
+    "SessionList": {
+      "type": "object",
+      "description": "No fields."
+    },
+    "SessionSummary": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "common.json#/$defs/SessionName"
+        },
+        "root": {
+          "type": "string"
+        },
+        "tabs": {
+          "$ref": "common.json#/$defs/U32"
+        },
+        "clients": {
+          "$ref": "common.json#/$defs/U32"
+        },
+        "created": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch"
+        }
+      },
+      "required": [
+        "name",
+        "root",
+        "tabs",
+        "clients",
+        "created"
+      ]
+    },
+    "SessionListOk": {
+      "type": "object",
+      "properties": {
+        "sessions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SessionSummary"
+          }
+        }
+      },
+      "required": [
+        "sessions"
+      ]
+    },
+    "SessionCreate": {
+      "type": "object",
+      "description": "Creates a session with one tab running the default shell.",
+      "properties": {
+        "name": {
+          "$ref": "common.json#/$defs/SessionName"
+        },
+        "root": {
+          "type": "string",
+          "description": "Defaults to the daemon's $HOME."
+        },
+        "file": {
+          "type": "string",
+          "description": "Session file (0.3.0)."
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "SessionCreateOk": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "common.json#/$defs/SessionName"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "SessionAttach": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "common.json#/$defs/SessionName"
+        },
+        "tab": {
+          "$ref": "common.json#/$defs/TabId"
+        },
+        "cols": {
+          "$ref": "common.json#/$defs/U16",
+          "description": "View size; defaults to hello term size."
+        },
+        "rows": {
+          "$ref": "common.json#/$defs/U16"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "SessionAttachOk": {
+      "type": "object",
+      "properties": {
+        "view_id": {
+          "$ref": "common.json#/$defs/ViewId"
+        },
+        "snapshot": {
+          "$ref": "common.json#/$defs/SessionSnapshot"
+        }
+      },
+      "required": [
+        "view_id",
+        "snapshot"
+      ]
+    },
+    "SessionDetach": {
+      "type": "object",
+      "properties": {
+        "view_id": {
+          "$ref": "common.json#/$defs/ViewId"
+        }
+      },
+      "required": [
+        "view_id"
+      ]
+    },
+    "SessionRename": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "common.json#/$defs/SessionName"
+        },
+        "new": {
+          "$ref": "common.json#/$defs/SessionName"
+        }
+      },
+      "required": [
+        "name",
+        "new"
+      ]
+    },
+    "SessionKill": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "common.json#/$defs/SessionName"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "ViewResize": {
+      "type": "object",
+      "description": "The client's area for panes changed size.",
+      "properties": {
+        "view_id": {
+          "$ref": "common.json#/$defs/ViewId"
+        },
+        "cols": {
+          "$ref": "common.json#/$defs/U16"
+        },
+        "rows": {
+          "$ref": "common.json#/$defs/U16"
+        }
+      },
+      "required": [
+        "view_id",
+        "cols",
+        "rows"
+      ]
+    }
+  },
+  "x-messages": [
+    {
+      "kind": "session.list",
+      "request": "SessionList",
+      "response": "SessionListOk"
+    },
+    {
+      "kind": "session.create",
+      "request": "SessionCreate",
+      "response": "SessionCreateOk"
+    },
+    {
+      "kind": "session.attach",
+      "request": "SessionAttach",
+      "response": "SessionAttachOk"
+    },
+    {
+      "kind": "session.detach",
+      "request": "SessionDetach",
+      "response": "Empty"
+    },
+    {
+      "kind": "session.rename",
+      "request": "SessionRename",
+      "response": "Empty"
+    },
+    {
+      "kind": "session.kill",
+      "request": "SessionKill",
+      "response": "Empty"
+    },
+    {
+      "kind": "view.resize",
+      "request": "ViewResize",
+      "response": "Empty"
+    }
+  ]
+}

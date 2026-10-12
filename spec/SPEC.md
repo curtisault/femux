@@ -71,7 +71,9 @@ Layer rules:
 - REQ-PTY-002: The daemon MUST track the foreground process group (`tcgetpgrp`) of each pane and expose fg pid, command name and cwd via `pane.info`.
 - REQ-PTY-003: Pane output MUST be read on a dedicated task and fed to that pane's VT without blocking other panes.
 - REQ-PTY-004: Signals (`SIGINT`, `SIGTERM`, `SIGKILL`, `SIGHUP`, `SIGWINCH`) MUST be deliverable via `pane.signal`.
+  Note: signals go to the pane's foreground process group, as if typed at the terminal.
 - REQ-PTY-005: Pane IDs are ULIDs and MUST be stable across daemon restarts when restore is enabled.
+  Note: ids are ULIDs from 0.1.0; stability across restarts arrives with restore (0.3.0).
 - REQ-PTY-006: Environment passed to a pane MUST be filtered by `[env] allow` before persistence; the live environment is unfiltered.
 - REQ-PTY-007: New panes MUST set `TERM=xterm-256color` (overridable), `TERM_PROGRAM=femux`, `TERM_PROGRAM_VERSION`, `FEMUX_PANE=<ulid>`, `FEMUX_SOCKET=<path>`.
 
@@ -80,6 +82,7 @@ Layer rules:
 - REQ-VT-001: Each pane has one libghostty-vt instance holding screen grid, scrollback, modes and cursor.
 - REQ-VT-002: The daemon MUST emit cell diffs per frame (changed cells, cursor, scroll regions) and MUST NOT send raw escape bytes to clients.
 - REQ-VT-003: Default scrollback is 10,000 lines per pane, configurable.
+  Note: the limit is passed to libghostty-vt, which prunes whole pages, so retained history stays within one page of it (measured: up to ~2,300 lines under at 20 columns, ~600 at 80).
 - REQ-VT-004: Frames MUST be coalesced per client: if a client cannot keep up, it receives the newest full state, never a backlog.
 - REQ-VT-005: OSC 133 prompt marks MUST be recorded per line so clients can jump between commands.
 - REQ-VT-006: OSC 2 (title) and OSC 7 (cwd) MUST be captured into pane info.
@@ -88,13 +91,17 @@ Layer rules:
 
 - REQ-QRY-001: Terminal queries from pane programs (DA1, DA2, XTVERSION, OSC 10/11/12 color queries, Kitty keyboard query, DECRQM for 2026/2031/2004/1006) MUST be answered by the daemon.
 - REQ-QRY-002: Answers derive from the capabilities reported by the attached client at `hello`; with no client attached, conservative defaults apply.
+  Note: the session's panes answer with the capabilities of the most recently attached client; when its last view detaches they fall back to the defaults.
 - REQ-QRY-003: A pane program MUST never receive bytes from the host terminal directly.
 
 ### 3.4 Session model
 
 - REQ-SESS-001: Hierarchy is server → sessions → tabs → layout tree → panes. A session has a name (unique per server), root dir, creation time.
 - REQ-SESS-002: Layout tree nodes are `split{dir, ratio, children}`, `pane{id}`, `float{id, rect}`. Ratios are rationals in [0,1].
+  Note: floats are listed beside the tiled tree in the tab's `floats`, not as tree nodes; splits are binary with `ratio = {num, den}` (ADR-015 #6, #7).
+  Note: a split gives its first child `ratio` of the space left after a one-cell separator, so panes never overlap and clients draw borders in the gaps. A pane closes when its process exits; an empty tab or session closes with it.
 - REQ-SESS-003: Every mutation MUST emit exactly one event (§4.6) after the mutation is applied.
+  Note: a request that performs several mutations emits one event per mutation (e.g. `layout.split` emits `pane.spawned`, `layout.changed`, `layout.focused`).
 - REQ-SESS-004: Marks: a pane may carry up to 26 single-letter marks per session (`a`–`z`), used by `jump_to_mark`.
 - REQ-SESS-005: Zoom is a per-tab flag; a zoomed tab renders only its focused pane and the tab strip.
 
@@ -122,6 +129,7 @@ Layer rules:
 ### 3.8 Lifecycle
 
 - REQ-LIFE-001: `SIGTERM` to the daemon MUST snapshot state, then exit without killing panes if restore is enabled, or kill panes with `SIGHUP` if not.
+  Note: restore arrives in 0.3.0, so in 0.1.0 SIGTERM always SIGHUPs panes; `server.stop` behaves the same whatever `kill_panes` says.
 - REQ-LIFE-002: The daemon MUST exit when the last session is closed unless `daemon.keep_alive = true`.
 - REQ-LIFE-003: (Deferred, post-1.0) Live handoff of PTY fds to a new daemon via `SCM_RIGHTS`. Fd ownership MUST remain in the PTY manager so this stays possible.
 
@@ -133,13 +141,16 @@ Layer rules:
 
 - REQ-PROTO-001: Unix domain socket at `$XDG_RUNTIME_DIR/femux/<server>.sock`; on macOS, `$TMPDIR/femux-<uid>/<server>.sock`. Directory mode 0700, socket mode 0600.
 - REQ-PROTO-002: Peer UID MUST be checked (`SO_PEERCRED` / `LOCAL_PEERCRED`) and connections from other UIDs refused before any message is read.
+  Note: refusal of other UIDs is unit-tested; an integration test would need a second user.
 - REQ-PROTO-003: No TCP listener. Remote attach uses `ssh <host> femux attach --stdio` with the protocol on stdin/stdout, or a socket forwarded by OpenSSH.
 - REQ-PROTO-004: Framing is 4-byte big-endian length prefix followed by one MessagePack map. Max frame 16 MiB.
 
 ### 4.2 Schema
 
 - REQ-PROTO-010: Message schemas live in `spec/protocol/*.json` (JSON Schema draft 2020-12). Rust types in `femux-proto` are generated from them at build time; hand-edited types are a build failure.
+  Note: types are generated into `OUT_DIR` by `crates/femux-proto/build.rs`, so there is no checked-in type to hand-edit; the supported JSON Schema subset is documented there and anything outside it fails the build.
 - REQ-PROTO-011: Every message is `{id: u64, kind: string, body: map}`. Requests get a response with the same `id`; events have `id = 0`.
+  Note: a response's kind is its request's kind (`hello` → `hello_ok`); failures use kind `error`. See ADR-015 for the other catalog refinements.
 - REQ-PROTO-012: Unknown fields MUST be ignored; unknown `kind` MUST return `error{code: "unknown_kind"}`.
 
 ### 4.3 Handshake
@@ -150,6 +161,7 @@ daemon → hello_ok {proto: 1, server: "name", version: "0.2.0", features: [...]
 ```
 
 - REQ-PROTO-020: A client missing a feature loses that action; the connection is kept.
+  Note: features are message families (kind prefixes); a request outside the intersection of client and daemon features gets `feature_missing` (ADR-015 #10).
 - REQ-PROTO-021: Protocol major version mismatch returns `error{code: "proto_version"}` and closes.
 
 ### 4.4 Message catalog
@@ -347,6 +359,7 @@ Copy mode: `hjkl`, `w b e`, `0 $`, `gg G`, `ctrl+u/d`, `/ ? n N` (regex), `v V c
 
 - REQ-AGT-001 (tier 1, authoritative): `femux pane set agent.state=<s>` from agent hooks, and OSC `9;4` progress (0 → idle, 1–3 → working) plus private `OSC 7777;state=<s>`.
 - REQ-AGT-002 (tier 2): from `pane.fg_changed` and process state. Linux: `/proc/<pid>/stat` state and `wchan`; a fg process sleeping in a tty read with no recent output ≥ `agents.blocked_after_ms` (default 1500) → `blocked`. Shell returning to foreground → `exited` then `idle`. macOS: `proc_pidinfo` thread states, best-effort, marked `source=process` with lower confidence.
+  Note: macOS is hook-only: tier 2 is not implemented there (spike §16-3 could not be run; decided 2026-10-11). macOS panes get tier 1 and tier 3 only.
 - REQ-AGT-003 (tier 3): output heuristics (silence after burst, prompt-like last line) only when tiers 1–2 give nothing; always `source=heuristic`.
 - REQ-AGT-004: Higher tiers override lower tiers; a lower tier MUST NOT override a higher-tier state younger than `agents.hold_ms` (default 5000).
 - REQ-AGT-005: `femux integration install <claude-code|codex|opencode|cursor>` writes the agent's hook config to call tier-1 commands; `uninstall` reverts it.
@@ -541,6 +554,8 @@ Each minor version is one feature set and one GitButler branch named `v0.N.0`. P
 | 012 | JSON cell grid for test assertions | Agents can diff structured output; text dumps for humans |
 | 013 | `femux reload` over file watching | Explicit, scriptable, no half-applied configs |
 | 014 | 0.1.0 ships a bare viewer | A human can sanity-check the daemon before the real client exists |
+
+Note (ADR-007): termwiz has no Kitty graphics output. `Change::Image` emits only iTerm2 images and panics on cropped or raw RGBA images; `escape::apc::KittyImage` omits the `ESC \` terminator and does not chunk payloads. The client writes Kitty APCs itself (termwiz encodes the keys; the client appends ST and chunks at 4096 bytes). Spike §16-2 confirmed clipping on resize this way.
 
 ---
 

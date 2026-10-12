@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://femux.dev/protocol/server.json",
+  "title": "femux protocol: server, store, clipboard",
+  "$defs": {
+    "ClipboardSet": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ]
+    },
+    "StoreSnapshot": {
+      "type": "object",
+      "description": "No fields."
+    },
+    "StoreSnapshotOk": {
+      "type": "object",
+      "properties": {
+        "ts": {
+          "$ref": "common.json#/$defs/U64"
+        }
+      },
+      "required": [
+        "ts"
+      ]
+    },
+    "ServerInfo": {
+      "type": "object",
+      "description": "No fields."
+    },
+    "ServerInfoOk": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "uptime": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms"
+        },
+        "sessions": {
+          "$ref": "common.json#/$defs/U32"
+        },
+        "panes": {
+          "$ref": "common.json#/$defs/U32"
+        },
+        "clients": {
+          "$ref": "common.json#/$defs/U32"
+        }
+      },
+      "required": [
+        "version",
+        "uptime",
+        "sessions",
+        "panes",
+        "clients"
+      ]
+    },
+    "ServerStop": {
+      "type": "object",
+      "properties": {
+        "kill_panes": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "kill_panes"
+      ]
+    }
+  },
+  "x-messages": [
+    {
+      "kind": "clipboard.set",
+      "request": "ClipboardSet",
+      "response": "Empty"
+    },
+    {
+      "kind": "store.snapshot",
+      "request": "StoreSnapshot",
+      "response": "StoreSnapshotOk"
+    },
+    {
+      "kind": "server.info",
+      "request": "ServerInfo",
+      "response": "ServerInfoOk"
+    },
+    {
+      "kind": "server.stop",
+      "request": "ServerStop",
+      "response": "Empty"
+    }
+  ]
+}

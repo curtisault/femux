@@ -1,0 +1,326 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://femux.dev/protocol/layout.json",
+  "title": "femux protocol: layout",
+  "$defs": {
+    "LayoutSplit": {
+      "type": "object",
+      "properties": {
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        },
+        "dir": {
+          "$ref": "common.json#/$defs/SplitDir"
+        },
+        "ratio": {
+          "$ref": "common.json#/$defs/Ratio",
+          "description": "Share kept by the existing pane; default 1/2."
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "cmd": {
+          "type": "string"
+        },
+        "preselect": {
+          "$ref": "common.json#/$defs/Direction",
+          "description": "Place the new pane on this side instead of dir's default side."
+        }
+      },
+      "required": [
+        "pane_id",
+        "dir"
+      ]
+    },
+    "LayoutSplitOk": {
+      "type": "object",
+      "properties": {
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        }
+      },
+      "required": [
+        "pane_id"
+      ]
+    },
+    "LayoutClose": {
+      "type": "object",
+      "properties": {
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        }
+      },
+      "required": [
+        "pane_id"
+      ]
+    },
+    "LayoutFocus": {
+      "type": "object",
+      "description": "Exactly one of pane_id or dir.",
+      "properties": {
+        "view_id": {
+          "$ref": "common.json#/$defs/ViewId"
+        },
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        },
+        "dir": {
+          "$ref": "common.json#/$defs/Direction"
+        }
+      },
+      "required": [
+        "view_id"
+      ]
+    },
+    "LayoutFocusOk": {
+      "type": "object",
+      "properties": {
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        }
+      },
+      "required": [
+        "pane_id"
+      ]
+    },
+    "LayoutResize": {
+      "type": "object",
+      "properties": {
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        },
+        "dir": {
+          "$ref": "common.json#/$defs/Direction"
+        },
+        "delta_cells": {
+          "$ref": "common.json#/$defs/I32"
+        }
+      },
+      "required": [
+        "pane_id",
+        "dir",
+        "delta_cells"
+      ]
+    },
+    "LayoutSwap": {
+      "type": "object",
+      "properties": {
+        "a": {
+          "$ref": "common.json#/$defs/PaneId"
+        },
+        "b": {
+          "$ref": "common.json#/$defs/PaneId"
+        }
+      },
+      "required": [
+        "a",
+        "b"
+      ]
+    },
+    "LayoutEqualize": {
+      "type": "object",
+      "properties": {
+        "tab_id": {
+          "$ref": "common.json#/$defs/TabId"
+        }
+      },
+      "required": [
+        "tab_id"
+      ]
+    },
+    "LayoutRotate": {
+      "type": "object",
+      "properties": {
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        }
+      },
+      "required": [
+        "pane_id"
+      ]
+    },
+    "LayoutZoom": {
+      "type": "object",
+      "properties": {
+        "tab_id": {
+          "$ref": "common.json#/$defs/TabId"
+        },
+        "on": {
+          "type": "boolean",
+          "description": "Absent toggles."
+        }
+      },
+      "required": [
+        "tab_id"
+      ]
+    },
+    "LayoutZoomOk": {
+      "type": "object",
+      "properties": {
+        "zoomed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "zoomed"
+      ]
+    },
+    "LayoutFloat": {
+      "type": "object",
+      "properties": {
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        },
+        "rect": {
+          "$ref": "common.json#/$defs/Rect"
+        }
+      },
+      "required": [
+        "pane_id"
+      ]
+    },
+    "LayoutTile": {
+      "type": "object",
+      "properties": {
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        }
+      },
+      "required": [
+        "pane_id"
+      ]
+    },
+    "LayoutSetScheme": {
+      "type": "object",
+      "properties": {
+        "tab_id": {
+          "$ref": "common.json#/$defs/TabId"
+        },
+        "scheme": {
+          "$ref": "common.json#/$defs/Scheme"
+        }
+      },
+      "required": [
+        "tab_id",
+        "scheme"
+      ]
+    },
+    "LayoutGet": {
+      "type": "object",
+      "properties": {
+        "tab_id": {
+          "$ref": "common.json#/$defs/TabId"
+        }
+      },
+      "required": [
+        "tab_id"
+      ]
+    },
+    "LayoutGetOk": {
+      "type": "object",
+      "properties": {
+        "tree": {
+          "$ref": "common.json#/$defs/LayoutNode"
+        },
+        "floats": {
+          "type": "array",
+          "items": {
+            "$ref": "common.json#/$defs/FloatNode"
+          }
+        }
+      },
+      "required": [
+        "tree",
+        "floats"
+      ]
+    },
+    "LayoutApply": {
+      "type": "object",
+      "properties": {
+        "tab_id": {
+          "$ref": "common.json#/$defs/TabId"
+        },
+        "tree": {
+          "$ref": "common.json#/$defs/LayoutNode"
+        },
+        "floats": {
+          "type": "array",
+          "items": {
+            "$ref": "common.json#/$defs/FloatNode"
+          }
+        }
+      },
+      "required": [
+        "tab_id",
+        "tree"
+      ]
+    }
+  },
+  "x-messages": [
+    {
+      "kind": "layout.split",
+      "request": "LayoutSplit",
+      "response": "LayoutSplitOk"
+    },
+    {
+      "kind": "layout.close",
+      "request": "LayoutClose",
+      "response": "Empty"
+    },
+    {
+      "kind": "layout.focus",
+      "request": "LayoutFocus",
+      "response": "LayoutFocusOk"
+    },
+    {
+      "kind": "layout.resize",
+      "request": "LayoutResize",
+      "response": "Empty"
+    },
+    {
+      "kind": "layout.swap",
+      "request": "LayoutSwap",
+      "response": "Empty"
+    },
+    {
+      "kind": "layout.equalize",
+      "request": "LayoutEqualize",
+      "response": "Empty"
+    },
+    {
+      "kind": "layout.rotate",
+      "request": "LayoutRotate",
+      "response": "Empty"
+    },
+    {
+      "kind": "layout.zoom",
+      "request": "LayoutZoom",
+      "response": "LayoutZoomOk"
+    },
+    {
+      "kind": "layout.float",
+      "request": "LayoutFloat",
+      "response": "Empty"
+    },
+    {
+      "kind": "layout.tile",
+      "request": "LayoutTile",
+      "response": "Empty"
+    },
+    {
+      "kind": "layout.set_scheme",
+      "request": "LayoutSetScheme",
+      "response": "Empty"
+    },
+    {
+      "kind": "layout.get",
+      "request": "LayoutGet",
+      "response": "LayoutGetOk"
+    },
+    {
+      "kind": "layout.apply",
+      "request": "LayoutApply",
+      "response": "Empty"
+    }
+  ]
+}

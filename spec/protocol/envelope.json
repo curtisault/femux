@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://femux.dev/protocol/envelope.json",
+  "title": "femux protocol: envelope and errors",
+  "description": "A failed request is answered with kind \"error\" instead of its response.",
+  "$defs": {
+    "Envelope": {
+      "type": "object",
+      "description": "Every frame on the wire is one Envelope (4-byte big-endian length, then MessagePack).",
+      "properties": {
+        "id": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "Request id chosen by the client; responses echo it; events and frames use 0."
+        },
+        "kind": {
+          "type": "string"
+        },
+        "body": {
+          "description": "Kind-specific map."
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "body"
+      ]
+    },
+    "ErrorCode": {
+      "type": "string",
+      "enum": [
+        "unknown_kind",
+        "proto_version",
+        "not_found",
+        "conflict",
+        "invalid",
+        "denied",
+        "feature_missing",
+        "internal"
+      ]
+    },
+    "ErrorBody": {
+      "type": "object",
+      "description": "Body of kind \"error\"; its envelope id is the failed request's id.",
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "description": "Optional code-specific detail."
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ]
+    }
+  }
+}

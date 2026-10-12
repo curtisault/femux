@@ -1,0 +1,216 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://femux.dev/protocol/pane.json",
+  "title": "femux protocol: panes",
+  "$defs": {
+    "PaneInput": {
+      "type": "object",
+      "properties": {
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "common.json#/$defs/InputEvent"
+          }
+        }
+      },
+      "required": [
+        "pane_id",
+        "events"
+      ]
+    },
+    "PaneResize": {
+      "type": "object",
+      "description": "Resizes a floating pane; tiled panes are sized by the layout.",
+      "properties": {
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        },
+        "cols": {
+          "$ref": "common.json#/$defs/U16"
+        },
+        "rows": {
+          "$ref": "common.json#/$defs/U16"
+        }
+      },
+      "required": [
+        "pane_id",
+        "cols",
+        "rows"
+      ]
+    },
+    "Signal": {
+      "type": "string",
+      "enum": [
+        "SIGINT",
+        "SIGTERM",
+        "SIGKILL",
+        "SIGHUP",
+        "SIGWINCH"
+      ]
+    },
+    "PaneSignal": {
+      "type": "object",
+      "properties": {
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        },
+        "sig": {
+          "$ref": "#/$defs/Signal"
+        }
+      },
+      "required": [
+        "pane_id",
+        "sig"
+      ]
+    },
+    "PaneInfo": {
+      "type": "object",
+      "properties": {
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        }
+      },
+      "required": [
+        "pane_id"
+      ]
+    },
+    "Meta": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Untrusted display metadata."
+    },
+    "PaneInfoOk": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "common.json#/$defs/PaneId"
+        },
+        "tab": {
+          "$ref": "common.json#/$defs/TabId"
+        },
+        "cwd": {
+          "type": "string",
+          "description": "Empty when unknown."
+        },
+        "fg_pid": {
+          "$ref": "common.json#/$defs/U32",
+          "description": "0 after exit."
+        },
+        "fg_cmd": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "exit": {
+          "$ref": "common.json#/$defs/I32",
+          "description": "Exit code once the pane's process has exited."
+        },
+        "meta": {
+          "$ref": "#/$defs/Meta"
+        }
+      },
+      "required": [
+        "id",
+        "tab",
+        "cwd",
+        "fg_pid",
+        "fg_cmd",
+        "title",
+        "meta"
+      ]
+    },
+    "PaneSetMeta": {
+      "type": "object",
+      "properties": {
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        },
+        "set": {
+          "$ref": "#/$defs/Meta"
+        },
+        "unset": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "pane_id"
+      ]
+    },
+    "PaneMark": {
+      "type": "object",
+      "properties": {
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        },
+        "mark": {
+          "type": "string",
+          "pattern": "^[a-z]$"
+        }
+      },
+      "required": [
+        "pane_id",
+        "mark"
+      ]
+    },
+    "PaneRespawn": {
+      "type": "object",
+      "properties": {
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        },
+        "cmd": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pane_id"
+      ]
+    }
+  },
+  "x-messages": [
+    {
+      "kind": "pane.input",
+      "request": "PaneInput",
+      "response": "Empty"
+    },
+    {
+      "kind": "pane.resize",
+      "request": "PaneResize",
+      "response": "Empty"
+    },
+    {
+      "kind": "pane.signal",
+      "request": "PaneSignal",
+      "response": "Empty"
+    },
+    {
+      "kind": "pane.info",
+      "request": "PaneInfo",
+      "response": "PaneInfoOk"
+    },
+    {
+      "kind": "pane.set_meta",
+      "request": "PaneSetMeta",
+      "response": "Empty"
+    },
+    {
+      "kind": "pane.mark",
+      "request": "PaneMark",
+      "response": "Empty"
+    },
+    {
+      "kind": "pane.respawn",
+      "request": "PaneRespawn",
+      "response": "Empty"
+    }
+  ]
+}

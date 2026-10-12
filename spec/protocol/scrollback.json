@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://femux.dev/protocol/scrollback.json",
+  "title": "femux protocol: scrollback",
+  "$defs": {
+    "ScrollbackRead": {
+      "type": "object",
+      "properties": {
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        },
+        "from_line": {
+          "$ref": "common.json#/$defs/I64",
+          "description": "0 is the top of the screen; -1 the newest scrollback line."
+        },
+        "count": {
+          "$ref": "common.json#/$defs/U32"
+        }
+      },
+      "required": [
+        "pane_id",
+        "from_line",
+        "count"
+      ]
+    },
+    "ScrollbackReadOk": {
+      "type": "object",
+      "properties": {
+        "lines": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "common.json#/$defs/Cell"
+            }
+          }
+        }
+      },
+      "required": [
+        "lines"
+      ]
+    },
+    "SearchDir": {
+      "type": "string",
+      "enum": [
+        "up",
+        "down"
+      ]
+    },
+    "ScrollbackSearch": {
+      "type": "object",
+      "properties": {
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        },
+        "regex": {
+          "type": "string"
+        },
+        "from_line": {
+          "$ref": "common.json#/$defs/I64"
+        },
+        "dir": {
+          "$ref": "#/$defs/SearchDir"
+        },
+        "limit": {
+          "$ref": "common.json#/$defs/U32"
+        }
+      },
+      "required": [
+        "pane_id",
+        "regex",
+        "from_line",
+        "dir",
+        "limit"
+      ]
+    },
+    "SearchMatch": {
+      "type": "object",
+      "properties": {
+        "line": {
+          "$ref": "common.json#/$defs/I64"
+        },
+        "col": {
+          "$ref": "common.json#/$defs/U16"
+        },
+        "len": {
+          "$ref": "common.json#/$defs/U16"
+        }
+      },
+      "required": [
+        "line",
+        "col",
+        "len"
+      ]
+    },
+    "ScrollbackSearchOk": {
+      "type": "object",
+      "properties": {
+        "matches": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SearchMatch"
+          }
+        }
+      },
+      "required": [
+        "matches"
+      ]
+    },
+    "ScrollbackMarks": {
+      "type": "object",
+      "properties": {
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        }
+      },
+      "required": [
+        "pane_id"
+      ]
+    },
+    "ScrollbackMarksOk": {
+      "type": "object",
+      "properties": {
+        "prompts": {
+          "type": "array",
+          "items": {
+            "$ref": "common.json#/$defs/I64"
+          },
+          "description": "Lines with an OSC 133 prompt mark."
+        }
+      },
+      "required": [
+        "prompts"
+      ]
+    },
+    "ScrollbackClear": {
+      "type": "object",
+      "properties": {
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        }
+      },
+      "required": [
+        "pane_id"
+      ]
+    }
+  },
+  "x-messages": [
+    {
+      "kind": "scrollback.read",
+      "request": "ScrollbackRead",
+      "response": "ScrollbackReadOk"
+    },
+    {
+      "kind": "scrollback.search",
+      "request": "ScrollbackSearch",
+      "response": "ScrollbackSearchOk"
+    },
+    {
+      "kind": "scrollback.marks",
+      "request": "ScrollbackMarks",
+      "response": "ScrollbackMarksOk"
+    },
+    {
+      "kind": "scrollback.clear",
+      "request": "ScrollbackClear",
+      "response": "Empty"
+    }
+  ]
+}
