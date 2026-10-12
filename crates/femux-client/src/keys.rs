@@ -201,36 +201,43 @@ pub fn map_key(k: &KeyEvent) -> Option<m::KeyEvent> {
 
 /// A protocol key event for tests and synthetic input: `key("H")`, `key("ctrl+p")`.
 pub fn key(chord: &str) -> m::KeyEvent {
-    let c = Chord::parse(chord).expect("valid chord");
-    let mut mods = Vec::new();
-    if c.ctrl {
-        mods.push(m::Mod::Ctrl);
-    }
-    if c.alt {
-        mods.push(m::Mod::Alt);
-    }
-    if c.sup {
-        mods.push(m::Mod::Super);
-    }
-    let single = c.key.chars().count() == 1;
-    let text = (single && !c.ctrl && !c.alt && !c.sup).then(|| c.key.clone());
-    let key = if single {
-        let ch = c.key.chars().next().unwrap();
-        if ch.is_uppercase() {
-            mods.push(m::Mod::Shift);
+    Chord::parse(chord).expect("valid chord").event()
+}
+
+impl Chord {
+    /// The key event this chord types (the inverse of [`Chord::of`]).
+    pub fn event(&self) -> m::KeyEvent {
+        let c = self;
+        let mut mods = Vec::new();
+        if c.ctrl {
+            mods.push(m::Mod::Ctrl);
         }
-        ch.to_lowercase().to_string()
-    } else {
-        if c.shift {
-            mods.push(m::Mod::Shift);
+        if c.alt {
+            mods.push(m::Mod::Alt);
         }
-        c.key.clone()
-    };
-    m::KeyEvent {
-        key,
-        mods,
-        text,
-        event: m::KeyEventKind::Press,
+        if c.sup {
+            mods.push(m::Mod::Super);
+        }
+        let single = c.key.chars().count() == 1;
+        let text = (single && !c.ctrl && !c.alt && !c.sup).then(|| c.key.clone());
+        let key = if single {
+            let ch = c.key.chars().next().unwrap();
+            if ch.is_uppercase() {
+                mods.push(m::Mod::Shift);
+            }
+            ch.to_lowercase().to_string()
+        } else {
+            if c.shift {
+                mods.push(m::Mod::Shift);
+            }
+            c.key.clone()
+        };
+        m::KeyEvent {
+            key,
+            mods,
+            text,
+            event: m::KeyEventKind::Press,
+        }
     }
 }
 

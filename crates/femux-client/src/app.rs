@@ -174,7 +174,8 @@ pub struct App {
     pending: HashMap<u64, Pending>,
     /// The paste buffer: the newest clipboard text seen (own yank or `clipboard.changed`).
     pub clipboard: Option<String>,
-    last_sent_clipboard: Option<String>,
+    /// Yanks sent as clipboard.set whose clipboard.changed echo is still to come.
+    yanks_in_flight: std::collections::VecDeque<String>,
     pub plugins: Vec<Box<dyn ClientPlugin>>,
     pub cli_commands: Vec<String>,
     pub dirty: bool,
@@ -183,7 +184,6 @@ pub struct App {
     mouse_pane: Option<String>,
     /// Tab strip hit boxes from the last render: `(x0, x1, tab)`.
     pub tab_hits: Vec<(u16, u16, String)>,
-    last_key: Option<m::KeyEvent>,
 }
 
 impl App {
@@ -195,7 +195,10 @@ impl App {
         cols: u16,
         rows: u16,
     ) -> App {
-        let bindings = Bindings::from_config(&cfg);
+        let mut bindings = Bindings::from_config(&cfg);
+        for p in &plugins {
+            bindings.add_plugin(&p.bindings());
+        }
         let prefixes = cfg.prefix.iter().filter_map(|p| Chord::parse(p)).collect();
         let (model, fx) = Model::from_attach(attach);
         let mut app = App {
@@ -217,7 +220,7 @@ impl App {
             next_id: 1,
             pending: HashMap::new(),
             clipboard: None,
-            last_sent_clipboard: None,
+            yanks_in_flight: std::collections::VecDeque::new(),
             plugins,
             cli_commands,
             dirty: true,
@@ -225,7 +228,6 @@ impl App {
             drag: None,
             mouse_pane: None,
             tab_hits: Vec::new(),
-            last_key: None,
         };
         app.model_effects(fx);
         let view_id = app.model.view_id.clone();
@@ -390,9 +392,9 @@ impl App {
         for h in host {
             match h {
                 HostEffect::Clipboard(text) => {
-                    if self.last_sent_clipboard.as_deref() == Some(text.as_str()) {
-                        // Our own yank already went to the host.
-                        self.last_sent_clipboard = None;
+                    // Our own yanks already went to the host; echoes arrive in order.
+                    if let Some(i) = self.yanks_in_flight.iter().position(|t| *t == text) {
+                        self.yanks_in_flight.drain(..=i);
                     } else {
                         self.effects.push(Effect::Clipboard(text));
                     }
@@ -460,7 +462,6 @@ impl App {
         self.dirty = true;
         self.message = None;
         let chord = Chord::of(&k);
-        self.last_key = Some(k.clone());
 
         match std::mem::replace(&mut self.overlay, Overlay::None) {
             Overlay::Palette(p) => return self.palette_key(p, &k, &chord),
@@ -796,8 +797,10 @@ impl App {
                 };
             }
             Action::SendPrefix => {
-                if let Some(k) = self.last_key.clone() {
-                    self.send_to_pane(vec![m::InputEvent::KeyEvent(k)]);
+                // The configured prefix itself, whatever key ran this action.
+                if let Some(p) = self.prefixes.first() {
+                    let ev = p.event();
+                    self.send_to_pane(vec![m::InputEvent::KeyEvent(ev)]);
                 }
             }
             Action::Preselect(d) => {
@@ -906,7 +909,7 @@ impl App {
                 Need::Yank(text) => {
                     // OSC 52 on the host plus clipboard.set for everyone else (§5.1).
                     self.effects.push(Effect::Clipboard(text.clone()));
-                    self.last_sent_clipboard = Some(text.clone());
+                    self.yanks_in_flight.push_back(text.clone());
                     self.clipboard = Some(text.clone());
                     self.quiet(m::ClipboardSet { text });
                 }
@@ -1240,5 +1243,106 @@ impl App {
                 event,
             })],
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::keys::key;
+
+    fn app(cfg: ClientConfig) -> App {
+        let attach = m::SessionAttachOk {
+            view_id: "V".into(),
+            snapshot: m::SessionSnapshot {
+                session: "s".into(),
+                tabs: vec![m::TabSnapshot {
+                    id: "T".into(),
+                    focus: "P".into(),
+                    tree: m::LayoutNode::PaneNode(m::PaneNode { id: "P".into() }),
+                    ..Default::default()
+                }],
+                current_tab: "T".into(),
+                marks: Default::default(),
+            },
+        };
+        let mut a = App::new(cfg, Vec::new(), Vec::new(), &attach, 80, 24);
+        a.take_out();
+        a
+    }
+
+    fn pane_keys(out: &[(u64, Request)]) -> Vec<m::KeyEvent> {
+        out.iter()
+            .flat_map(|(_, r)| match r {
+                Request::PaneInput(p) => p.events.clone(),
+                _ => vec![],
+            })
+            .filter_map(|e| match e {
+                m::InputEvent::KeyEvent(k) => Some(k),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_bound_prefix_action_sends_the_prefix_itself() {
+        let mut cfg = ClientConfig::default();
+        cfg.keys_prefix.insert("a".into(), "prefix".into());
+        let mut a = app(cfg);
+        let now = Instant::now();
+        a.on_key(key("ctrl+space"), now);
+        a.on_key(key("a"), now);
+        let keys = pane_keys(&a.take_out());
+        assert_eq!(keys, [key("ctrl+space")]);
+    }
+
+    #[test]
+    fn yank_echoes_are_not_replayed_to_the_host() {
+        let mut a = app(ClientConfig::default());
+        a.plugins = vec![femux_plugin_clipboard_stub()];
+        a.copy = Some(CopyMode::new("P", 80, 22, (0, 0)).0);
+        a.mode = Mode::Copy;
+        for text in ["foo", "bar"] {
+            a.copy_needs(vec![Need::Yank(text.into())]);
+        }
+        assert_eq!(
+            a.take_effects(),
+            [
+                Effect::Clipboard("foo".into()),
+                Effect::Clipboard("bar".into())
+            ]
+        );
+        for text in ["foo", "bar"] {
+            a.on_event(&Event::ClipboardChanged(m::ClipboardChanged {
+                text: text.into(),
+                source: m::ClipboardSource::Client,
+                ..Default::default()
+            }));
+        }
+        assert!(a.take_effects().is_empty(), "own yanks are not echoed");
+        a.on_event(&Event::ClipboardChanged(m::ClipboardChanged {
+            text: "other".into(),
+            source: m::ClipboardSource::Client,
+            ..Default::default()
+        }));
+        assert_eq!(a.take_effects(), [Effect::Clipboard("other".into())]);
+        assert_eq!(a.clipboard.as_deref(), Some("other"));
+    }
+
+    /// A client plugin that forwards clipboard events like the real `clipboard` plugin.
+    fn femux_plugin_clipboard_stub() -> Box<dyn ClientPlugin> {
+        struct P;
+        impl ClientPlugin for P {
+            fn name(&self) -> &'static str {
+                "clipboard"
+            }
+            fn on_event(&mut self, ev: &Event) -> Vec<HostEffect> {
+                match ev {
+                    Event::ClipboardChanged(c) => vec![HostEffect::Clipboard(c.text.clone())],
+                    _ => vec![],
+                }
+            }
+        }
+        Box::new(P)
     }
 }

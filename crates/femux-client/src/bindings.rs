@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 
-use femux_plugin::BoundKey;
+use femux_plugin::{Binding, BoundKey};
 use femux_proto::msg::Direction;
 
 use crate::config::ClientConfig;
@@ -314,13 +314,8 @@ impl Action {
     }
 }
 
-/// Which table a chord is looked up in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Table {
-    Root,
-    Prefix,
-    Copy,
-}
+/// Which table a chord is looked up in (the plugin crate's, so plugins can name it).
+pub use femux_plugin::Table;
 
 #[derive(Debug, Clone)]
 pub struct Bindings {
@@ -452,6 +447,23 @@ impl Bindings {
             root: table(&root, &cfg.keys_root),
             prefix: table(PREFIX, &cfg.keys_prefix),
             copy: table(COPY, &cfg.keys_copy),
+        }
+    }
+
+    /// Adds bindings a plugin contributes (REQ-PLUG-002); unknown action names are ignored.
+    pub fn add_plugin(&mut self, bindings: &[Binding]) {
+        for b in bindings {
+            let (Some(chord), Some(action)) = (Chord::parse(&b.key), Action::from_name(&b.action))
+            else {
+                continue;
+            };
+            let list = match b.table {
+                Table::Root => &mut self.root,
+                Table::Prefix => &mut self.prefix,
+                Table::Copy => &mut self.copy,
+            };
+            list.retain(|(c, _)| *c != chord);
+            list.push((chord, action));
         }
     }
 
@@ -599,6 +611,31 @@ mod tests {
         assert_eq!(
             on.lookup(Table::Root, &Chord::parse("alt+h").unwrap()),
             Some(Action::Focus(Direction::H))
+        );
+    }
+
+    #[test]
+    fn plugin_bindings_join_the_tables() {
+        let mut b = Bindings::from_config(&ClientConfig::default());
+        b.add_plugin(&[
+            Binding {
+                table: Table::Prefix,
+                key: "g".into(),
+                action: "zoom".into(),
+            },
+            Binding {
+                table: Table::Root,
+                key: "ctrl+g".into(),
+                action: "no such action".into(),
+            },
+        ]);
+        assert_eq!(
+            b.lookup(Table::Prefix, &Chord::parse("g").unwrap()),
+            Some(Action::Zoom)
+        );
+        assert_eq!(
+            b.lookup(Table::Root, &Chord::parse("ctrl+g").unwrap()),
+            None
         );
     }
 
