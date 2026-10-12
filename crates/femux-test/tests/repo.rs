@@ -157,7 +157,9 @@ fn build_002_rust_is_pinned() {
         channel.split('.').count() == 3 && channel.chars().all(|c| c.is_ascii_digit() || c == '.'),
         "{channel}"
     );
-    assert!(read("mise.toml").contains(&format!("rust = \"{channel}\"")));
+    let mise = read("mise.toml");
+    assert!(mise.contains(&format!("rust = {{ version = \"{channel}\"")), "mise.toml pins rust {channel}");
+    assert!(mise.contains("clippy"), "mise installs clippy (CI runs it)");
 }
 
 #[test]
