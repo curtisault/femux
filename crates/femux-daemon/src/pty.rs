@@ -24,6 +24,8 @@ pub struct SpawnSpec<'a> {
     pub env: Vec<(String, String)>,
     pub cols: u16,
     pub rows: u16,
+    /// One cell in pixels, for the pty's pixel size.
+    pub cell_px: (u32, u32),
 }
 
 /// A running pane process and the master side of its PTY.
@@ -33,19 +35,27 @@ pub struct Spawned {
     pub pid: u32,
 }
 
-fn winsize(cols: u16, rows: u16) -> Winsize {
+/// The window size with pixel dimensions from the cell size, so programs that size images
+/// from `TIOCGWINSZ` (kitten icat) see the real thing (REQ-GFX-001).
+fn winsize(cols: u16, rows: u16, cell: (u32, u32)) -> Winsize {
+    let (cols, rows) = (cols.max(1), rows.max(1));
+    let px = |n: u16, c: u32| (n as u32 * c).min(u16::MAX as u32) as u16;
     Winsize {
-        ws_row: rows.max(1),
-        ws_col: cols.max(1),
-        ws_xpixel: 0,
-        ws_ypixel: 0,
+        ws_row: rows,
+        ws_col: cols,
+        ws_xpixel: px(cols, cell.0),
+        ws_ypixel: px(rows, cell.1),
     }
 }
+
+/// The cell size panes start with, until a client reports one (femux-vt's default).
+pub const DEFAULT_CELL_PX: (u32, u32) = (10, 20);
 
 /// Spawns `spec` on a new PTY. The child gets its own session and process group with the
 /// PTY as controlling terminal (REQ-PTY-001).
 pub fn spawn(spec: &SpawnSpec) -> io::Result<Spawned> {
-    let pty = openpty(Some(&winsize(spec.cols, spec.rows)), None).map_err(io::Error::from)?;
+    let pty = openpty(Some(&winsize(spec.cols, spec.rows, spec.cell_px)), None)
+        .map_err(io::Error::from)?;
     let (master, slave) = (pty.master, pty.slave);
     let flags =
         OFlag::from_bits_truncate(fcntl(&master, FcntlArg::F_GETFL).map_err(io::Error::from)?);
@@ -94,8 +104,8 @@ pub fn spawn(spec: &SpawnSpec) -> io::Result<Spawned> {
 }
 
 /// Sets the PTY window size; the kernel sends SIGWINCH to the foreground group.
-pub fn resize(master: &impl AsFd, cols: u16, rows: u16) -> io::Result<()> {
-    let ws = winsize(cols, rows);
+pub fn resize(master: &impl AsFd, cols: u16, rows: u16, cell: (u32, u32)) -> io::Result<()> {
+    let ws = winsize(cols, rows, cell);
     // SAFETY: TIOCSWINSZ reads a winsize from a valid pointer.
     let r = unsafe {
         libc::ioctl(
@@ -189,6 +199,17 @@ pub fn default_env_allow() -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn winsize_carries_pixels_from_the_cell_size() {
+        let w = winsize(80, 24, (9, 18));
+        assert_eq!(
+            (w.ws_col, w.ws_row, w.ws_xpixel, w.ws_ypixel),
+            (80, 24, 720, 432)
+        );
+        assert_eq!(winsize(0, 0, DEFAULT_CELL_PX).ws_xpixel, 10);
+    }
+
     use super::*;
 
     #[test]

@@ -1315,7 +1315,14 @@
       "x": 3,
       "y": 2,
       "cols": 10,
-      "rows": 5
+      "rows": 5,
+      "image_id": 7,
+      "generation": 41,
+      "src_x": 0,
+      "src_y": 0,
+      "src_w": 200,
+      "src_h": 100,
+      "z": 0
      }
     ]
    }
@@ -1403,6 +1410,102 @@
      "hostname": "build-box",
      "cpu": "12.5"
     }
+   }
+  },
+  {
+   "dir": "request",
+   "kind": "image.read",
+   "body": {
+    "pane_id": "01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+    "image_id": 7,
+    "offset": 0
+   }
+  },
+  {
+   "dir": "response",
+   "kind": "image.read",
+   "body": {
+    "image_id": 7,
+    "format": "rgb",
+    "width": 2,
+    "height": 2,
+    "generation": 41,
+    "size": 12,
+    "offset": 0,
+    "data": "/wAA/wAA/wAA/wAA"
+   }
+  },
+  {
+   "dir": "request",
+   "kind": "image.list",
+   "body": {}
+  },
+  {
+   "dir": "response",
+   "kind": "image.list",
+   "body": {
+    "images": [
+     {
+      "pane_id": "01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "image_id": 7,
+      "format": "rgb",
+      "width": 2,
+      "height": 2,
+      "bytes": 12,
+      "placements": 1,
+      "visible": true
+     }
+    ]
+   }
+  },
+  {
+   "dir": "request",
+   "kind": "image.read",
+   "body": {
+    "pane_id": "01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+    "image_id": 7,
+    "offset": 0,
+    "shm": true
+   }
+  },
+  {
+   "dir": "response",
+   "kind": "image.read",
+   "body": {
+    "image_id": 7,
+    "format": "rgba",
+    "width": 510,
+    "height": 319,
+    "generation": 42,
+    "size": 650760,
+    "offset": 0,
+    "data": "",
+    "shm": "/femux-4242-17"
+   }
+  },
+  {
+   "dir": "request",
+   "kind": "image.read",
+   "body": {
+    "pane_id": "01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+    "image_id": 7,
+    "offset": 0,
+    "zlib": true
+   }
+  },
+  {
+   "dir": "response",
+   "kind": "image.read",
+   "body": {
+    "image_id": 7,
+    "format": "rgb",
+    "width": 2,
+    "height": 2,
+    "generation": 41,
+    "size": 13,
+    "offset": 0,
+    "data": "eJz7z8DwH4YAHe4D/Q==",
+    "zlib": true
    }
   }
  ]

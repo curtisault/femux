@@ -31,6 +31,8 @@ struct Sent {
     shape: u64,
     rows: Vec<u64>,
     cursor: u64,
+    /// The pane's visible image placements as last sent (REQ-GFX-001).
+    images: Vec<m::ImagePlacement>,
 }
 
 impl FrameState {
@@ -144,8 +146,13 @@ pub fn build(state: &std::sync::Mutex<State>, view_id: &str) -> Option<m::Frame>
     let plan = plan(&state.lock().unwrap(), view_id)?;
     let mut sent_updates = Vec::new();
     let mut panes = Vec::new();
+    let mut images = Vec::new();
+    let mut images_changed = false;
     for (pane_id, rect, vt, prev) in &plan.panes {
         let vt = vt.lock().unwrap();
+        let placed = crate::images::placements(pane_id, &vt);
+        images_changed |= prev.as_ref().is_none_or(|p| p.images != placed);
+        images.extend(placed.iter().cloned());
         let grid = vt.grid();
         let prev = prev.as_ref().filter(|s| s.shape == grid.shape_generation);
         let mut runs = Vec::new();
@@ -175,10 +182,11 @@ pub fn build(state: &std::sync::Mutex<State>, view_id: &str) -> Option<m::Frame>
                 shape: grid.shape_generation,
                 rows,
                 cursor: grid.cursor_generation,
+                images: placed,
             },
         ));
     }
-    if !plan.full && panes.is_empty() {
+    if !plan.full && panes.is_empty() && !images_changed {
         return None;
     }
 
@@ -208,6 +216,6 @@ pub fn build(state: &std::sync::Mutex<State>, view_id: &str) -> Option<m::Frame>
         full: plan.full,
         panes,
         tab: plan.info,
-        images: Vec::new(),
+        images,
     })
 }

@@ -50,6 +50,14 @@
         "name": {
           "type": "string",
           "description": "Host terminal name and version from XTVERSION, if known."
+        },
+        "cell_w": {
+          "$ref": "common.json#/$defs/U16",
+          "description": "Width of one cell in pixels, if the client measured it (CSI 16 t); sizes images (ADR-021)."
+        },
+        "cell_h": {
+          "$ref": "common.json#/$defs/U16",
+          "description": "Height of one cell in pixels, if the client measured it."
         }
       },
       "required": [

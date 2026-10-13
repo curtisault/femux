@@ -92,6 +92,7 @@ pub const SERVED: &[&str] = &[
     "frame",
     "layout",
     "notify",
+    "image",
     "pane",
     "plugin",
     "scrollback",
@@ -149,6 +150,8 @@ pub struct Daemon {
     pub resize_kick: Notify,
     pub shutdown: watch::Sender<bool>,
     pub started: Instant,
+    /// Compressed images and shared memory objects handed to clients (`image.read`).
+    pub images: crate::images::Shared,
 }
 
 /// Per-connection context passed to handlers.
@@ -166,6 +169,11 @@ fn host_caps(t: &m::TermCaps) -> HostCaps {
         fg: t.fg.map_or(d.fg, |[r, g, b]| (r, g, b)),
         bg: t.bg.map_or(d.bg, |[r, g, b]| (r, g, b)),
         cursor: t.cursor.map(|[r, g, b]| (r, g, b)),
+        images: t.kitty_graphics,
+        cell_px: match (t.cell_w, t.cell_h) {
+            (Some(w), Some(h)) if w > 0 && h > 0 => Some((w as u32, h as u32)),
+            _ => None,
+        },
     }
 }
 
@@ -217,6 +225,7 @@ impl Daemon {
             resize_kick: Notify::new(),
             shutdown: watch::channel(false).0,
             started: Instant::now(),
+            images: crate::images::Shared::default(),
         })
     }
 
@@ -386,6 +395,7 @@ impl Daemon {
             env,
             cols: pane.size.0,
             rows: pane.size.1,
+            cell_px: pane.vt.lock().unwrap().cell_px(),
         };
         let spawned = pty::spawn(&spec)
             .map_err(|e| (m::ErrorCode::Internal, format!("spawn failed: {e}")))?;
@@ -696,8 +706,8 @@ impl Daemon {
             }
             pane.size = size;
             pane.resizes += 1;
-            let _ = pty::resize(pane.master.as_ref(), size.0, size.1);
             let mut vt = pane.vt.lock().unwrap();
+            let _ = pty::resize(pane.master.as_ref(), size.0, size.1, vt.cell_px());
             let _ = vt.resize(size.0, size.1);
             let _ = vt.sync();
         }
@@ -755,7 +765,18 @@ impl Daemon {
             let Some(tab) = st.tabs.get(&t) else { continue };
             for p in tab.panes() {
                 if let Some(pane) = st.panes.get(&p) {
-                    let _ = pane.vt.lock().unwrap().set_host(&caps);
+                    let mut vt = pane.vt.lock().unwrap();
+                    let before = vt.cell_px();
+                    let _ = vt.set_host(&caps);
+                    // Programs read the pixel size from the pty (kitten icat): keep it true.
+                    if vt.cell_px() != before {
+                        let _ = pty::resize(
+                            pane.master.as_ref(),
+                            pane.size.0,
+                            pane.size.1,
+                            vt.cell_px(),
+                        );
+                    }
                 }
             }
         }
@@ -859,6 +880,30 @@ impl Daemon {
         use Request as Q;
         let run = || -> R<Response> {
             Ok(match req.clone() {
+                Q::ImageRead(r) => {
+                    let (vt, _) = self.terminal(&r.pane_id)?;
+                    let vt = vt.lock().unwrap();
+                    crate::images::read(&vt, &r, &self.images)?
+                }
+                Q::ImageList(r) => {
+                    let panes: Vec<(String, SharedTerminal)> = {
+                        let st = self.state.lock().unwrap();
+                        match &r.pane_id {
+                            Some(p) => vec![(p.clone(), st.pane(p)?.vt.clone())],
+                            None => st
+                                .panes
+                                .iter()
+                                .map(|(id, p)| (id.clone(), p.vt.clone()))
+                                .collect(),
+                        }
+                    };
+                    let mut images = Vec::new();
+                    for (id, vt) in panes {
+                        images.extend(crate::images::list(&id, &vt.lock().unwrap()));
+                    }
+                    images.sort_by(|a, b| (&a.pane_id, a.image_id).cmp(&(&b.pane_id, b.image_id)));
+                    Response::ImageList(m::ImageListOk { images })
+                }
                 Q::PaneInput(r) => {
                     let (vt, input) = self.terminal(&r.pane_id)?;
                     let mut out = Vec::new();
@@ -956,6 +1001,8 @@ impl Daemon {
         };
         match &req {
             Q::PaneInput(_)
+            | Q::ImageRead(_)
+            | Q::ImageList(_)
             | Q::ScrollbackRead(_)
             | Q::ScrollbackSearch(_)
             | Q::ScrollbackMarks(_)
@@ -1599,6 +1646,7 @@ impl Daemon {
                 }
                 Response::FrameAck(m::Empty {})
             }
+            Q::ImageRead(_) | Q::ImageList(_) => unreachable!(),
             Q::PaneInput(_)
             | Q::ScrollbackRead(_)
             | Q::ScrollbackSearch(_)

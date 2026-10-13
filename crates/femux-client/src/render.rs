@@ -833,6 +833,9 @@ fn draw_screen(screen: &PaneScreen, c: &mut Canvas, o: (usize, usize)) {
         let mut run_attr: Option<CellAttributes> = None;
         while x < end {
             let (text, attr, width) = match &row[x] {
+                // Kitty Unicode placeholders mark where an image goes; the image is drawn
+                // over a blank cell (REQ-GFX-001).
+                Some(cell) if cell.ch.starts_with('\u{10EEEE}') => (" ", attributes(cell), 1),
                 Some(cell) if !cell.ch.is_empty() => (
                     cell.ch.as_str(),
                     attributes(cell),

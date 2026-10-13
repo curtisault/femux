@@ -68,6 +68,10 @@ pub struct ClientConfig {
     pub bar_right: Vec<String>,
     /// `[infobar] interval_ms`: modules sample at most this often.
     pub bar_interval: Duration,
+    /// `[terminal] kitty_graphics` / `sixel`: show pane images on the host (REQ-GFX-*), when
+    /// the host supports them.
+    pub kitty_graphics: bool,
+    pub sixel: bool,
 }
 
 impl Default for ClientConfig {
@@ -90,6 +94,8 @@ impl Default for ClientConfig {
                 .map(String::from)
                 .to_vec(),
             bar_interval: Duration::from_millis(1000),
+            kitty_graphics: true,
+            sixel: true,
         }
     }
 }

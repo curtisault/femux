@@ -154,6 +154,45 @@ impl Term {
         self.parser.parse_as_vec(bytes, more)
     }
 
+    /// Input events available within `timeout`, returning early (with none) when `wake`
+    /// becomes readable; `wake` is drained.
+    pub fn read_or_wake(
+        &mut self,
+        timeout: Duration,
+        wake: std::os::fd::RawFd,
+    ) -> io::Result<Vec<InputEvent>> {
+        let mut fds = [
+            libc::pollfd {
+                fd: self.tty_in.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            },
+            libc::pollfd {
+                fd: wake,
+                events: libc::POLLIN,
+                revents: 0,
+            },
+        ];
+        // SAFETY: two valid pollfds.
+        let n = unsafe { libc::poll(fds.as_mut_ptr(), 2, timeout.as_millis() as i32) };
+        if n < 0 {
+            let e = errno();
+            if e.kind() == io::ErrorKind::Interrupted {
+                return Ok(Vec::new());
+            }
+            return Err(e);
+        }
+        if fds[1].revents != 0 {
+            let mut buf = [0u8; 256];
+            // SAFETY: draining a non-blocking pipe into a local buffer.
+            while unsafe { libc::read(wake, buf.as_mut_ptr() as *mut _, buf.len()) } > 0 {}
+        }
+        if fds[0].revents != 0 {
+            return self.read(Duration::ZERO);
+        }
+        Ok(self.parse(&[], false))
+    }
+
     /// Input events available within `timeout`.
     pub fn read(&mut self, timeout: Duration) -> io::Result<Vec<InputEvent>> {
         match self.read_raw(timeout)? {

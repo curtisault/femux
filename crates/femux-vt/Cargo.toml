@@ -7,6 +7,9 @@ links = "ghostty-vt"
 
 [dependencies]
 smol_str = "0.3"
+png = "0.18"
+base64 = "0.22"
+libc = "0.2"
 
 [[bench]]
 name = "diff"
