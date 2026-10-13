@@ -146,6 +146,55 @@ async fn ui_040_session_navigator_lists_attaches_renames_creates_and_kills() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn ui_040_prefix_shift_s_names_and_starts_a_session() {
+    let mut d = Drive::with(ClientConfig::default(), vec![], 120, 30).await;
+    let pane = d.pane.clone();
+    d.wait_pane_text(&pane, "$").await;
+    // esc cancels: nothing is created.
+    d.press_all(&["ctrl+space", "S"]).await;
+    let Overlay::Prompt { title, .. } = &d.app.overlay else {
+        panic!("no prompt: {:?}", d.app.overlay)
+    };
+    assert_eq!(title, "new session");
+    d.press("escape").await;
+    assert!(matches!(d.app.overlay, Overlay::None));
+    assert_eq!(sessions(&mut d).await, ["s"]);
+    // A taken name is refused and named in the status line; the client stays put.
+    d.press_all(&["ctrl+space", "S"]).await;
+    let Overlay::Prompt { input, .. } = &d.app.overlay else {
+        panic!("no prompt")
+    };
+    for _ in 0..input.chars().count() {
+        d.press("backspace").await;
+    }
+    d.type_text("s").await;
+    d.press("enter").await;
+    pump(&mut d).await;
+    assert!(
+        d.app
+            .message
+            .as_deref()
+            .is_some_and(|m| m.contains("exists")),
+        "{:?}",
+        d.app.message
+    );
+    assert_eq!(d.app.model.session, "s");
+    // A new name creates the session and switches to it.
+    d.press_all(&["ctrl+space", "S"]).await;
+    let Overlay::Prompt { input, .. } = &d.app.overlay else {
+        panic!("no prompt")
+    };
+    for _ in 0..input.chars().count() {
+        d.press("backspace").await;
+    }
+    d.type_text("work").await;
+    d.press("enter").await;
+    d.until("attached to work", |a| a.model.session == "work")
+        .await;
+    assert!(sessions(&mut d).await.contains(&"work".to_owned()));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn ui_041_pane_navigator_previews_panes_live_and_goes_to_them() {
     let mut d = Drive::with(ClientConfig::default(), vec![], 120, 30).await;
     let first = d.pane.clone();

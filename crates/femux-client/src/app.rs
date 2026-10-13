@@ -115,6 +115,10 @@ pub enum Confirm {
 pub enum PromptKind {
     RenameTab(String),
     NewSession,
+    /// `prefix S`: create a session rooted at `root`, then switch to it.
+    StartSession {
+        root: Option<String>,
+    },
     RenameSession(String),
 }
 
@@ -163,6 +167,8 @@ enum Pending {
     ImageRead(String, u32),
     /// The pane `prefix F` split off, to float.
     ScratchFloat,
+    /// A session `prefix S` created; switch to it.
+    StartSession,
     /// Attaching to another session; then focus a pane, then kill the old session.
     Switch {
         focus: Option<String>,
@@ -890,6 +896,9 @@ impl App {
                     dir: None,
                 });
             }
+            (Pending::StartSession, Response::SessionCreate(s)) => {
+                self.attach_to(s.name, None, None, None);
+            }
             (Pending::NewTab, Response::TabCreate(t)) => {
                 let view_id = self.model.view_id.clone();
                 self.quiet(m::TabSelect {
@@ -1017,6 +1026,16 @@ impl App {
                                     root: None,
                                     file: None,
                                 });
+                            }
+                            PromptKind::StartSession { root } => {
+                                self.send(
+                                    m::SessionCreate {
+                                        name: input,
+                                        root,
+                                        file: None,
+                                    },
+                                    Pending::StartSession,
+                                );
                             }
                             PromptKind::RenameSession(old) => {
                                 if old == self.model.session {
@@ -1338,6 +1357,26 @@ impl App {
                 self.overlay =
                     Overlay::Navigator(crate::nav::NavState::new(kind, &self.model.session));
                 self.refresh_dir();
+            }
+            Action::NewSession => {
+                // Offer the focused pane's directory as both name and root.
+                let cwd = self
+                    .model
+                    .focused_id()
+                    .and_then(|p| self.model.panes.get(&p))
+                    .map(|p| p.cwd.clone())
+                    .filter(|c| !c.is_empty());
+                let name = cwd
+                    .as_deref()
+                    .filter(|c| std::env::var("HOME").ok().as_deref() != Some(*c))
+                    .and_then(|c| std::path::Path::new(c).file_name())
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                self.overlay = Overlay::Prompt {
+                    title: "new session".into(),
+                    input: name,
+                    what: PromptKind::StartSession { root: cwd },
+                };
             }
             Action::SideNav => {
                 self.sidenav_open = !self.sidenav_open;

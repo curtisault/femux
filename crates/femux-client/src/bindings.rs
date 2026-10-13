@@ -32,6 +32,7 @@ pub enum Action {
     CopyMode,
     Paste,
     SessionNav,
+    NewSession,
     PaneNav,
     Palette,
     SideNav,
@@ -143,6 +144,7 @@ pub const ALL: &[Action] = &[
     Action::CopyMode,
     Action::Paste,
     Action::SessionNav,
+    Action::NewSession,
     Action::PaneNav,
     Action::Palette,
     Action::SideNav,
@@ -225,6 +227,7 @@ impl Action {
             CopyMode => "copy",
             Paste => "paste",
             SessionNav => "sessions",
+            NewSession => "new session",
             PaneNav => "panes",
             Palette => "palette",
             SideNav => "sidenav",
@@ -311,6 +314,7 @@ impl Action {
             CopyMode => "copy mode".into(),
             Paste => "paste".into(),
             SessionNav => "session navigator".into(),
+            NewSession => "new session (asks for a name)".into(),
             PaneNav => "pane navigator".into(),
             Palette => "command palette".into(),
             SideNav => "side nav".into(),
@@ -337,7 +341,7 @@ impl Action {
             | FloatNext | FloatPrev | Broadcast | Record => "panes",
             SplitDown | SplitRight | ClosePane | Equalize | SwapNext | Scheme(_) => "splits",
             NewTab | RenameTab | NextTab | PrevTab | Tab(_) => "tabs",
-            SetMark | JumpMark | Marks | CopyMode | Paste | Detach => "session",
+            SetMark | JumpMark | Marks | CopyMode | Paste | NewSession | Detach => "session",
             SessionNav | PaneNav | Palette | SideNav | Inbox | Help | NormalMode | SendPrefix => {
                 "ui"
             }
@@ -385,6 +389,7 @@ const PREFIX: &[(&str, Action)] = &[
     ("t", Action::NewTab),
     ("T", Action::RenameTab),
     ("n", Action::NextTab),
+    ("p", Action::PrevTab),
     ("N", Action::PrevTab),
     ("1", Action::Tab(1)),
     ("2", Action::Tab(2)),
@@ -402,8 +407,9 @@ const PREFIX: &[(&str, Action)] = &[
     ("o", Action::FloatNext),
     ("O", Action::FloatPrev),
     ("[", Action::CopyMode),
-    ("p", Action::Paste),
+    ("]", Action::Paste),
     ("s", Action::SessionNav),
+    ("S", Action::NewSession),
     ("w", Action::PaneNav),
     (":", Action::Palette),
     ("b", Action::SideNav),
@@ -629,18 +635,20 @@ mod tests {
         assert_eq!(p("t"), Some(Action::NewTab));
         assert_eq!(p("T"), Some(Action::RenameTab));
         assert_eq!(p("n"), Some(Action::NextTab));
+        assert_eq!(p("p"), Some(Action::PrevTab));
         assert_eq!(p("N"), Some(Action::PrevTab));
         assert_eq!(p("9"), Some(Action::Tab(9)));
         assert_eq!(p("m"), Some(Action::SetMark));
         assert_eq!(p("'"), Some(Action::JumpMark));
         assert_eq!(p("["), Some(Action::CopyMode));
-        assert_eq!(p("p"), Some(Action::Paste));
+        assert_eq!(p("]"), Some(Action::Paste));
         assert_eq!(p("s"), Some(Action::SessionNav));
+        assert_eq!(p("S"), Some(Action::NewSession));
         assert_eq!(p("w"), Some(Action::PaneNav));
         assert_eq!(p("o"), Some(Action::FloatNext));
         assert_eq!(p("O"), Some(Action::FloatPrev));
         assert_eq!(p("v"), None, "split right left `v` for `|`");
-        assert_eq!(p("S"), None, "navigators are lowercase");
+        assert_eq!(p("W"), None, "navigators are lowercase");
         assert_eq!(p(":"), Some(Action::Palette));
         assert_eq!(p("b"), Some(Action::SideNav));
         assert_eq!(p("d"), Some(Action::Detach));

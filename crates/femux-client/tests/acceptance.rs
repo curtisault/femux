@@ -85,7 +85,7 @@ async fn copy_mode_search_selects_and_yanks() {
     );
     // ] pastes it back into the pane.
     d.sent.clear();
-    d.press_all(&["ctrl+space", "p"]).await;
+    d.press_all(&["ctrl+space", "]"]).await;
     assert!(
         d.sent
             .iter()
@@ -180,7 +180,7 @@ async fn all_default_bindings_work() {
         x.model.tabs[1].custom_title.as_deref() == Some("two")
     })
     .await;
-    d.press_all(&["ctrl+space", "N"]).await;
+    d.press_all(&["ctrl+space", "p"]).await;
     d.until("tab 1", |x| x.model.current == x.model.tabs[0].id)
         .await;
     d.press_all(&["ctrl+space", "n"]).await;
@@ -201,7 +201,7 @@ async fn all_default_bindings_work() {
     d.press_all(&["ctrl+space", "["]).await;
     assert_eq!(d.app.mode, Mode::Copy);
     d.press("q").await;
-    d.press_all(&["ctrl+space", "p"]).await;
+    d.press_all(&["ctrl+space", "]"]).await;
     assert_eq!(d.app.message.as_deref(), Some("nothing to paste"));
     d.press_all(&["ctrl+space", ":"]).await;
     assert!(matches!(d.app.overlay, Overlay::Palette(_)));

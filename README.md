@@ -48,8 +48,8 @@ Inside femux, press `ctrl+space` to reach the prefix table. Wait a moment and a 
 every chord; `ctrl+space d` detaches and leaves everything running. `ctrl+space :` opens the
 command palette, `ctrl+space s` and `ctrl+space w` the session and pane navigators, and
 `ctrl+space b` the side nav. Lowercase letters act or open the list they name; shift on a letter
-means the same thing the other way or its overview (`n`/`N` tabs, `o`/`O` floats, `m`/`M` marks).
-Splits are `-` and `|`.
+means the same thing the other way, its overview or a new one (`n`/`N` tabs, `o`/`O` floats,
+`m`/`M` marks, `s`/`S` sessions). Splits are `-` and `|`; `p` is the previous tab and `]` pastes.
 
 To jump between prompts in copy mode and keep each pane's directory accurate, load the shell
 integration from your shell's rc file:
