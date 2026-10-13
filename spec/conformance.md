@@ -159,7 +159,7 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | --- | --- | --- |
 | REQ-UI-010 (`[layout] scheme`, `gaps`) | femux-daemon `layout::tests::gaps_widen_every_separator_and_give_way_when_space_is_short`; femux-test `scheme::layout_config_sets_the_scheme_and_gaps`; femux-client `render::tests::borders_run_down_the_middle_of_gaps` | pass |
 | REQ-UI-051 (background before mode 2031, colors from the terminal) | femux-client `theme::tests::picks_by_name_then_background_then_mode`, `theme::tests::terminal_theme_takes_the_hosts_colors` | pass |
-| REQ-UI-021 (shell titles) | femux-client `ui_tabs::ui_021_title_precedence`, `ui_tabs::ui_020_tab_strip_shows_running_urgent_and_zoom` | pass |
+| REQ-UI-021 (shell titles) | femux-client `ui_tabs::ui_021_title_precedence`, `ui_tabs::ui_020_tab_strip_shows_running_urgent_and_zoom`, `nav::tests::ui_021_navigator_tab_titles_match_the_tab_strip` | pass |
 | REQ-UI-030 (padding, no TERMINAL label or prefix hint) | femux-client `ui_bar::ui_030_the_bar_sits_on_any_side_and_the_panes_move_over` | pass |
 
 ## 0.7.0

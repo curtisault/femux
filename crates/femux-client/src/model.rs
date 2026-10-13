@@ -58,6 +58,26 @@ impl PaneScreen {
     }
 }
 
+/// A tab's title from its focused pane (REQ-UI-021), for the attached session and the
+/// navigators alike. `shell_fg`: the pane's own shell is in the foreground.
+pub fn pane_title(cwd: &str, shell_fg: bool, fg_cmd: &str, title: &str) -> String {
+    let dir = short_dir(cwd);
+    if shell_fg && !fg_cmd.is_empty() {
+        return if dir.is_empty() {
+            fg_cmd.to_owned()
+        } else {
+            format!("{fg_cmd} {dir}")
+        };
+    }
+    if !title.is_empty() {
+        return title.to_owned();
+    }
+    if !fg_cmd.is_empty() {
+        return fg_cmd.to_owned();
+    }
+    dir
+}
+
 /// `~` for the home directory, else the last path component (`/` for the root).
 pub fn short_dir(cwd: &str) -> String {
     if cwd.is_empty() {
@@ -242,21 +262,7 @@ impl Model {
         let Some(p) = self.panes.get(&tab.focus) else {
             return String::new();
         };
-        let dir = short_dir(&p.cwd);
-        if p.known && !p.running() && !p.fg_cmd.is_empty() {
-            return if dir.is_empty() {
-                p.fg_cmd.clone()
-            } else {
-                format!("{} {dir}", p.fg_cmd)
-            };
-        }
-        if !p.title.is_empty() {
-            return p.title.clone();
-        }
-        if !p.fg_cmd.is_empty() {
-            return p.fg_cmd.clone();
-        }
-        dir
+        pane_title(&p.cwd, p.known && !p.running(), &p.fg_cmd, &p.title)
     }
 
     /// Whether any pane of `tab` is a restored shell (REQ-STORE-008).

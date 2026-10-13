@@ -30,6 +30,19 @@ impl DirSession {
         out
     }
 
+    /// The tab strip's title for `t` (REQ-UI-021), so the navigators agree with it.
+    pub fn tab_title(&self, t: &m::TabSnapshot) -> String {
+        if let Some(c) = &t.custom_title {
+            return c.clone();
+        }
+        match self.panes.get(&t.focus) {
+            Some(p) if p.pid != 0 && p.fg_pid == p.pid => {
+                crate::model::pane_title(&p.cwd, true, &p.fg_cmd, &p.title)
+            }
+            _ => t.title.clone(),
+        }
+    }
+
     /// `agent.state` -> count over the session's panes.
     pub fn agents(&self) -> BTreeMap<String, usize> {
         let mut out = BTreeMap::new();
@@ -189,8 +202,9 @@ pub fn rows(nav: &NavState, dir: &Directory, current: &str) -> Vec<Row> {
     let mut out = Vec::new();
     for s in &dir.sessions {
         let name = &s.summary.name;
-        let tab_hit =
-            |t: &m::TabSnapshot| matches(&nav.filter, &t.title) || matches(&nav.filter, name);
+        let tab_hit = |t: &m::TabSnapshot| {
+            matches(&nav.filter, &s.tab_title(t)) || matches(&nav.filter, name)
+        };
         if !matches(&nav.filter, name) && !s.tabs.iter().any(tab_hit) {
             continue;
         }
@@ -226,7 +240,7 @@ pub fn rows(nav: &NavState, dir: &Directory, current: &str) -> Vec<Row> {
         }
         for t in s.tabs.iter().filter(|t| tab_hit(t)) {
             let panes = DirSession::tab_panes(t);
-            let mut label = vec![Span::text(format!("{} {}", t.index + 1, t.title))];
+            let mut label = vec![Span::text(format!("{} {}", t.index + 1, s.tab_title(t)))];
             if t.zoomed {
                 label.push(Span::new(" Z", Style::Muted));
             }
@@ -690,6 +704,34 @@ mod tests {
         );
         nav.filter = "zzz".into();
         assert!(rows(&nav, &d, "api").is_empty());
+    }
+
+    #[test]
+    fn ui_021_navigator_tab_titles_match_the_tab_strip() {
+        let mut d = dir();
+        // The shell in the foreground: `<shell> <dir>`, not its OSC 2 `~ - fish`.
+        d.on_pane(
+            "writing",
+            m::PaneInfoOk {
+                id: "D".into(),
+                pid: 7,
+                fg_pid: 7,
+                fg_cmd: "fish".into(),
+                title: "~ - fish".into(),
+                cwd: "/w/notes".into(),
+                ..Default::default()
+            },
+        );
+        let mut nav = NavState::new(NavKind::Sessions, "writing");
+        nav.expanded.insert("writing".into());
+        let t = texts(&rows(&nav, &d, "writing"));
+        assert!(t.contains(&"  tab 1 fish notes".to_owned()), "{t:#?}");
+        // A program in the foreground keeps the daemon's title; a rename beats both.
+        let s = d.sessions.iter().find(|s| s.summary.name == "api").unwrap();
+        assert_eq!(s.tab_title(&s.tabs[1]), "agents");
+        let mut renamed = s.tabs[1].clone();
+        renamed.custom_title = Some("mine".into());
+        assert_eq!(s.tab_title(&renamed), "mine");
     }
 
     #[test]

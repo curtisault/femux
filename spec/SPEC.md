@@ -308,7 +308,7 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
 - REQ-UI-020: The tab strip shows index, title, a running indicator when the fg process is not the shell, an urgency marker on bell or agent state change in an unfocused tab, and a zoom marker.
   Note: "not the shell" is `pane.info.fg_pid != pid` (ADR-016 #1); urgency (`!`) comes from `pane.bell` or a `pane.meta_changed` setting `agent.state` and clears when the tab is selected; zoom shows `Z`.
 - REQ-UI-021: Title precedence: user rename > OSC 2 > fg command > cwd basename.
-  Note (0.6.1): while the shell itself is in the foreground (the pane runs no other program), the title is `<shell> <dir>` (`~` for home, else the last path component) instead of the shell's OSC 2 title, which is usually that same information spelled `~ - fish`. A program's OSC 2 title still beats its command name.
+  Note (0.6.1): while the shell itself is in the foreground (the pane runs no other program), the title is `<shell> <dir>` (`~` for home, else the last path component) instead of the shell's OSC 2 title, which is usually that same information spelled `~ - fish`. A program's OSC 2 title still beats its command name. The session navigator and window navigator show the same titles as the tab strip.
 
 ### 5.4 Info bar
 
