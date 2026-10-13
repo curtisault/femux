@@ -530,7 +530,7 @@ cwd = "~/writing/notes"
 
 ## 11. CLI
 
-`femux` (attach or start), `femux daemon [--foreground]`, `femux attach [session] [--host h] [--stdio]`, `femux ls`, `femux new <name>`, `femux kill <name>`, `femux launch <name|file>`, `femux tab new|close|rename|select`, `femux pane split|close|focus|resize|info|set|cat|signal|respawn`, `femux layout save|load|list|export`, `femux agent …`, `femux integration install|uninstall`, `femux keys list|explain`, `femux config check|edit`, `femux reload`, `femux reload`, `femux update [--check]`, `femux hosts add|list|rm`, `femux notify test`.
+`femux` (attach or start), `femux daemon [--foreground]`, `femux attach [session] [--host h] [--stdio]`, `femux ls`, `femux new <name>`, `femux kill <name>`, `femux launch <name|file>`, `femux tab new|close|rename|select`, `femux pane split|close|focus|resize|info|set|cat|signal|respawn`, `femux layout save|load|list|export`, `femux agent …`, `femux integration install|uninstall`, `femux keys list|explain`, `femux config check|edit`, `femux reload`, `femux reload`, `femux update [--check]`, `femux hosts add|list|rm`, `femux notify test`, `femux graphics list [pane]`.
 
 - REQ-CLI-001: Every subcommand has `--json` output.
 - REQ-CLI-002: Inside a pane, commands default to that pane (`$FEMUX_PANE`).
