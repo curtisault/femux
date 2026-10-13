@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://femux.dev/protocol/image.json",
+  "title": "femux protocol: images",
+  "description": "Image data for frame.images placements (REQ-GFX-001..004, ADR-021). Pixels stay in the daemon; a client reads each image once per generation, in chunks that fit a frame.",
+  "$defs": {
+    "ImageFormat": {
+      "type": "string",
+      "enum": [
+        "rgb",
+        "rgba"
+      ],
+      "description": "8-bit pixels, rows top to bottom."
+    },
+    "ImageRead": {
+      "type": "object",
+      "properties": {
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        },
+        "image_id": {
+          "$ref": "common.json#/$defs/U32"
+        },
+        "offset": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "Byte offset into the image data (into the compressed data when `zlib`)."
+        },
+        "shm": {
+          "type": "boolean",
+          "description": "Put the image in a POSIX shared memory object instead of `data` (a client on the daemon's machine whose host reads Kitty `t=s`)."
+        },
+        "zlib": {
+          "type": "boolean",
+          "description": "Send `data` zlib-compressed (a remote client: its host inflates Kitty `o=z` payloads)."
+        }
+      },
+      "required": [
+        "pane_id",
+        "image_id",
+        "offset"
+      ]
+    },
+    "ImageReadOk": {
+      "type": "object",
+      "properties": {
+        "image_id": {
+          "$ref": "common.json#/$defs/U32"
+        },
+        "format": {
+          "$ref": "#/$defs/ImageFormat"
+        },
+        "width": {
+          "$ref": "common.json#/$defs/U32"
+        },
+        "height": {
+          "$ref": "common.json#/$defs/U32"
+        },
+        "generation": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "size": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "Bytes of image data in all (compressed bytes when `zlib`)."
+        },
+        "offset": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "data": {
+          "type": "string",
+          "description": "Base64 of the bytes from offset, at most 6 MiB of them (a multiple of 3, so chunks concatenate)."
+        },
+        "shm": {
+          "type": "string",
+          "description": "With `shm`: the shared memory object holding all `size` bytes; `data` is empty. The reader passes it on to its host, which unlinks it."
+        },
+        "zlib": {
+          "type": "boolean",
+          "description": "`data` is zlib-compressed; `size` and `offset` count compressed bytes."
+        }
+      },
+      "required": [
+        "image_id",
+        "format",
+        "width",
+        "height",
+        "generation",
+        "size",
+        "offset",
+        "data"
+      ]
+    },
+    "ImageList": {
+      "type": "object",
+      "properties": {
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId",
+          "description": "One pane; every pane when absent."
+        }
+      }
+    },
+    "ImageInfo": {
+      "type": "object",
+      "properties": {
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        },
+        "image_id": {
+          "$ref": "common.json#/$defs/U32"
+        },
+        "format": {
+          "$ref": "#/$defs/ImageFormat"
+        },
+        "width": {
+          "$ref": "common.json#/$defs/U32"
+        },
+        "height": {
+          "$ref": "common.json#/$defs/U32"
+        },
+        "bytes": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "placements": {
+          "$ref": "common.json#/$defs/U32"
+        },
+        "visible": {
+          "type": "boolean",
+          "description": "Some placement is on the pane's screen."
+        }
+      },
+      "required": [
+        "pane_id",
+        "image_id",
+        "format",
+        "width",
+        "height",
+        "bytes",
+        "placements",
+        "visible"
+      ]
+    },
+    "ImageListOk": {
+      "type": "object",
+      "properties": {
+        "images": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ImageInfo"
+          }
+        }
+      },
+      "required": [
+        "images"
+      ]
+    }
+  },
+  "x-messages": [
+    {
+      "kind": "image.read",
+      "request": "ImageRead",
+      "response": "ImageReadOk"
+    },
+    {
+      "kind": "image.list",
+      "request": "ImageList",
+      "response": "ImageListOk"
+    }
+  ]
+}

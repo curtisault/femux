@@ -111,22 +111,57 @@
       "type": "object",
       "properties": {
         "id": {
-          "$ref": "common.json#/$defs/U32"
+          "$ref": "common.json#/$defs/U32",
+          "description": "Placement id within the image (Kitty `p`; 0 when the program gave none)."
         },
         "pane_id": {
           "$ref": "common.json#/$defs/PaneId"
         },
         "x": {
-          "$ref": "common.json#/$defs/I32"
+          "$ref": "common.json#/$defs/I32",
+          "description": "Column of the top-left cell, relative to the pane; negative when cut off."
         },
         "y": {
-          "$ref": "common.json#/$defs/I32"
+          "$ref": "common.json#/$defs/I32",
+          "description": "Row of the top-left cell, relative to the pane; negative when scrolled partly off."
         },
         "cols": {
           "$ref": "common.json#/$defs/U16"
         },
         "rows": {
           "$ref": "common.json#/$defs/U16"
+        },
+        "image_id": {
+          "$ref": "common.json#/$defs/U32",
+          "description": "The pane's image (Kitty `i`; sixels get ids of their own, ADR-021)."
+        },
+        "generation": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "Changes whenever the image's pixels do; clients refetch then."
+        },
+        "src_x": {
+          "$ref": "common.json#/$defs/U32"
+        },
+        "src_y": {
+          "$ref": "common.json#/$defs/U32"
+        },
+        "src_w": {
+          "$ref": "common.json#/$defs/U32",
+          "description": "The part of the image shown, in pixels."
+        },
+        "src_h": {
+          "$ref": "common.json#/$defs/U32"
+        },
+        "x_off": {
+          "$ref": "common.json#/$defs/U32",
+          "description": "Pixel offset inside the first cell."
+        },
+        "y_off": {
+          "$ref": "common.json#/$defs/U32"
+        },
+        "z": {
+          "$ref": "common.json#/$defs/I32",
+          "description": "Negative: below text."
         }
       },
       "required": [
@@ -135,8 +170,16 @@
         "x",
         "y",
         "cols",
-        "rows"
-      ]
+        "rows",
+        "image_id",
+        "generation",
+        "src_x",
+        "src_y",
+        "src_w",
+        "src_h",
+        "z"
+      ],
+      "description": "An image on screen (REQ-GFX-001, REQ-UI-052): position and size in cells relative to the pane, the part of the image shown, and what to fetch with image.read."
     },
     "Frame": {
       "type": "object",

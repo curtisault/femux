@@ -38,6 +38,8 @@ pub fn client(c: &Config) -> ClientConfig {
         bar_left: c.infobar.left.clone(),
         bar_right: c.infobar.right.clone(),
         bar_interval: Duration::from_millis(c.infobar.interval_ms),
+        kitty_graphics: c.terminal.kitty_graphics,
+        sixel: c.terminal.sixel,
     }
 }
 

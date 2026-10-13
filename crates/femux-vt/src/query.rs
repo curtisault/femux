@@ -15,6 +15,11 @@ pub struct HostCaps {
     pub fg: (u8, u8, u8),
     pub bg: (u8, u8, u8),
     pub cursor: Option<(u8, u8, u8)>,
+    /// One cell in pixels, when the client measured it (images, pixel size reports).
+    pub cell_px: Option<(u32, u32)>,
+    /// The client draws images (Kitty graphics on its host): sixel is advertised (DA1 4),
+    /// since femux turns sixels into Kitty images (REQ-GFX-002).
+    pub images: bool,
 }
 
 impl Default for HostCaps {
@@ -23,6 +28,8 @@ impl Default for HostCaps {
             fg: (0xd0, 0xd0, 0xd0),
             bg: (0, 0, 0),
             cursor: None,
+            cell_px: None,
+            images: false,
         }
     }
 }
@@ -45,16 +52,21 @@ unsafe extern "C" fn on_xtversion(_t: ffi::GhosttyTerminal, ud: *mut c_void) -> 
 
 unsafe extern "C" fn on_device_attributes(
     _t: ffi::GhosttyTerminal,
-    _ud: *mut c_void,
+    ud: *mut c_void,
     out: *mut ffi::GhosttyDeviceAttributes,
 ) -> bool {
-    // VT220 with ANSI color: what femux implements regardless of the host terminal.
-    // Sixel (4) is not advertised until femux passes sixel through (0.7.0).
+    // VT220 with ANSI color: what femux implements regardless of the host terminal; sixel
+    // (4) when the attached client can show images (REQ-GFX-002).
+    let images = effects(ud).host.images;
     let out = unsafe { &mut *out };
     out.primary.conformance_level = 62;
     out.primary.features = [0; 64];
     out.primary.features[0] = 22;
     out.primary.num_features = 1;
+    if images {
+        out.primary.features[1] = ffi::GHOSTTY_DA_FEATURE_SIXEL as _;
+        out.primary.num_features = 2;
+    }
     out.secondary.device_type = 1;
     out.secondary.firmware_version = version_number();
     out.secondary.rom_cartridge = 0;
@@ -139,6 +151,9 @@ impl Terminal {
         if self.host_set && self.effects.host == *caps {
             return Ok(());
         }
+        if let Some((w, h)) = caps.cell_px {
+            self.set_cell_px(w, h)?;
+        }
         self.host_set = true;
         use ffi::GhosttyTerminalOption as O;
         let (fg, bg) = (rgb(caps.fg), rgb(caps.bg));
@@ -206,6 +221,8 @@ mod tests {
             fg: (0x10, 0x20, 0x30),
             bg: (0xff, 0xff, 0xf0),
             cursor: Some((1, 2, 3)),
+            cell_px: None,
+            images: false,
         })
         .unwrap();
         assert_eq!(

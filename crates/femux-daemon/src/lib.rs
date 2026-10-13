@@ -5,6 +5,7 @@
 pub mod bus;
 mod daemon;
 mod frames;
+mod images;
 pub mod layout;
 #[cfg(target_os = "linux")]
 mod logind;

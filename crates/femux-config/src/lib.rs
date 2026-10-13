@@ -230,6 +230,7 @@ section!(Plugins {
         "which-key",
         "launcher",
         "hosts",
+        "graphics",
     ]),
 });
 

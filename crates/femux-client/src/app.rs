@@ -157,6 +157,8 @@ enum Pending {
     Preview(String),
     /// The last screen line of an inbox pane.
     InboxLine(String),
+    /// A chunk of a pane's image (pane, image id).
+    ImageRead(String, u32),
     /// Attaching to another session; then focus a pane, then kill the old session.
     Switch {
         focus: Option<String>,
@@ -226,6 +228,10 @@ pub struct App {
     pub link_status: Option<String>,
     /// The daemon host's values from the `hosts` plugin (`plugin.data`), for `remote:` modules.
     pub remote_data: std::collections::BTreeMap<String, String>,
+    /// Images on the host (REQ-GFX-001); enabled by the run loop when the host supports them.
+    pub graphics: crate::graphics::Graphics,
+    /// The latest frame's image placements.
+    pub frame_images: Vec<m::ImagePlacement>,
     pub cols: u16,
     pub rows: u16,
     out: Vec<(u64, Request)>,
@@ -312,6 +318,8 @@ impl App {
             remote: None,
             link_status: None,
             remote_data: std::collections::BTreeMap::new(),
+            graphics: crate::graphics::Graphics::new(false),
+            frame_images: Vec::new(),
             return_to: None,
         };
         app.modules = app
@@ -411,6 +419,41 @@ impl App {
         if self.link_status.as_ref() != Some(&text) {
             self.link_status = Some(text);
             self.dirty = true;
+        }
+    }
+
+    /// Brings the host's images up to date with the latest frame (REQ-GFX-001): each pane's
+    /// placements at its screen position, none while a full-screen overlay hides the panes.
+    /// Starts the image reads that are needed; the run loop writes `graphics.take_output()`.
+    pub fn sync_graphics(&mut self) {
+        if !self.graphics.enabled {
+            return;
+        }
+        let hidden = matches!(
+            self.overlay,
+            Overlay::Navigator(_) | Overlay::Inbox(_) | Overlay::Palette(_) | Overlay::Help
+        );
+        let area = self.layout().panes;
+        let wanted: Vec<(m::ImagePlacement, m::Rect)> = if hidden {
+            Vec::new()
+        } else {
+            self.frame_images
+                .iter()
+                .filter_map(|p| {
+                    let r = &self.model.panes.get(&p.pane_id)?.screen.as_ref()?.rect;
+                    let rect = m::Rect {
+                        x: area.x + r.x,
+                        y: area.y + r.y,
+                        w: r.w,
+                        h: r.h,
+                    };
+                    Some((p.clone(), rect))
+                })
+                .collect()
+        };
+        for read in self.graphics.update(&wanted) {
+            let key = (read.pane_id.clone(), read.image_id);
+            self.send(read, Pending::ImageRead(key.0, key.1));
         }
     }
 
@@ -605,6 +648,7 @@ impl App {
         match msg {
             ServerMsg::Push(Push::Frame(f)) => {
                 self.model.on_frame(&f);
+                self.frame_images = f.images.clone();
                 if let Some(cm) = &self.copy
                     && !self.model.panes.contains_key(&cm.pane)
                 {
@@ -673,7 +717,9 @@ impl App {
             Ok(r) => r,
             Err(e) => {
                 // A failed detach (the view is already gone) still ends the client.
-                if matches!(p, Pending::Detach) {
+                if let Pending::ImageRead(pane, image) = &p {
+                    self.graphics.read_failed(pane, *image);
+                } else if matches!(p, Pending::Detach) {
                     self.effects.push(Effect::Exit);
                 } else if !matches!(p, Pending::Info | Pending::Quiet) {
                     self.message = Some(e.message);
@@ -683,6 +729,12 @@ impl App {
         };
         match (p, r) {
             (Pending::Info, Response::PaneInfo(i)) => self.model.on_pane_info(&i),
+            (Pending::ImageRead(pane, _), Response::ImageRead(r)) => {
+                if let Some(next) = self.graphics.on_read(&pane, &r) {
+                    let image = next.image_id;
+                    self.send(next, Pending::ImageRead(pane, image));
+                }
+            }
             (Pending::NewTab, Response::TabCreate(t)) => {
                 let view_id = self.model.view_id.clone();
                 self.quiet(m::TabSelect {

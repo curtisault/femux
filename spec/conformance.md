@@ -76,7 +76,7 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-UI-021 | femux-client `ui_tabs::ui_021_title_precedence`; femux-daemon `state::State::tab_title` via femux-test `session::*` | pass |
 | REQ-UI-050 | femux-client `tests::paint_writes_only_the_diff_inside_synchronized_output`, `probe::tests::parses_answers_and_keeps_the_rest` | pass |
 | REQ-UI-051 | femux-client `theme::tests::picks_by_name_mode_or_background`, `theme::tests::plugin_palettes_win_and_their_errors_fall_back`, `probe::tests::parses_answers_and_keeps_the_rest`; femux-plugin-theme `tests::*` | pass |
-| REQ-UI-052 | femux-client `graphics::tests::placements_are_offset_and_clipped`, `graphics::tests::kitty_commands_carry_offsets_and_crops` | pass |
+| REQ-UI-052 | femux-client `graphics::tests::ui_052_placements_are_offset_and_clipped`, `graphics::tests::put_commands_crop_the_source_to_the_visible_cells`, `ui_graphics::gfx_001_images_reach_the_host_at_the_pane_position` | pass |
 | REQ-UI-053 | femux-client `ui_mouse::ui_053_mouse_focuses_forwards_and_can_be_disabled` | pass |
 | Acceptance (0.2.0) | femux-client `acceptance::all_default_bindings_work`, `acceptance::copy_mode_search_selects_and_yanks`; femux-cli `binary::arch_004_plain_femux_starts_a_daemon_and_attaches` (daily driver on a PTY) | pass |
 | REQ-UI-012 | femux-cli `cli::ui_012_layout_templates_save_load_list_export`, `layouts::tests::nodes_roundtrip_through_json` | pass |
@@ -161,3 +161,15 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-UI-051 (background before mode 2031, colors from the terminal) | femux-client `theme::tests::picks_by_name_then_background_then_mode`, `theme::tests::terminal_theme_takes_the_hosts_colors` | pass |
 | REQ-UI-021 (shell titles) | femux-client `ui_tabs::ui_021_title_precedence`, `ui_tabs::ui_020_tab_strip_shows_running_urgent_and_zoom` | pass |
 | REQ-UI-030 (padding, no TERMINAL label or prefix hint) | femux-client `ui_bar::ui_030_the_bar_sits_on_any_side_and_the_panes_move_over` | pass |
+
+## 0.7.0
+
+| Requirement | Tests | Status |
+| --- | --- | --- |
+| REQ-PROTO-010 (ADR-021 images) | femux-proto `schema::*`; femux-test `graphics::*` | pass |
+| REQ-GFX-001 | femux-vt `graphics::tests::gfx_001_images_and_placements_are_parsed_per_terminal`, `graphics::tests::png_payloads_are_decoded_to_rgba`, `graphics::tests::icat_style_query_and_temp_file_transfer_work`, `graphics::tests::unicode_placeholders_become_placements`, `placeholder::tests::*`, `sixel::tests::the_scanner_replaces_sixels_even_across_reads` (shm names), `graphics::tests::mpv_style_shared_memory_frames_load_and_free_the_name`; femux-daemon `pty::tests::winsize_carries_pixels_from_the_cell_size`; femux-test `graphics::gfx_001_003_placements_reach_clients_and_survive_reattach`, `graphics::gfx_001_the_pty_reports_the_clients_cell_size_in_pixels`; femux-client `graphics::tests::gfx_001_images_are_read_once_transmitted_placed_and_deleted`, `ui_graphics::gfx_001_images_reach_the_host_at_the_pane_position`, `ui_graphics::gfx_001_unicode_placeholders_are_drawn_as_images`, `graphics::tests::shared_memory_and_zlib_transfers`, `graphics::tests::a_new_frame_goes_over_the_old_one_which_leaves_later`, `graphics::tests::overlapping_shared_memory_reads_drop_no_frame`, `probe::tests::parses_answers_and_keeps_the_rest`, `probe::tests::parses_answers_and_keeps_the_rest`; femux-test `graphics::yazi_previews_show_up_as_placements` (where yazi is installed), `graphics::image_reads_through_shared_memory_and_zlib`; femux-cli `remote::remote_images_reach_the_host_compressed` | pass |
+| REQ-GFX-002 | femux-vt `sixel::tests::*`, `graphics::tests::gfx_002_sixels_become_images_at_the_cursor` | pass |
+| REQ-GFX-003 | femux-test `graphics::gfx_001_003_placements_reach_clients_and_survive_reattach` | pass |
+| REQ-GFX-004 | femux-vt `graphics::tests::gfx_004_image_memory_is_capped_and_old_images_go_first` | pass |
+| Plugin `graphics` (`femux graphics list`) | femux-cli `graphics::graphics_list_shows_the_images_a_pane_holds`, `cli::cli_001_every_subcommand_has_json`; femux-plugin-graphics `tests::*` | pass |
+| 0.7.0 acceptance | femux-test `graphics::acceptance_mpv_plays_into_a_pane` (`mpv --vo=kitty`, where mpv is installed), femux-vt `graphics::tests::icat_style_query_and_temp_file_transfer_work` (icat's query and temp-file transfer), femux-test `graphics::gfx_001_003_placements_reach_clients_and_survive_reattach` (images survive reattach) | pass |

@@ -296,3 +296,37 @@ fn hosts_add_list_rm() {
     );
     assert!(env.json(&["hosts", "rm", "nope"])["error"].is_string());
 }
+
+/// ADR-021 #4: over SSH the client asks for zlib-compressed images and hands them to its host
+/// compressed (`o=z`).
+#[test]
+fn remote_images_reach_the_host_compressed() {
+    let rig = Rig::new();
+    let (mut child, mut master, out) = rig.attach("me@build-box");
+    // Answer the client's probe as a Kitty-capable terminal would.
+    wait_until("the probe", Duration::from_secs(10), || {
+        contains(&out, "\x1b[c")
+    });
+    master
+        .write_all(b"\x1b_Gi=31;OK\x1b\\\x1b[6;20;10t\x1b[?62;4;22c")
+        .unwrap();
+    wait_until("attached", Duration::from_secs(15), || {
+        rig.remote.socket().exists() && remote_clients(&rig.remote) == 1
+    });
+    let pane = rig.remote.json(&["agent", "list", "--all"])["agents"][0]["pane_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    rig.remote.run(&[
+        "agent",
+        "prompt",
+        &pane,
+        "printf '\\033_Ga=T,f=24,s=2,v=2,i=7,c=4,r=2;/wAA/wAA/wAA/wAA\\033\\\\'",
+    ]);
+    wait_until("a compressed transmission", Duration::from_secs(15), || {
+        contains(&out, ",o=z,")
+    });
+    assert!(contains(&out, "a=p,"));
+    master.write_all(b"\x00d").unwrap();
+    assert!(exit_within(&mut child, Duration::from_secs(10)).is_some());
+}

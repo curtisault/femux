@@ -9,9 +9,12 @@
 pub mod ffi;
 
 mod cell;
+pub mod graphics;
 mod history;
 mod input;
+pub mod placeholder;
 mod query;
+pub mod sixel;
 
 use std::ffi::c_void;
 use std::ptr;
@@ -204,6 +207,7 @@ pub struct Terminal {
     host_set: bool,
     osc: OscScan,
     reports: Vec<String>,
+    sixel: sixel::Scanner,
 }
 
 // SAFETY: libghostty-vt handles have no thread affinity; all access goes through `&mut self`.
@@ -371,6 +375,7 @@ impl Terminal {
             host_set: false,
             osc: OscScan::default(),
             reports: Vec::new(),
+            sixel: sixel::Scanner::default(),
         };
         t.effects.cell_px = DEFAULT_CELL_PX;
         t.effects.size = (cols, rows);
@@ -442,6 +447,7 @@ impl Terminal {
             t.set_opt(O::GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES, ptr::null())?;
             t.install_query_callbacks()?;
         }
+        t.enable_graphics()?;
         t.set_host(&HostCaps::default())?;
         Ok(t)
     }
@@ -460,6 +466,14 @@ impl Terminal {
 
     /// Feeds bytes read from the pane's PTY.
     pub fn write(&mut self, bytes: &[u8]) {
+        // Sixels become Kitty images before libghostty-vt sees them (REQ-GFX-002).
+        let replaced;
+        let bytes = if self.sixel.idle() && !bytes.contains(&0x1b) {
+            bytes
+        } else {
+            replaced = self.sixel.feed(bytes, sixel::as_kitty);
+            &replaced[..]
+        };
         let found = self.osc.feed(bytes);
         self.reports.extend(found);
         // SAFETY: `raw` is a live terminal and `bytes` is a valid slice.

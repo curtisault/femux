@@ -198,6 +198,8 @@ impl Client {
                 bg: None,
                 cursor: None,
                 name: None,
+                cell_w: None,
+                cell_h: None,
             }),
         }
     }

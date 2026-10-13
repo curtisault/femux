@@ -304,6 +304,8 @@ fn test_002_every_milestone_requirement_is_mapped() {
         ("UI", 44..=44),
         // §13, 0.6.0: SEC-007 (PROTO-003 is part of PROTO-*).
         ("SEC", 7..=7),
+        // §13, 0.7.0: GFX-*.
+        ("GFX", 1..=4),
     ];
     let mut want = std::collections::BTreeSet::new();
     for line in spec.lines() {

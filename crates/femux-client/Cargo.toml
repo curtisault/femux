@@ -11,6 +11,7 @@ femux-plugin = { path = "../femux-plugin" }
 termwiz.workspace = true
 tokio.workspace = true
 libc = "0.2"
+base64 = "0.22"
 
 [dev-dependencies]
 tempfile = "3"

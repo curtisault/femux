@@ -16,6 +16,7 @@ pub mod nav;
 pub mod probe;
 pub mod remote;
 pub mod render;
+pub mod shm;
 pub mod term;
 pub mod theme;
 
@@ -58,7 +59,57 @@ pub struct Conn {
     child: Option<tokio::process::Child>,
     /// `ssh -N -L …` forwarding the socket, killed with the connection.
     forward: Option<std::process::Child>,
+    wake: Wake,
     _rt: tokio::runtime::Runtime,
+}
+
+/// A non-blocking pipe: the reader task writes a byte per message, the run loop polls the
+/// other end next to the terminal and drains it.
+struct Wake {
+    read: std::os::fd::OwnedFd,
+    write: Arc<std::os::fd::OwnedFd>,
+}
+
+#[derive(Clone)]
+struct Ring(Arc<std::os::fd::OwnedFd>);
+
+impl Ring {
+    fn ring(&self) {
+        use std::os::fd::AsRawFd;
+        // SAFETY: a one-byte write to an owned non-blocking pipe; a full pipe already wakes.
+        unsafe { libc::write(self.0.as_raw_fd(), [1u8].as_ptr() as *const _, 1) };
+    }
+}
+
+impl Wake {
+    fn new() -> Wake {
+        use std::os::fd::FromRawFd;
+        let mut fds = [0; 2];
+        // SAFETY: pipe fills two fds we then own; both are made non-blocking.
+        unsafe {
+            if libc::pipe(fds.as_mut_ptr()) != 0 {
+                panic!("pipe: {}", io::Error::last_os_error());
+            }
+            for fd in fds {
+                let fl = libc::fcntl(fd, libc::F_GETFL);
+                libc::fcntl(fd, libc::F_SETFL, fl | libc::O_NONBLOCK);
+                libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
+            }
+            Wake {
+                read: std::os::fd::OwnedFd::from_raw_fd(fds[0]),
+                write: Arc::new(std::os::fd::OwnedFd::from_raw_fd(fds[1])),
+            }
+        }
+    }
+
+    fn writer(&self) -> Ring {
+        Ring(self.write.clone())
+    }
+
+    fn read_fd(&self) -> std::os::fd::RawFd {
+        use std::os::fd::AsRawFd;
+        self.read.as_raw_fd()
+    }
 }
 
 impl Drop for Conn {
@@ -196,6 +247,10 @@ impl Conn {
         let (tx, mut out) = mpsc::unbounded_channel::<(u64, Request)>();
         let (msgs, rx) = std_mpsc::channel();
         let closed = Arc::new(AtomicBool::new(false));
+        // A byte down this pipe wakes the run loop as soon as a message arrives, instead of
+        // after its input timeout: video frames need prompt image reads.
+        let wake = Wake::new();
+        let ring = wake.writer();
         rt.spawn(async move {
             while let Some((id, req)) = out.recv().await {
                 let Ok(bytes) = req.encode(id) else { continue };
@@ -213,8 +268,10 @@ impl Conn {
                 if msgs.send(msg).is_err() {
                     break;
                 }
+                ring.ring();
             }
             c.store(true, Ordering::SeqCst);
+            ring.ring();
         });
         Conn {
             tx,
@@ -225,8 +282,14 @@ impl Conn {
             stderr: Arc::new(Mutex::new(String::new())),
             child: None,
             forward: None,
+            wake,
             _rt: rt,
         }
+    }
+
+    /// Readable when messages are waiting (see [`Wake`]).
+    pub fn wake_fd(&self) -> std::os::fd::RawFd {
+        self.wake.read_fd()
     }
 
     /// The link closed: nothing more will arrive (after what is queued).
@@ -288,6 +351,23 @@ impl Conn {
         self.wait_for(id, Duration::from_secs(10), aside)
     }
 }
+
+/// The message families the client uses (REQ-PROTO-020): the daemon refuses requests of
+/// families a connection did not ask for.
+pub const FEATURES: [&str; 12] = [
+    "session",
+    "tab",
+    "layout",
+    "pane",
+    "frame",
+    "events",
+    "view",
+    "scrollback",
+    "clipboard",
+    "notify",
+    "plugin",
+    "image",
+];
 
 /// What the `femux` binary hands the client.
 pub struct Host {
@@ -497,26 +577,12 @@ pub fn run(target: &Target, session: Option<&str>, host: Host) -> io::Result<()>
     let hello_msg = m::Hello {
         proto: femux_proto::PROTO_VERSION,
         client: format!("femux-tui/{}", env!("CARGO_PKG_VERSION")),
-        features: [
-            "session",
-            "tab",
-            "layout",
-            "pane",
-            "frame",
-            "events",
-            "view",
-            "scrollback",
-            "clipboard",
-            "notify",
-            "plugin",
-        ]
-        .map(String::from)
-        .to_vec(),
+        features: FEATURES.map(String::from).to_vec(),
         term: Some(m::TermCaps {
             cols: area.w,
             rows: area.h,
             colors: m::ColorDepth::Truecolor,
-            kitty_graphics: false,
+            kitty_graphics: probe.kitty_graphics,
             kitty_keyboard: probe.kitty_keyboard,
             sixel: probe.sixel,
             sync_output: probe.sync_output,
@@ -524,6 +590,8 @@ pub fn run(target: &Target, session: Option<&str>, host: Host) -> io::Result<()>
             bg: probe.bg,
             cursor: probe.cursor,
             name: std::env::var("TERM_PROGRAM").ok(),
+            cell_w: probe.cell.map(|c| c.0),
+            cell_h: probe.cell.map(|c| c.1),
         }),
     };
     // The first connection may prompt (passwords, host keys): give ssh time.
@@ -554,6 +622,15 @@ pub fn run(target: &Target, session: Option<&str>, host: Host) -> io::Result<()>
         app.message = Some(e);
     }
     app.remote = target.remote().map(|r| r.label.clone());
+    app.graphics.enabled = probe.kitty_graphics && app.cfg.kitty_graphics;
+    app.graphics.sync = probe.sync_output;
+    // ADR-021 #4: shared memory when the daemon is on this machine and the host reads it,
+    // compression over SSH.
+    app.graphics.transfer = match target {
+        Target::Local(_) if probe.kitty_shm => graphics::Transfer::Shm,
+        Target::Remote(_) => graphics::Transfer::Zlib,
+        Target::Local(_) => graphics::Transfer::Plain,
+    };
     let mut relinking: Option<std_mpsc::Receiver<Relink>> = None;
     let mouse = app.cfg.mouse;
     term.enter(mouse)?;
@@ -593,6 +670,7 @@ pub fn run(target: &Target, session: Option<&str>, host: Host) -> io::Result<()>
                                 relinking = None;
                                 prev = Surface::new(size.0 as usize, size.1 as usize);
                                 term.write(b"\x1b[2J")?;
+                                app.graphics.invalidate();
                             }
                             Err(e) => {
                                 let label = target.remote().unwrap().label.clone();
@@ -621,6 +699,8 @@ pub fn run(target: &Target, session: Option<&str>, host: Host) -> io::Result<()>
                 app.on_msg(msg);
             }
             app.tick(Instant::now());
+            // Image reads leave before the repaint (REQ-GFX-001): video frames wait on them.
+            app.sync_graphics();
             for (id, req) in app.take_out() {
                 // No link: detaching means leaving; anything else waits for the reattach.
                 if relinking.is_some() {
@@ -671,6 +751,7 @@ pub fn run(target: &Target, session: Option<&str>, host: Host) -> io::Result<()>
                             }
                             prev = Surface::new(size.0 as usize, size.1 as usize);
                             term.write(b"\x1b[2J")?;
+                            app.graphics.invalidate();
                         }
                         Some(Err(e)) => app.message = Some(e),
                         None => {}
@@ -683,6 +764,7 @@ pub fn run(target: &Target, session: Option<&str>, host: Host) -> io::Result<()>
                 app.on_resize(size.0, size.1);
                 prev = Surface::new(size.0 as usize, size.1 as usize);
                 term.write(b"\x1b[2J")?;
+                app.graphics.invalidate();
             }
             if app.dirty {
                 let mut next = Surface::new(size.0 as usize, size.1 as usize);
@@ -691,8 +773,20 @@ pub fn run(target: &Target, session: Option<&str>, host: Host) -> io::Result<()>
                 term.write(&bytes)?;
                 prev = next;
             }
+            // Images go over the painted text (REQ-GFX-001); the reads they need leave now,
+            // not after the next wait.
+            app.sync_graphics();
+            let gfx = app.graphics.take_output();
+            if !gfx.is_empty() {
+                term.write(&gfx)?;
+            }
+            if relinking.is_none() {
+                for (id, req) in app.take_out() {
+                    conn.send_raw(id, req);
+                }
+            }
             let events = if early.is_empty() {
-                term.read(Duration::from_millis(10))?
+                term.read_or_wake(Duration::from_millis(10), conn.wake_fd())?
             } else {
                 std::mem::take(&mut early)
             };
@@ -722,6 +816,9 @@ pub fn run(target: &Target, session: Option<&str>, host: Host) -> io::Result<()>
             }
         }
     })();
+    if app.graphics.enabled {
+        let _ = term.write(graphics::KITTY_CLEAR.as_bytes());
+    }
     term.leave();
     result
 }

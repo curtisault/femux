@@ -46,7 +46,11 @@ impl Drive {
         })
         .await
         .unwrap();
-        let mut conn = h.client().await;
+        // The connection asks for exactly what the real client asks for, so a request of a
+        // family it forgot fails here as it would for users.
+        let mut hello = femux_test::Client::hello(cols, rows);
+        hello.features = femux_client::FEATURES.map(String::from).to_vec();
+        let mut conn = femux_test::Client::connect(&h.socket, hello).await.unwrap();
         conn.call(m::EventsSubscribe {
             session: Some("s".into()),
             ..Default::default()

@@ -56,7 +56,7 @@ hold_ms = 5000
 agent_done = { sound = "bell", desktop = true, only_when_hidden = true }
 
 [plugins]
-enabled = ["agents", "infobar", "notify", "clipboard", "shell-integration", "which-key", "launcher", "hosts"]
+enabled = ["agents", "infobar", "notify", "clipboard", "shell-integration", "which-key", "launcher", "hosts", "graphics"]
 
 [ui]
 which_key_delay_ms = 400
