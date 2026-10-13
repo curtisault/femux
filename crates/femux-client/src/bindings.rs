@@ -37,6 +37,16 @@ pub enum Action {
     SideNav,
     /// The agent inbox (REQ-UI-044); bound by the agents plugin.
     Inbox,
+    /// The marks overlay (REQ-SESS-004).
+    Marks,
+    /// A scratch float, or show/hide the tab's floats (REQ-UI-011).
+    FloatScratch,
+    FloatNext,
+    FloatPrev,
+    /// Typing into every pane of the tab (broadcast plugin, ADR-022).
+    Broadcast,
+    /// Record the focused pane (recorder plugin).
+    Record,
     Detach,
     Help,
     NormalMode,
@@ -137,6 +147,12 @@ pub const ALL: &[Action] = &[
     Action::Palette,
     Action::SideNav,
     Action::Inbox,
+    Action::Marks,
+    Action::FloatScratch,
+    Action::FloatNext,
+    Action::FloatPrev,
+    Action::Broadcast,
+    Action::Record,
     Action::Detach,
     Action::Help,
     Action::NormalMode,
@@ -213,6 +229,12 @@ impl Action {
             Palette => "palette",
             SideNav => "sidenav",
             Inbox => "inbox",
+            Marks => "marks",
+            FloatScratch => "float scratch",
+            FloatNext => "float next",
+            FloatPrev => "float prev",
+            Broadcast => "broadcast",
+            Record => "record",
             Detach => "detach",
             Help => "help",
             NormalMode => "normal",
@@ -293,6 +315,12 @@ impl Action {
             Palette => "command palette".into(),
             SideNav => "side nav".into(),
             Inbox => "agent inbox".into(),
+            Marks => "list marks".into(),
+            FloatScratch => "scratch float / hide floats".into(),
+            FloatNext => "next float".into(),
+            FloatPrev => "previous float".into(),
+            Broadcast => "type into every pane of the tab".into(),
+            Record => "record the pane".into(),
             Detach => "detach".into(),
             Help => "help".into(),
             NormalMode => "sticky normal mode".into(),
@@ -305,10 +333,11 @@ impl Action {
     pub fn group(self) -> &'static str {
         use Action::*;
         match self {
-            Focus(_) | Resize(_) | Zoom | FloatToggle | Rotate | Preselect(_) => "panes",
+            Focus(_) | Resize(_) | Zoom | FloatToggle | Rotate | Preselect(_) | FloatScratch
+            | FloatNext | FloatPrev | Broadcast | Record => "panes",
             SplitDown | SplitRight | ClosePane | Equalize | SwapNext | Scheme(_) => "splits",
             NewTab | RenameTab | NextTab | PrevTab | Tab(_) => "tabs",
-            SetMark | JumpMark | CopyMode | Paste | Detach => "session",
+            SetMark | JumpMark | Marks | CopyMode | Paste | Detach => "session",
             SessionNav | WindowNav | Palette | SideNav | Inbox | Help | NormalMode | SendPrefix => {
                 "ui"
             }
@@ -367,6 +396,10 @@ const PREFIX: &[(&str, Action)] = &[
     ("9", Action::Tab(9)),
     ("m", Action::SetMark),
     ("'", Action::JumpMark),
+    ("M", Action::Marks),
+    ("F", Action::FloatScratch),
+    ("g", Action::FloatNext),
+    ("G", Action::FloatPrev),
     ("[", Action::CopyMode),
     ("]", Action::Paste),
     ("S", Action::SessionNav),

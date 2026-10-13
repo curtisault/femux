@@ -103,6 +103,7 @@ Layer rules:
 - REQ-SESS-003: Every mutation MUST emit exactly one event (§4.6) after the mutation is applied.
   Note: a request that performs several mutations emits one event per mutation (e.g. `layout.split` emits `pane.spawned`, `layout.changed`, `layout.focused`).
 - REQ-SESS-004: Marks: a pane may carry up to 26 single-letter marks per session (`a`–`z`), used by `jump_to_mark`.
+  Note (0.8.0): `prefix M` opens the marks overlay: each mark of the session with its tab number and what its pane shows. A mark's letter or `enter` jumps there, `j`/`k` move, `x` deletes the selected mark (`pane.mark` with `clear`), `q` closes. A tiled pane shows its marks on the border above it (`'a 'b`).
 - REQ-SESS-005: Zoom is a per-tab flag; a zoomed tab renders only its focused pane and the tab strip.
 
 ### 3.5 Client views
@@ -298,6 +299,7 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
   Note (0.6.1): `[layout] scheme` is the scheme new tabs start in. `[layout] gaps = n` widens every separator between tiled panes to `1 + 2n` cells with the border down the middle, falling back to one cell where a split is too small for it; the outer edge gets no margin. `femux reload` re-applies gaps to open tabs; the scheme applies to tabs created afterwards.
 - REQ-UI-011: Floating panes render above tiles; mouse drag moves and resizes them.
   Note: dragging a float's top border moves it, dragging its bottom-right corner resizes it; both send `layout.float` with the new rect (ADR-016 #5).
+  Note (0.8.0): `prefix F` opens a scratch float (a new shell in the tab's directory, floated and focused) when the tab has none, and otherwise hides or shows the tab's floats (`tab.set floats_hidden`): hidden floats keep running, leave the screen and give up focus. `prefix g`/`G` focus the next/previous float, showing hidden ones (the planned `]f`/`[f` would clash with `]` paste and `[` copy mode). A float's border carries its pane's title.
 - REQ-UI-012: Layout templates can be saved and loaded by name (`femux layout save|load`); they serialize `layout.get` output plus cwd and cmd per pane.
   Note: one JSON file per name under `$XDG_STATE_HOME/femux/layouts/` (macOS: `~/Library/Application Support/femux/layouts/`); `load` opens a new tab and rebuilds the tree by splitting, re-running each pane's `cmd`; `list` names the files and `export` prints a template, or the current tab when no name is given.
 

@@ -111,6 +111,10 @@ pub struct Tab {
     pub focus: String,
     /// Bell or agent state change while not the current tab (REQ-UI-020).
     pub urgent: bool,
+    /// Typing goes to every pane (ADR-022).
+    pub broadcast: bool,
+    /// The floats are hidden (ADR-022).
+    pub floats_hidden: bool,
 }
 
 /// Panes of a layout tree in order.
@@ -186,6 +190,8 @@ impl Model {
                 scheme: t.scheme,
                 focus: t.focus.clone(),
                 urgent: false,
+                broadcast: t.broadcast.unwrap_or(false),
+                floats_hidden: t.floats_hidden.unwrap_or(false),
             };
             for p in tab.panes() {
                 model.panes.insert(
@@ -346,6 +352,12 @@ impl Model {
                     let tab = self.tabs.remove(i);
                     let at = (t.index as usize).min(self.tabs.len());
                     self.tabs.insert(at, tab);
+                }
+            }
+            Event::TabFlags(f) => {
+                if let Some(tab) = self.tab_mut(&f.tab_id) {
+                    tab.broadcast = f.broadcast;
+                    tab.floats_hidden = f.floats_hidden;
                 }
             }
             Event::TabRenamed(t) => {

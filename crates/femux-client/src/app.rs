@@ -138,6 +138,8 @@ pub enum Overlay {
     Navigator(crate::nav::NavState),
     /// The agent inbox (REQ-UI-044).
     Inbox(crate::inbox::InboxState),
+    /// The marks overlay (REQ-SESS-004): the selected row.
+    Marks(usize),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -159,6 +161,8 @@ enum Pending {
     InboxLine(String),
     /// A chunk of a pane's image (pane, image id).
     ImageRead(String, u32),
+    /// The pane `prefix F` split off, to float.
+    ScratchFloat,
     /// Attaching to another session; then focus a pane, then kill the old session.
     Switch {
         focus: Option<String>,
@@ -431,7 +435,11 @@ impl App {
         }
         let hidden = matches!(
             self.overlay,
-            Overlay::Navigator(_) | Overlay::Inbox(_) | Overlay::Palette(_) | Overlay::Help
+            Overlay::Navigator(_)
+                | Overlay::Inbox(_)
+                | Overlay::Marks(_)
+                | Overlay::Palette(_)
+                | Overlay::Help
         );
         let area = self.layout().panes;
         let wanted: Vec<(m::ImagePlacement, m::Rect)> = if hidden {
@@ -455,6 +463,139 @@ impl App {
             let key = (read.pane_id.clone(), read.image_id);
             self.send(read, Pending::ImageRead(key.0, key.1));
         }
+    }
+
+    /// `prefix F`: a new floating shell when the tab has no floats, else hide or show them.
+    fn float_scratch(&mut self) {
+        let Some(tab) = self.model.current_tab().cloned() else {
+            return;
+        };
+        if !tab.floats.is_empty() {
+            self.quiet(m::TabSet {
+                tab_id: tab.id.clone(),
+                broadcast: None,
+                floats_hidden: Some(!tab.floats_hidden),
+            });
+            return;
+        }
+        // Split a tiled pane, then float the new one (it starts in the tab's directory).
+        let Some(base) = tab.tiled().into_iter().next() else {
+            return;
+        };
+        self.send(
+            m::LayoutSplit {
+                pane_id: base,
+                dir: m::SplitDir::H,
+                ratio: None,
+                cwd: None,
+                cmd: None,
+                preselect: None,
+            },
+            Pending::ScratchFloat,
+        );
+    }
+
+    /// `prefix g` / `G`: focus the next or previous float, showing hidden ones.
+    fn float_cycle(&mut self, forward: bool) {
+        let Some(tab) = self.model.current_tab().cloned() else {
+            return;
+        };
+        let floats: Vec<String> = tab.floats.iter().map(|f| f.id.clone()).collect();
+        if floats.is_empty() {
+            self.message = Some("no floats in this tab".into());
+            return;
+        }
+        if tab.floats_hidden {
+            self.quiet(m::TabSet {
+                tab_id: tab.id.clone(),
+                broadcast: None,
+                floats_hidden: Some(false),
+            });
+        }
+        let n = floats.len();
+        let next = match floats.iter().position(|f| *f == tab.focus) {
+            Some(i) if forward => (i + 1) % n,
+            Some(i) => (i + n - 1) % n,
+            None if forward => 0,
+            None => n - 1,
+        };
+        let view_id = self.model.view_id.clone();
+        self.quiet(m::LayoutFocus {
+            view_id: Some(view_id),
+            pane_id: Some(floats[next].clone()),
+            dir: None,
+        });
+    }
+
+    /// Marks of this session, by letter: (letter, pane, tab number, what the pane runs).
+    pub fn mark_rows(&self) -> Vec<(String, String, usize, String)> {
+        self.model
+            .marks
+            .iter()
+            .filter_map(|(letter, pane)| {
+                let tab = self.model.tab_of(pane)?;
+                let n = self.model.tabs.iter().position(|t| t.id == tab.id)? + 1;
+                let p = self.model.panes.get(pane)?;
+                let what = if !p.title.is_empty() {
+                    p.title.clone()
+                } else {
+                    format!("{} {}", p.fg_cmd, crate::model::short_dir(&p.cwd))
+                };
+                Some((letter.clone(), pane.clone(), n, what))
+            })
+            .collect()
+    }
+
+    fn marks_key(&mut self, selected: usize, chord: &Chord) {
+        let rows = self.mark_rows();
+        let key = chord.key.as_str();
+        match key {
+            "q" | "escape" => return,
+            "j" | "down" => {
+                self.overlay = Overlay::Marks((selected + 1).min(rows.len().saturating_sub(1)));
+                return;
+            }
+            "k" | "up" => {
+                self.overlay = Overlay::Marks(selected.saturating_sub(1));
+                return;
+            }
+            "enter" => {
+                if let Some((letter, ..)) = rows.get(selected) {
+                    let letter = letter.clone();
+                    self.jump_to_mark(&letter);
+                }
+                return;
+            }
+            "x" => {
+                if let Some((letter, pane, ..)) = rows.get(selected) {
+                    self.quiet(m::PaneMark {
+                        pane_id: pane.clone(),
+                        mark: letter.clone(),
+                        clear: Some(true),
+                    });
+                }
+                self.overlay = Overlay::Marks(selected.min(rows.len().saturating_sub(2)));
+                return;
+            }
+            _ => {}
+        }
+        // A mark's letter jumps to it.
+        if key.len() == 1
+            && key.as_bytes()[0].is_ascii_lowercase()
+            && rows.iter().any(|(l, ..)| l == key)
+        {
+            self.jump_to_mark(key);
+            return;
+        }
+        self.overlay = Overlay::Marks(selected);
+    }
+
+    /// The focused pane is being recorded (the recorder plugin sets `recorder.file`).
+    pub fn recording(&self) -> bool {
+        self.model
+            .focused_id()
+            .and_then(|p| self.model.panes.get(&p))
+            .is_some_and(|p| p.meta.contains_key("recorder.on"))
     }
 
     /// The session chip: `host:session` when attached through `--host`.
@@ -735,6 +876,18 @@ impl App {
                     self.send(next, Pending::ImageRead(pane, image));
                 }
             }
+            (Pending::ScratchFloat, Response::LayoutSplit(r)) => {
+                let view_id = self.model.view_id.clone();
+                self.quiet(m::LayoutFloat {
+                    pane_id: r.pane_id.clone(),
+                    rect: None,
+                });
+                self.quiet(m::LayoutFocus {
+                    view_id: Some(view_id),
+                    pane_id: Some(r.pane_id),
+                    dir: None,
+                });
+            }
             (Pending::NewTab, Response::TabCreate(t)) => {
                 let view_id = self.model.view_id.clone();
                 self.quiet(m::TabSelect {
@@ -894,6 +1047,7 @@ impl App {
             }
             Overlay::Navigator(nav) => return self.navigator_key(nav, &k, &chord),
             Overlay::Inbox(st) => return self.inbox_key(st, &k, &chord),
+            Overlay::Marks(sel) => return self.marks_key(sel, &chord),
             Overlay::WhichKey | Overlay::None => {}
         }
 
@@ -1189,6 +1343,32 @@ impl App {
                 }
             }
             Action::Palette => self.open_palette(),
+            Action::Marks => self.overlay = Overlay::Marks(0),
+            Action::FloatScratch => self.float_scratch(),
+            Action::FloatNext | Action::FloatPrev => self.float_cycle(a == Action::FloatNext),
+            Action::Broadcast => {
+                let on = self.model.current_tab().is_some_and(|t| t.broadcast);
+                self.quiet(m::TabSet {
+                    tab_id,
+                    broadcast: Some(!on),
+                    floats_hidden: None,
+                });
+            }
+            Action::Record => {
+                if let Some(p) = focused {
+                    // The recorder plugin's daemon side records while this is set.
+                    let on = self
+                        .model
+                        .panes
+                        .get(&p)
+                        .is_some_and(|x| x.meta.contains_key("recorder.on"));
+                    self.quiet(m::PaneSetMeta {
+                        pane_id: p,
+                        set: (!on).then(|| [("recorder.on".to_owned(), "1".to_owned())].into()),
+                        unset: on.then(|| vec!["recorder.on".to_owned()]),
+                    });
+                }
+            }
             Action::Inbox => {
                 self.overlay = Overlay::Inbox(crate::inbox::InboxState::default());
                 self.inbox_fetched = None;

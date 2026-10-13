@@ -179,3 +179,5 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | Requirement | Tests | Status |
 | --- | --- | --- |
 | REQ-PROTO-010 (ADR-022 tab flags, mark removal, pane.output) | femux-test `tabflags::*`; femux-proto `schema::*` | pass |
+| REQ-SESS-004 (marks overlay) | femux-client `ui_marks_floats::sess_004_marks_overlay_lists_jumps_and_deletes`; femux-test `tabflags::marks_can_be_cleared` | pass |
+| REQ-UI-011 (scratch, hidden and cycled floats) | femux-client `ui_marks_floats::ui_011_scratch_float_hides_shows_and_cycles`; femux-test `tabflags::hidden_floats_leave_the_frame_and_the_focus` | pass |

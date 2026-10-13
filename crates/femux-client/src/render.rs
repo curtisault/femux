@@ -329,6 +329,9 @@ fn mode_label(app: &App, theme: &Theme) -> (&'static str, CellAttributes) {
     if let Overlay::Inbox(_) = &app.overlay {
         return ("INBOX", bold(attr(theme.accent_fg, theme.accent)));
     }
+    if let Overlay::Marks(_) = &app.overlay {
+        return ("MARKS", bold(attr(theme.accent_fg, theme.accent)));
+    }
     if let Overlay::Navigator(nav) = &app.overlay {
         let label = match nav.kind {
             crate::nav::NavKind::Sessions => "SESSIONS",
@@ -340,6 +343,13 @@ fn mode_label(app: &App, theme: &Theme) -> (&'static str, CellAttributes) {
         (true, _) => ("PREFIX", bold(attr(theme.accent_fg, theme.warn))),
         // Typing into panes is the normal state: no label (the other modes announce
         // themselves).
+        // Typing goes to every pane of the tab (ADR-022): say so where the mode goes.
+        (false, Mode::Terminal) if app.model.current_tab().is_some_and(|t| t.broadcast) => {
+            ("BROADCAST", bold(attr(theme.accent_fg, theme.warn)))
+        }
+        (false, Mode::Terminal) if app.recording() => {
+            ("REC", bold(attr(theme.accent_fg, theme.error)))
+        }
         (false, Mode::Terminal) => ("", attr(theme.muted, theme.bar_bg)),
         (false, Mode::Normal) => ("NORMAL", bold(attr(theme.accent_fg, theme.ok))),
         (false, Mode::Copy) => ("COPY", bold(attr(theme.accent_fg, theme.accent))),
@@ -635,11 +645,35 @@ pub fn render(app: &mut App, theme: &Theme, s: &mut Surface) {
                     _ => theme.muted,
                 };
                 let glyph = if by_restored { dashed(glyph) } else { glyph };
+                // A broadcasting tab's borders all carry the warning color (ADR-022).
+                let color = if tab.broadcast { theme.warn } else { color };
                 c.put(
                     x as usize + o.0,
                     y as usize + o.1,
                     glyph,
                     &attr(color, ColorAttribute::Default),
+                );
+            }
+            // Marks on the border above each tiled pane (REQ-SESS-004).
+            for (id, r) in &tiled {
+                let letters: Vec<&str> = app
+                    .model
+                    .marks
+                    .iter()
+                    .filter(|(_, p)| *p == id)
+                    .map(|(l, _)| l.as_str())
+                    .collect();
+                if letters.is_empty() || r.y == 0 {
+                    continue;
+                }
+                let label = format!(" '{} ", letters.join(" '"));
+                let room = r.w as usize;
+                let label: String = label.chars().take(room).collect();
+                c.put(
+                    o.0 + r.x as usize + 1,
+                    o.1 + r.y as usize - 1,
+                    &label,
+                    &attr(theme.accent, ColorAttribute::Default),
                 );
             }
             for f in &tab.floats {
@@ -734,6 +768,40 @@ pub fn render(app: &mut App, theme: &Theme, s: &mut Surface) {
         }
         Overlay::Help => {
             let ov = help_overlay(app);
+            draw_box(&mut c, theme, &ov, &mut cursor, None);
+        }
+        Overlay::Marks(sel) => {
+            let rows = app.mark_rows();
+            let mut lines: Vec<Spans> = rows
+                .iter()
+                .enumerate()
+                .map(|(i, (letter, _, tab, what))| {
+                    let style = if i == sel { Style::Accent } else { Style::Text };
+                    vec![
+                        Span::new(if i == sel { "> " } else { "  " }, Style::Accent),
+                        Span::new(format!("{letter}  "), Style::Key),
+                        Span::new(format!("tab {tab}  "), Style::Muted),
+                        Span::new(what.clone(), style),
+                    ]
+                })
+                .collect();
+            if lines.is_empty() {
+                lines.push(vec![Span::new(
+                    "no marks: prefix m <letter> marks a pane",
+                    Style::Muted,
+                )]);
+            }
+            let ov = PluginOverlay {
+                title: vec![
+                    Span::new("marks", Style::Title),
+                    Span::new(
+                        "  letter or enter jumps · x deletes · q closes",
+                        Style::Muted,
+                    ),
+                ],
+                lines,
+                place: femux_plugin::Place::Center,
+            };
             draw_box(&mut c, theme, &ov, &mut cursor, None);
         }
         Overlay::Palette(p) => {
