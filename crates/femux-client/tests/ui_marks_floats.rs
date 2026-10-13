@@ -11,7 +11,7 @@ use femux_proto::msg as m;
 
 async fn split(d: &mut Drive) -> String {
     let before: Vec<String> = d.app.model.panes.keys().cloned().collect();
-    d.press_all(&["ctrl+space", "v"]).await;
+    d.press_all(&["ctrl+space", "|"]).await;
     d.until("a second pane", |a| a.model.panes.len() == before.len() + 1)
         .await;
     d.app
@@ -91,8 +91,8 @@ async fn ui_011_scratch_float_hides_shows_and_cycles() {
         x.model.panes.get(&f).is_some_and(|p| p.screen.is_none())
     })
     .await;
-    // prefix g shows them and focuses the float.
-    d.press_all(&["ctrl+space", "g"]).await;
+    // prefix o shows them and focuses the float.
+    d.press_all(&["ctrl+space", "o"]).await;
     d.until("float back and focused", |x| {
         x.model
             .current_tab()

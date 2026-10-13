@@ -78,7 +78,7 @@ async fn ui_040_session_navigator_lists_attaches_renames_creates_and_kills() {
         })
         .await
         .unwrap();
-    d.press_all(&["ctrl+space", "S"]).await;
+    d.press_all(&["ctrl+space", "s"]).await;
     pump(&mut d).await;
     let screen = d.screen();
     for want in [
@@ -112,7 +112,7 @@ async fn ui_040_session_navigator_lists_attaches_renames_creates_and_kills() {
     d.until("its two tabs", |a| a.model.tabs.len() == 2).await;
     assert!(matches!(d.app.overlay, Overlay::None));
     // Rename the attached session from the navigator.
-    d.press_all(&["ctrl+space", "S"]).await;
+    d.press_all(&["ctrl+space", "s"]).await;
     pump(&mut d).await;
     select(&mut d, &NavTarget::Session("other".into())).await;
     d.press("r").await;
@@ -165,7 +165,7 @@ async fn ui_041_pane_navigator_previews_panes_live_and_goes_to_them() {
     d.obs
         .type_text(&t2.pane_id, "echo preview-$((6*7))\n")
         .await;
-    d.press_all(&["ctrl+space", "W"]).await;
+    d.press_all(&["ctrl+space", "w"]).await;
     pump(&mut d).await;
     let target = NavTarget::Pane {
         session: "s".into(),

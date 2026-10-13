@@ -44,7 +44,7 @@ async fn ui_003_which_key_shows_after_the_delay() {
     }
     // The next key runs its action and closes the panel.
     d.sent_kinds();
-    d.press("s").await;
+    d.press("-").await;
     assert!(matches!(d.app.overlay, Overlay::None));
     assert!(d.sent_kinds().contains(&"layout.split"));
     assert!(!d.screen().contains("split below"));
@@ -66,7 +66,17 @@ async fn ui_003_which_key_shows_after_the_delay() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn ui_043_palette_fuzzy_searches_actions_and_cli_commands() {
+    // No root key by default: ctrl+p goes to the pane until `[keys.root]` binds it.
     let mut d = Drive::new(ClientConfig::default()).await;
+    let pane = d.pane.clone();
+    d.wait_pane_text(&pane, "$").await;
+    d.sent_kinds();
+    d.press("ctrl+p").await;
+    assert!(matches!(d.app.overlay, Overlay::None));
+    assert!(d.sent_kinds().contains(&"pane.input"));
+    let mut cfg = ClientConfig::default();
+    cfg.keys_root.insert("ctrl+p".into(), "palette".into());
+    let mut d = Drive::new(cfg).await;
     let pane = d.pane.clone();
     d.wait_pane_text(&pane, "$").await;
     d.press_all(&["ctrl+space", ":"]).await;
@@ -89,7 +99,7 @@ async fn ui_043_palette_fuzzy_searches_actions_and_cli_commands() {
         })
         .expect("palette ran split right");
     assert_eq!(split, m::SplitDir::H);
-    // ctrl+p at the root opens it; CLI subcommands are listed and typed into the pane.
+    // The configured root key opens it; CLI subcommands are listed and typed into the pane.
     d.press("ctrl+p").await;
     d.type_text("femux ls").await;
     let Overlay::Palette(p) = &d.app.overlay else {

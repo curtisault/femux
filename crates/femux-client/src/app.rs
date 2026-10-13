@@ -495,7 +495,7 @@ impl App {
         );
     }
 
-    /// `prefix g` / `G`: focus the next or previous float, showing hidden ones.
+    /// `prefix o` / `O`: focus the next or previous float, showing hidden ones.
     fn float_cycle(&mut self, forward: bool) {
         let Some(tab) = self.model.current_tab().cloned() else {
             return;
@@ -1092,6 +1092,8 @@ impl App {
             }
             match self.bindings.lookup(Table::Prefix, &chord) {
                 Some(a) => self.run(a),
+                // esc cancels the prefix quietly (REQ-UI-002).
+                None if chord.key == "escape" && !chord.ctrl && !chord.alt => {}
                 None => self.message = Some(format!("{chord} is not bound")),
             }
             return;
@@ -1106,6 +1108,7 @@ impl App {
                 match self.bindings.lookup(Table::Prefix, &chord) {
                     Some(Action::NormalMode) => self.mode = Mode::Terminal,
                     Some(a) => self.run(a),
+                    None if chord.key == "escape" => self.mode = Mode::Terminal,
                     None => {}
                 }
             }

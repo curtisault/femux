@@ -120,9 +120,9 @@ fn cli_001_every_subcommand_has_json() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|b| b["key"] == "v" && b["action"] == "split right")
+            .any(|b| b["key"] == "|" && b["action"] == "split right")
     );
-    let explain = env.json(&["keys", "explain", "ctrl+p"]);
+    let explain = env.json(&["keys", "explain", ":"]);
     assert_eq!(explain["bindings"][0]["action"], "palette");
     let info = env.json(&["pane", "info", "--pane", &pane]);
     assert_eq!(info["id"], pane);
@@ -131,7 +131,7 @@ fn cli_001_every_subcommand_has_json() {
     assert!(bad["error"].as_str().unwrap().contains("not_found"));
     // Text output stays human.
     assert!(env.run(&["ls"]).starts_with("s: 2 tabs"));
-    assert!(env.run(&["keys", "explain", "v"]).contains("split right"));
+    assert!(env.run(&["keys", "explain", "|"]).contains("split right"));
 }
 
 #[test]

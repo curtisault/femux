@@ -213,7 +213,7 @@ async fn ui_033_notifications_show_while_their_pane_is_hidden() {
         d.screen_line(19)
     );
     // Zoom hides the other panes of the tab (the zoom case of UI-033).
-    d.press_all(&["ctrl+space", "v"]).await;
+    d.press_all(&["ctrl+space", "|"]).await;
     d.until("two panes", |a| {
         a.model.current_tab().unwrap().panes().len() == 2
     })

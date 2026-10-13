@@ -1,5 +1,5 @@
 //! Actions and the default key tables (SPEC §5.1): the prefix table, the root table
-//! (`ctrl+p`, optional `alt+h/j/k/l`) and copy mode. `[keys.*]` in the config overrides by
+//! (empty by default, optional `alt+h/j/k/l`) and copy mode. `[keys.*]` in the config overrides by
 //! action name, which is also what `femux keys list|explain` and the palette show.
 
 use std::collections::BTreeMap;
@@ -373,18 +373,19 @@ const PREFIX: &[(&str, Action)] = &[
     ("ctrl+j", Action::Preselect(Direction::J)),
     ("ctrl+k", Action::Preselect(Direction::K)),
     ("ctrl+l", Action::Preselect(Direction::L)),
-    ("s", Action::SplitDown),
-    ("v", Action::SplitRight),
+    ("-", Action::SplitDown),
+    ("|", Action::SplitRight),
+    ("\\", Action::SplitRight),
     ("x", Action::ClosePane),
     ("z", Action::Zoom),
     ("f", Action::FloatToggle),
     ("=", Action::Equalize),
     ("r", Action::Rotate),
-    ("w", Action::SwapNext),
+    ("e", Action::SwapNext),
     ("t", Action::NewTab),
     ("T", Action::RenameTab),
     ("n", Action::NextTab),
-    ("p", Action::PrevTab),
+    ("N", Action::PrevTab),
     ("1", Action::Tab(1)),
     ("2", Action::Tab(2)),
     ("3", Action::Tab(3)),
@@ -398,20 +399,20 @@ const PREFIX: &[(&str, Action)] = &[
     ("'", Action::JumpMark),
     ("M", Action::Marks),
     ("F", Action::FloatScratch),
-    ("g", Action::FloatNext),
-    ("G", Action::FloatPrev),
+    ("o", Action::FloatNext),
+    ("O", Action::FloatPrev),
     ("[", Action::CopyMode),
-    ("]", Action::Paste),
-    ("S", Action::SessionNav),
-    ("W", Action::PaneNav),
+    ("p", Action::Paste),
+    ("s", Action::SessionNav),
+    ("w", Action::PaneNav),
     (":", Action::Palette),
     ("b", Action::SideNav),
     ("d", Action::Detach),
     ("?", Action::Help),
-    ("escape", Action::NormalMode),
+    ("space", Action::NormalMode),
 ];
 
-const ROOT: &[(&str, Action)] = &[("ctrl+p", Action::Palette)];
+const ROOT: &[(&str, Action)] = &[];
 
 const PREFIXLESS: &[(&str, Action)] = &[
     ("alt+h", Action::Focus(Direction::H)),
@@ -616,33 +617,40 @@ mod tests {
         let p = |k: &str| b.lookup(Table::Prefix, &Chord::parse(k).unwrap());
         assert_eq!(p("h"), Some(Action::Focus(Direction::H)));
         assert_eq!(p("L"), Some(Action::Resize(Direction::L)));
-        assert_eq!(p("s"), Some(Action::SplitDown));
-        assert_eq!(p("v"), Some(Action::SplitRight));
+        assert_eq!(p("-"), Some(Action::SplitDown));
+        assert_eq!(p("|"), Some(Action::SplitRight));
+        assert_eq!(p("\\"), Some(Action::SplitRight));
         assert_eq!(p("x"), Some(Action::ClosePane));
         assert_eq!(p("z"), Some(Action::Zoom));
         assert_eq!(p("f"), Some(Action::FloatToggle));
         assert_eq!(p("="), Some(Action::Equalize));
         assert_eq!(p("r"), Some(Action::Rotate));
-        assert_eq!(p("w"), Some(Action::SwapNext));
+        assert_eq!(p("e"), Some(Action::SwapNext));
         assert_eq!(p("t"), Some(Action::NewTab));
         assert_eq!(p("T"), Some(Action::RenameTab));
         assert_eq!(p("n"), Some(Action::NextTab));
-        assert_eq!(p("p"), Some(Action::PrevTab));
+        assert_eq!(p("N"), Some(Action::PrevTab));
         assert_eq!(p("9"), Some(Action::Tab(9)));
         assert_eq!(p("m"), Some(Action::SetMark));
         assert_eq!(p("'"), Some(Action::JumpMark));
         assert_eq!(p("["), Some(Action::CopyMode));
-        assert_eq!(p("]"), Some(Action::Paste));
-        assert_eq!(p("S"), Some(Action::SessionNav));
-        assert_eq!(p("W"), Some(Action::PaneNav));
+        assert_eq!(p("p"), Some(Action::Paste));
+        assert_eq!(p("s"), Some(Action::SessionNav));
+        assert_eq!(p("w"), Some(Action::PaneNav));
+        assert_eq!(p("o"), Some(Action::FloatNext));
+        assert_eq!(p("O"), Some(Action::FloatPrev));
+        assert_eq!(p("v"), None, "split right left `v` for `|`");
+        assert_eq!(p("S"), None, "navigators are lowercase");
         assert_eq!(p(":"), Some(Action::Palette));
         assert_eq!(p("b"), Some(Action::SideNav));
         assert_eq!(p("d"), Some(Action::Detach));
         assert_eq!(p("?"), Some(Action::Help));
-        assert_eq!(p("esc"), Some(Action::NormalMode));
+        assert_eq!(p("space"), Some(Action::NormalMode));
+        assert_eq!(p("esc"), None, "esc cancels the prefix");
+        // REQ-UI-043: the palette has no root key until the user adds one.
         assert_eq!(
             b.lookup(Table::Root, &Chord::parse("ctrl+p").unwrap()),
-            Some(Action::Palette)
+            None
         );
         // REQ-UI-004: alt+h/j/k/l exist but are off by default.
         assert_eq!(b.lookup(Table::Root, &Chord::parse("alt+h").unwrap()), None);

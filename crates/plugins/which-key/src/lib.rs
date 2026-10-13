@@ -181,7 +181,7 @@ mod tests {
         let table = [
             bk("h j k l", "focus", "panes"),
             bk("z", "zoom", "panes"),
-            bk("s", "split below", "splits"),
+            bk("-", "split below", "splits"),
             bk("t", "new tab", "tabs"),
         ];
         let o = render(&table, "ctrl+space", 120);
@@ -190,7 +190,7 @@ mod tests {
         let lines: Vec<String> = o.lines.iter().map(text).collect();
         assert_eq!(lines.len(), 2);
         assert!(lines[0].starts_with("h j k l  focus"));
-        assert!(lines[0].contains("s  split below"));
+        assert!(lines[0].contains("-  split below"));
         assert!(lines[0].contains("t  new tab"));
         assert!(lines[1].starts_with("z        zoom"));
         // Narrow terminals fall back to one column.
@@ -209,13 +209,13 @@ mod tests {
             bk("z", "zoom", "panes"),
             bk("x", &"a very long description ".repeat(4), "splits"),
             bk("n", "next tab", "tabs"),
-            bk("S", "session navigator", "ui"),
+            bk("s", "session navigator", "ui"),
         ];
         let o = render(&table, "ctrl+space", 122);
         let line = text(&o.lines[0]);
         let cells: Vec<char> = line.chars().collect();
         // 120 cells in four columns of 30: every column starts where it should.
-        for (i, start) in ['z', 'x', 'n', 'S'].iter().enumerate() {
+        for (i, start) in ['z', 'x', 'n', 's'].iter().enumerate() {
             assert_eq!(cells[i * 30], *start, "{line:?}");
         }
         assert!(line.contains('…'), "{line:?}");

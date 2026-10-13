@@ -98,9 +98,9 @@ impl Directory {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NavKind {
-    /// `S`: sessions, expandable to their tabs (REQ-UI-040).
+    /// `prefix s`: sessions, expandable to their tabs (REQ-UI-040).
     Sessions,
-    /// `W`: every pane, under its tab and session (REQ-UI-041).
+    /// `prefix w`: every pane, under its tab and session (REQ-UI-041).
     Panes,
 }
 
