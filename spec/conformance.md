@@ -181,3 +181,7 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-PROTO-010 (ADR-022 tab flags, mark removal, pane.output) | femux-test `tabflags::*`; femux-proto `schema::*` | pass |
 | REQ-SESS-004 (marks overlay) | femux-client `ui_marks_floats::sess_004_marks_overlay_lists_jumps_and_deletes`; femux-test `tabflags::marks_can_be_cleared` | pass |
 | REQ-UI-011 (scratch, hidden and cycled floats) | femux-client `ui_marks_floats::ui_011_scratch_float_hides_shows_and_cycles`; femux-test `tabflags::hidden_floats_leave_the_frame_and_the_focus` | pass |
+| REQ-PLUG-004 `git` 0.8 (worktree tabs) | femux-cli `plugins08::git_worktree_tabs_open_list_and_go`; `cli::cli_001_every_subcommand_has_json` | pass |
+| REQ-PLUG-004 `broadcast` 0.8 | femux-cli `plugins08::broadcast_on_types_into_every_pane`; femux-client `ui_marks_floats::broadcast_and_record_toggles`; femux-test `tabflags::*` | pass |
+| REQ-PLUG-004 `recorder` 0.8 | femux-cli `plugins08::recordings_are_asciinema_casts`; femux-plugin-recorder `casts_are_asciinema_v2_and_keep_utf8_whole` | pass |
+| 0.8.0 acceptance: worktree tabs, broadcast typing, asciinema recording | femux-cli `plugins08::*` | pass |

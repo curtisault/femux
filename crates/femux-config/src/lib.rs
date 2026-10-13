@@ -231,6 +231,9 @@ section!(Plugins {
         "launcher",
         "hosts",
         "graphics",
+        "git",
+        "broadcast",
+        "recorder",
     ]),
 });
 

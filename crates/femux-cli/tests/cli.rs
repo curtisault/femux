@@ -91,6 +91,12 @@ const LEAVES: &[&[&str]] = &[
     &["hosts", "list"],
     &["hosts", "rm"],
     &["graphics", "list"],
+    &["broadcast", "on"],
+    &["broadcast", "off"],
+    &["record"],
+    &["git", "tab"],
+    &["git", "tabs"],
+    &["git", "rm"],
 ];
 
 #[test]

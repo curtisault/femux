@@ -391,6 +391,9 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
   Note: the traits live in `crates/femux-plugin` (added to §12), which depends only on `femux-proto`; a daemon plugin runs as a protocol client, in-process or not.
 - REQ-PLUG-003: Plugins use only `femux-proto` to talk to the core; a plugin MAY run out-of-process.
 - REQ-PLUG-004: Built-in plugin list and their versions: `agents` (0.5), `infobar` (0.4), `notify` (0.5), `git` (0.8), `clipboard` (0.2), `graphics` (0.7), `shell-integration` (0.2), `broadcast` (0.8), `which-key` (0.2), `recorder` (0.8), `hosts` (0.6), `theme` (0.4), `launcher` (0.3).
+  Note (0.8.0): `git` worktree tabs: `femux git tab <branch>` makes (or reuses) a worktree at `<repo root>/.worktrees/<branch>`, creating the branch when it does not exist, keeps `.worktrees/` out of `git status` through `.git/info/exclude`, and opens a tab there titled with the branch (or selects the tab already titled so). `femux git tabs` lists the worktrees and their tabs; `femux git rm <branch> [--force]` refuses a worktree with uncommitted changes, closes its tabs and removes it. The repository is the one the command runs in.
+  Note (0.8.0): `broadcast`: `prefix B` (or the `broadcast` action) toggles the tab's `broadcast` flag (`tab.set`); while it is on, keys and pastes typed into any pane go to every tiled and floating pane of the tab, mouse input does not, and borders take the warning color. `femux broadcast on|off [tab]` sets it, defaulting to the tab of `$FEMUX_PANE`.
+  Note (0.8.0): `recorder`: `prefix R` (or the `record` action) toggles the pane metadata `recorder.on`; the daemon-side plugin then subscribes to `pane.output` for that pane and writes an asciinema v2 cast to `<state dir>/recordings/femux-<unix time>-<pane>.cast`, naming it in `recorder.file` while recording and `recorder.last` after. The cast's size is the pane's at the start. `femux record [pane] [file] [--duration s]` records in the foreground until interrupted or the duration ends.
 
 ---
 
@@ -532,7 +535,7 @@ cwd = "~/writing/notes"
 
 ## 11. CLI
 
-`femux` (attach or start), `femux daemon [--foreground]`, `femux attach [session] [--host h] [--stdio]`, `femux ls`, `femux new <name>`, `femux kill <name>`, `femux launch <name|file>`, `femux tab new|close|rename|select`, `femux pane split|close|focus|resize|info|set|cat|signal|respawn`, `femux layout save|load|list|export`, `femux agent …`, `femux integration install|uninstall`, `femux keys list|explain`, `femux config check|edit`, `femux reload`, `femux reload`, `femux update [--check]`, `femux hosts add|list|rm`, `femux notify test`, `femux graphics list [pane]`.
+`femux` (attach or start), `femux daemon [--foreground]`, `femux attach [session] [--host h] [--stdio]`, `femux ls`, `femux new <name>`, `femux kill <name>`, `femux launch <name|file>`, `femux tab new|close|rename|select`, `femux pane split|close|focus|resize|info|set|cat|signal|respawn`, `femux layout save|load|list|export`, `femux agent …`, `femux integration install|uninstall`, `femux keys list|explain`, `femux config check|edit`, `femux reload`, `femux reload`, `femux update [--check]`, `femux hosts add|list|rm`, `femux notify test`, `femux graphics list [pane]`, `femux git tab|tabs|rm`, `femux broadcast on|off`, `femux record`.
 
 - REQ-CLI-001: Every subcommand has `--json` output.
 - REQ-CLI-002: Inside a pane, commands default to that pane (`$FEMUX_PANE`).
