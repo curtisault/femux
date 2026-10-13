@@ -183,7 +183,7 @@ section!(Tabs {
 
 section!(Infobar {
     position: BarPosition = BarPosition::Bottom,
-    left: Vec<String> = strings(&["session", "tabs"]),
+    left: Vec<String> = strings(&["session"]),
     right: Vec<String> = strings(&["agents", "git", "cpu", "mem", "net", "clock"]),
     interval_ms: u64 = 1000,
 });

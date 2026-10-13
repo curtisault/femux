@@ -70,15 +70,15 @@ async fn ui_030_the_bar_sits_on_any_side_and_the_panes_move_over() {
         // The session chip is on the bar's side, one cell in; typing into panes shows no
         // mode label.
         match bar {
-            BarPosition::Bottom => assert!(screen[29].starts_with("  s  "), "{screen:#?}"),
-            BarPosition::Top => assert!(screen[0].starts_with("  s  "), "{screen:#?}"),
+            BarPosition::Bottom => assert!(screen[29].starts_with("  session s  "), "{screen:#?}"),
+            BarPosition::Top => assert!(screen[0].starts_with("  session s  "), "{screen:#?}"),
             BarPosition::Left => {
-                assert!(screen[1].starts_with("  s "), "{screen:#?}");
+                assert!(screen[1].starts_with("  session s "), "{screen:#?}");
                 assert!(!screen[4].contains("TERMINAL"), "{screen:#?}");
             }
             BarPosition::Right => {
                 let x = (100 - BAR_WIDTH) as usize + 1;
-                assert_eq!(&screen[1][x..x + 3], " s ", "{screen:#?}");
+                assert_eq!(&screen[1][x..x + 11], " session s ", "{screen:#?}");
             }
         }
     }
@@ -302,6 +302,9 @@ async fn acceptance_0_4_bar_on_all_four_sides_with_every_built_in_module() {
             // The tab's title is the shell's name: sh, or bash on macOS.
             let second = &d.app.model.tabs[1];
             want.push(format!("2 {}", d.app.model.tab_title(second)));
+        } else {
+            // A row counts them instead of repeating the strip.
+            want.push("tab 2/2".to_owned());
         }
         for w in &want {
             assert!(
@@ -391,7 +394,7 @@ async fn ui_032_remote_modules_show_the_daemon_hosts_values() {
         d.settle().await;
         let line = d.screen_line(29);
         if line.contains("build-box:cpu 13%") {
-            assert!(line.contains(" box:s "), "{line}");
+            assert!(line.contains(" session box:s "), "{line}");
             // The plain `cpu` is still the client's own machine.
             assert!(line.matches("cpu").count() >= 2, "{line}");
             break;

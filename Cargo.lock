@@ -596,7 +596,7 @@ dependencies = [
 
 [[package]]
 name = "femux-cli"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "clap",
  "clap_complete",
@@ -629,7 +629,7 @@ dependencies = [
 
 [[package]]
 name = "femux-client"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "base64 0.22.1",
  "femux-plugin",
@@ -650,7 +650,7 @@ dependencies = [
 
 [[package]]
 name = "femux-config"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "serde",
  "toml",
@@ -658,7 +658,7 @@ dependencies = [
 
 [[package]]
 name = "femux-daemon"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "base64 0.22.1",
  "femux-config",
@@ -679,7 +679,7 @@ dependencies = [
 
 [[package]]
 name = "femux-plugin"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "femux-proto",
  "femux-test",
@@ -828,7 +828,7 @@ dependencies = [
 
 [[package]]
 name = "femux-proto"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "jsonschema",
  "rmp-serde",
@@ -840,7 +840,7 @@ dependencies = [
 
 [[package]]
 name = "femux-test"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "base64 0.22.1",
  "femux-daemon",
@@ -856,7 +856,7 @@ dependencies = [
 
 [[package]]
 name = "femux-vt"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "base64 0.22.1",
  "libc",

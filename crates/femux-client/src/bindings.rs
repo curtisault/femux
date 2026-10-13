@@ -32,7 +32,7 @@ pub enum Action {
     CopyMode,
     Paste,
     SessionNav,
-    WindowNav,
+    PaneNav,
     Palette,
     SideNav,
     /// The agent inbox (REQ-UI-044); bound by the agents plugin.
@@ -143,7 +143,7 @@ pub const ALL: &[Action] = &[
     Action::CopyMode,
     Action::Paste,
     Action::SessionNav,
-    Action::WindowNav,
+    Action::PaneNav,
     Action::Palette,
     Action::SideNav,
     Action::Inbox,
@@ -225,7 +225,7 @@ impl Action {
             CopyMode => "copy",
             Paste => "paste",
             SessionNav => "sessions",
-            WindowNav => "windows",
+            PaneNav => "panes",
             Palette => "palette",
             SideNav => "sidenav",
             Inbox => "inbox",
@@ -311,7 +311,7 @@ impl Action {
             CopyMode => "copy mode".into(),
             Paste => "paste".into(),
             SessionNav => "session navigator".into(),
-            WindowNav => "window navigator".into(),
+            PaneNav => "pane navigator".into(),
             Palette => "command palette".into(),
             SideNav => "side nav".into(),
             Inbox => "agent inbox".into(),
@@ -338,7 +338,7 @@ impl Action {
             SplitDown | SplitRight | ClosePane | Equalize | SwapNext | Scheme(_) => "splits",
             NewTab | RenameTab | NextTab | PrevTab | Tab(_) => "tabs",
             SetMark | JumpMark | Marks | CopyMode | Paste | Detach => "session",
-            SessionNav | WindowNav | Palette | SideNav | Inbox | Help | NormalMode | SendPrefix => {
+            SessionNav | PaneNav | Palette | SideNav | Inbox | Help | NormalMode | SendPrefix => {
                 "ui"
             }
             _ => "copy",
@@ -403,7 +403,7 @@ const PREFIX: &[(&str, Action)] = &[
     ("[", Action::CopyMode),
     ("]", Action::Paste),
     ("S", Action::SessionNav),
-    ("W", Action::WindowNav),
+    ("W", Action::PaneNav),
     (":", Action::Palette),
     ("b", Action::SideNav),
     ("d", Action::Detach),
@@ -632,7 +632,7 @@ mod tests {
         assert_eq!(p("["), Some(Action::CopyMode));
         assert_eq!(p("]"), Some(Action::Paste));
         assert_eq!(p("S"), Some(Action::SessionNav));
-        assert_eq!(p("W"), Some(Action::WindowNav));
+        assert_eq!(p("W"), Some(Action::PaneNav));
         assert_eq!(p(":"), Some(Action::Palette));
         assert_eq!(p("b"), Some(Action::SideNav));
         assert_eq!(p("d"), Some(Action::Detach));

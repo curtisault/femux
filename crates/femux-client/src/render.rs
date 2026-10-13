@@ -335,7 +335,7 @@ fn mode_label(app: &App, theme: &Theme) -> (&'static str, CellAttributes) {
     if let Overlay::Navigator(nav) = &app.overlay {
         let label = match nav.kind {
             crate::nav::NavKind::Sessions => "SESSIONS",
-            crate::nav::NavKind::Windows => "WINDOWS",
+            crate::nav::NavKind::Panes => "PANES",
         };
         return (label, bold(attr(theme.accent_fg, theme.accent)));
     }

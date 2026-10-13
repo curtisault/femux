@@ -185,3 +185,11 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-PLUG-004 `broadcast` 0.8 | femux-cli `plugins08::broadcast_on_types_into_every_pane`; femux-client `ui_marks_floats::broadcast_and_record_toggles`; femux-test `tabflags::*` | pass |
 | REQ-PLUG-004 `recorder` 0.8 | femux-cli `plugins08::recordings_are_asciinema_casts`; femux-plugin-recorder `casts_are_asciinema_v2_and_keep_utf8_whole` | pass |
 | 0.8.0 acceptance: worktree tabs, broadcast typing, asciinema recording | femux-cli `plugins08::*` | pass |
+
+## 0.8.1
+
+| Requirement | Tests | Status |
+| --- | --- | --- |
+| REQ-UI-030 (`session <name>` chip, `tab 2/5` module, `main` default) | femux-client `ui_bar::ui_030_the_bar_sits_on_any_side_and_the_panes_move_over`, `ui_bar::acceptance_0_4_bar_on_all_four_sides_with_every_built_in_module`, `ui_bar::ui_032_remote_modules_show_the_daemon_hosts_values`; femux-cli `remote::*` | pass |
+| REQ-UI-040 (sessions listed as sessions, rows named by kind) | femux-client `nav::tests::ui_040_sessions_expand_to_tabs_and_filter`, `ui_nav::ui_040_session_navigator_lists_attaches_renames_creates_and_kills` | pass |
+| REQ-UI-041 (pane navigator) | femux-client `nav::tests::ui_041_panes_list_every_pane_and_preview_the_selection`, `ui_nav::ui_041_pane_navigator_previews_panes_live_and_goes_to_them` | pass |

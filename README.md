@@ -13,7 +13,7 @@ with sessions that can survive a daemon restart and tracking of the coding agent
 Working now: tabs, BSP splits with preselection, master and scroll layouts, floating panes, zoom,
 marks, copy mode with regex search, a command palette, which-key hints, mouse support, an info
 bar on any side with cpu, memory, network, battery, git, agent and notification modules, session
-and window navigators, a side nav, themes, the `femux` CLI with `--json` output, session files
+and pane navigators, a side nav, themes, the `femux` CLI with `--json` output, session files
 with `femux launch`, opt-in restore of sessions after the daemon restarts
 (`[restore] enabled = true`), agent state tracking with an inbox, notifications, attaching
 to a remote femux over SSH, and images: Kitty graphics and sixel from programs such as
@@ -46,7 +46,7 @@ femux keys list       # every key binding and the action it runs
 
 Inside femux, press `ctrl+space` to reach the prefix table. Wait a moment and a panel lists
 every chord; `ctrl+space d` detaches and leaves everything running. `ctrl+p` opens the command
-palette, `ctrl+space S` and `ctrl+space W` the session and window navigators, and
+palette, `ctrl+space S` and `ctrl+space W` the session and pane navigators, and
 `ctrl+space b` the side nav.
 
 To jump between prompts in copy mode and keep each pane's directory accurate, load the shell

@@ -84,13 +84,23 @@ async fn ui_040_session_navigator_lists_attaches_renames_creates_and_kills() {
     for want in [
         "Sessions",
         "2 sessions",
-        "attached",
+        "session s",
+        "1 tab · attached",
+        "session other",
         "2 tabs",
         "last activity",
         "SESSIONS",
     ] {
         assert!(screen.contains(want), "{want}:\n{screen}");
     }
+    // Sessions only, until tab expands the selected one to its tabs.
+    assert_eq!(nav_rows(&d).len(), 2);
+    assert!(!d.screen().contains("tab 1"), "{}", d.screen());
+    d.press("tab").await;
+    assert!(nav_rows(&d).len() > 2);
+    assert!(d.screen().contains("tab 1"), "{}", d.screen());
+    d.press("tab").await;
+    assert_eq!(nav_rows(&d).len(), 2);
     // Filter, then attach to the other session.
     d.press("/").await;
     d.type_text("oth").await;
@@ -136,7 +146,7 @@ async fn ui_040_session_navigator_lists_attaches_renames_creates_and_kills() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn ui_041_window_navigator_previews_panes_live_and_goes_to_them() {
+async fn ui_041_pane_navigator_previews_panes_live_and_goes_to_them() {
     let mut d = Drive::with(ClientConfig::default(), vec![], 120, 30).await;
     let first = d.pane.clone();
     d.wait_pane_text(&first, "$").await;
@@ -177,7 +187,12 @@ async fn ui_041_window_navigator_previews_panes_live_and_goes_to_them() {
         pump(&mut d).await;
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
-    assert!(matches!(&d.app.overlay, Overlay::Navigator(n) if n.kind == NavKind::Windows));
+    assert!(matches!(&d.app.overlay, Overlay::Navigator(n) if n.kind == NavKind::Panes));
+    let screen = d.screen();
+    assert!(
+        screen.contains("Panes") && screen.contains("PANES"),
+        "{screen}"
+    );
     d.press("enter").await;
     d.until("on that tab and pane", |a| {
         a.model.current == t2.tab_id && a.model.focused_id().as_deref() == Some(t2.pane_id.as_str())

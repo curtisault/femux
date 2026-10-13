@@ -132,7 +132,7 @@ fn attach_over_ssh_runs_the_remote_session_and_detaches() {
     });
     // The session chip names the host.
     assert!(
-        contains(&out, "box:0"),
+        contains(&out, "session box:main"),
         "{}",
         String::from_utf8_lossy(&out.lock().unwrap())
     );
@@ -152,7 +152,7 @@ fn attach_over_ssh_runs_the_remote_session_and_detaches() {
     wait_until("view detached", Duration::from_secs(10), || {
         remote_clients(&rig.remote) == 0
     });
-    assert!(rig.remote.run(&["ls"]).starts_with("0: 1 tabs"));
+    assert!(rig.remote.run(&["ls"]).starts_with("main: 1 tabs"));
     // Nothing on the local machine: no daemon was started there.
     assert!(!rig.local.socket().exists());
 }
@@ -176,7 +176,7 @@ fn a_dropped_link_reconnects_and_the_session_survives() {
         contains(&out, "link to me@build-box lost")
     });
     // Meanwhile the remote session and its processes are untouched.
-    assert!(rig.remote.run(&["ls"]).starts_with("0: 1 tabs"));
+    assert!(rig.remote.run(&["ls"]).starts_with("main: 1 tabs"));
     wait_until("reconnected", Duration::from_secs(20), || {
         contains(&out, "reconnected to me@build-box")
     });

@@ -22,7 +22,7 @@ running_indicator = "●"
 
 [infobar]
 position = "bottom"           # top | bottom | left | right
-left  = ["session", "tabs"]
+left  = ["session"]           # "tabs" adds a `tab 2/5` counter (the strip lists them)
 right = ["agents", "git", "cpu", "mem", "net", "clock"]
 interval_ms = 1000
 

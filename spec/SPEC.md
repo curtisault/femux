@@ -281,7 +281,7 @@ Default bindings (prefix table unless noted):
 | `[` | copy mode |
 | `]` | paste |
 | `S` | session navigator |
-| `W` | window navigator |
+| `W` | pane navigator |
 | `:` | command palette |
 | `b` | toggle side nav |
 | `d` | detach |
@@ -314,6 +314,7 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
 
 - REQ-UI-030: One bar at `top|bottom|left|right`; `left` and `right` are vertical and stack modules.
   Note: a `left`/`right` bar is a 24-column column the full height of the terminal, with the tab strip and panes beside it; the session chip and mode come first, the `left` modules follow from the top and the `right` ones are anchored to the bottom. Prompts, confirmations and messages use the bar row, or with a vertical bar the bottom row of the pane area while they are shown.
+  Note (0.8.1): the chip reads `session <name>` (`session <host>:<name>` over `--host`), so a session named by a number never reads as a tab index; the `tabs` module on a horizontal bar renders `tab 2/5` (`!` after it when another tab is urgent) instead of a second row of tab numbers, and the default `left` is `["session"]` because the tab strip already lists the tabs. `femux` with no session to attach to creates one named `main`.
   Note (0.6.1): the horizontal bar keeps one cell of padding at each end. It shows no mode label while typing into panes, only `PREFIX`, `NORMAL`, `COPY` and the navigators' names, and no permanent prefix hint (the which-key panel shows the prefix table).
 - REQ-UI-031: Modules are listed in config in order; each is a plugin implementing `InfoModule { fn render(&self, w: usize) -> Spans; fn interval(&self) -> Duration }`.
   Note: modules also get `sample(&mut self, ctx)`, called every `max(interval(), [infobar] interval_ms)` and only for modules the config shows, and `render` reads a `BarCtx` (session, tabs, agent counts, the focused pane's cwd, notifications of hidden panes, orientation). Unknown names are skipped. `session` is the client's own chip and mode, so with the `infobar` plugin disabled the bar still shows them.
@@ -327,7 +328,9 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
 
 - REQ-UI-040: Session navigator (`S`): full-screen list of sessions with tab counts, agent summary, last activity; `enter` attaches, `x` kills, `r` renames, `/` filters.
   Note: each session row shows its root, agent summary and tab count (`attached` for this client's own); `tab` expands a session to its tabs; created, last activity (ADR-018 #1), tab, pane and client counts sit under the preview. `n` creates a session; `x` asks first, and killing the attached session first moves this client to another one. `enter` attaches by detaching this client's view and attaching to the chosen session.
+  Note (0.8.1): the list shows sessions only until `tab` expands one; every row names its kind (`session api`, `tab 1 fish ~`), the session row's right side reads `5 tabs · attached`, and the footer counts tabs, panes and clients. A session's tabs never appear as sessions.
 - REQ-UI-041: Window navigator (`W`): tree of sessions → tabs → panes with a live preview of the selected pane.
+  Note (0.8.1): named the pane navigator (`PANES` on the bar, action `panes`): femux has no window object, a tab owns its layout of panes, and the tree's leaves are panes. Pane rows are titled like the tab strip (`● fish ~`, or the program and its directory).
   Note: the preview reads the selected pane's screen with `scrollback.read` every 500 ms; `enter` goes to the pane, attaching to its session when it is another one.
 - REQ-UI-042: Side nav (`b`): persistent left column listing sessions and tabs; click to switch.
   Note: 26 columns, between a `left` bar and the panes, which the daemon resizes. The attached session is expanded to its tabs and the others are collapsed; clicking a session attaches to it, clicking a tab selects it. Sessions refresh every 2 s while the side nav or a navigator is open.

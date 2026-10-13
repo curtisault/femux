@@ -134,7 +134,7 @@ pub enum Overlay {
         input: String,
         what: PromptKind,
     },
-    /// The session or window navigator (REQ-UI-040/041).
+    /// The session or pane navigator (REQ-UI-040/041).
     Navigator(crate::nav::NavState),
     /// The agent inbox (REQ-UI-044).
     Inbox(crate::inbox::InboxState),
@@ -598,11 +598,12 @@ impl App {
             .is_some_and(|p| p.meta.contains_key("recorder.on"))
     }
 
-    /// The session chip: `host:session` when attached through `--host`.
+    /// The session chip, `session <name>` (`host:name` when attached through `--host`): it
+    /// says what it is so a name like `0` never reads as a tab number.
     pub fn session_chip(&self) -> String {
         match &self.remote {
-            Some(h) => format!("{h}:{}", self.model.session),
-            None => self.model.session.clone(),
+            Some(h) => format!("session {h}:{}", self.model.session),
+            None => format!("session {}", self.model.session),
         }
     }
 
@@ -1324,11 +1325,11 @@ impl App {
                     self.message = Some("nothing to paste".into());
                 }
             }
-            Action::SessionNav | Action::WindowNav => {
+            Action::SessionNav | Action::PaneNav => {
                 let kind = if a == Action::SessionNav {
                     crate::nav::NavKind::Sessions
                 } else {
-                    crate::nav::NavKind::Windows
+                    crate::nav::NavKind::Panes
                 };
                 self.overlay =
                     Overlay::Navigator(crate::nav::NavState::new(kind, &self.model.session));
