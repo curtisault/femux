@@ -553,6 +553,8 @@ impl Bindings {
                 }
                 continue;
             }
+            // The panel has room for the gist; asides like "(confirms if ...)" stay in help.
+            let desc = desc.split(" (").next().unwrap_or_default().to_owned();
             out.push(BoundKey {
                 key,
                 action: desc,

@@ -755,7 +755,7 @@ pub fn render(app: &mut App, theme: &Theme, s: &mut Surface) {
     // Overlays.
     match app.overlay.clone() {
         Overlay::WhichKey => {
-            if let Some(ov) = app.plugin_overlay() {
+            if let Some(ov) = app.plugin_overlay(area.w as usize) {
                 draw_panel(
                     &mut c,
                     theme,

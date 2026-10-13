@@ -757,13 +757,14 @@ impl App {
         (femux_plugin::width(&spans) > 0).then_some(spans)
     }
 
-    /// The which-key panel from whichever plugin provides one.
-    pub fn plugin_overlay(&self) -> Option<PluginOverlay> {
+    /// The which-key panel from whichever plugin provides one, laid out for a panel `width`
+    /// cells wide (the pane area, beside any side nav or vertical bar).
+    pub fn plugin_overlay(&self, width: usize) -> Option<PluginOverlay> {
         let table = self.bindings.which_key_table();
         let prefix_key = self.prefix_label();
         let ctx = OverlayCtx {
             mode: self.mode_name(),
-            width: self.cols as usize,
+            width,
             height: self.rows as usize,
             prefix_table: &table,
             prefix_key: &prefix_key,

@@ -67,7 +67,7 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | --- | --- | --- |
 | REQ-UI-001 | femux-client `ui_modes::ui_001_three_modes` | pass |
 | REQ-UI-002 | femux-client `ui_modes::ui_002_prefix_is_one_shot_and_configurable`, `keys::tests::*`, `bindings::tests::every_default_binding_of_spec_5_1_exists`, `app::tests::a_bound_prefix_action_sends_the_prefix_itself` | pass |
-| REQ-UI-003 | femux-client `ui_overlays::ui_003_which_key_shows_after_the_delay`; femux-plugin-which-key `tests::groups_stay_together_in_columns`, `tests::only_in_prefix_mode` | pass |
+| REQ-UI-003 | femux-client `ui_overlays::ui_003_which_key_shows_after_the_delay`; femux-plugin-which-key `tests::groups_stay_together_in_columns`, `tests::long_lines_are_clipped_to_their_column`, `tests::groups_are_cut_into_even_columns_in_order`, `tests::only_in_prefix_mode` | pass |
 | REQ-UI-004 | femux-client `ui_modes::ui_004_prefixless_nav_is_off_by_default` | pass |
 | REQ-UI-010 | femux-daemon `layout::tests::master_and_scroll_schemes_follow_pane_order`; femux-test `scheme::ui_010_schemes_change_the_geometry`; femux-client `ui_layout::ui_010_preselection_places_the_next_split` | pass |
 | REQ-UI-011 | femux-client `ui_floats::ui_011_floats_render_above_tiles_and_follow_the_mouse`; femux-test `session::sess_002_layout_tree_nodes` (floats beside the tree) | pass |

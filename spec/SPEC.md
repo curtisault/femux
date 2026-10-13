@@ -260,6 +260,7 @@ frame {view_id, frame_seq, full: bool, panes: [{pane_id, rect, cells: [ {x,y,run
   Note: sticky `normal` uses the prefix table directly; `esc` (or the prefix key) returns to `terminal`. An unbound key after the prefix is swallowed and named in the status line.
 - REQ-UI-003: A which-key overlay lists available chords after `ui.which_key_delay_ms` (default 400).
   Note: the panel is the `which-key` plugin's; with the plugin disabled the delay passes silently and the table still works.
+  Note: the panel splits the pane area's width into up to four even columns (at least 30 cells each). Groups stay whole and in order, cut so the tallest column is shortest; text is clipped to its column with `…`, and descriptions drop parenthetical asides (help keeps them).
 - REQ-UI-004: Prefix-less bindings (`alt+h/j/k/l`) exist but are off by default.
 
 Default bindings (prefix table unless noted):
