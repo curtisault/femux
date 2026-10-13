@@ -914,6 +914,7 @@ impl App {
                             self.quiet(m::PaneMark {
                                 pane_id: p,
                                 mark: chord.key.clone(),
+                                clear: None,
                             });
                         }
                     }

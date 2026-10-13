@@ -53,6 +53,10 @@ pub struct Tab {
     pub layout_gen: u64,
     /// `[layout] gaps`: blank cells beside each separator.
     pub gap: u16,
+    /// Input to any pane goes to all of them (ADR-022).
+    pub broadcast: bool,
+    /// The floats are hidden: running, not shown (ADR-022).
+    pub floats_hidden: bool,
 }
 
 impl Tab {
@@ -98,6 +102,13 @@ impl Tab {
     pub fn visible_rects(&self) -> Vec<(PaneId, Rect)> {
         if self.zoomed {
             vec![(self.focus.clone(), self.area())]
+        } else if self.floats_hidden {
+            // Hidden floats keep their size (their programs run on) but are not shown.
+            let floats: Vec<&PaneId> = self.floats.iter().map(|(p, _)| p).collect();
+            self.all_rects()
+                .into_iter()
+                .filter(|(p, _)| !floats.contains(&p))
+                .collect()
         } else {
             self.all_rects()
         }
@@ -170,6 +181,8 @@ impl Pane {
             restore: self.restore,
             restored: self.restored,
             last_output: self.output.load(std::sync::atomic::Ordering::Relaxed),
+            cols: Some(self.size.0),
+            rows: Some(self.size.1),
             cwd: self.cwd.clone(),
             fg_pid: self.fg_pid,
             fg_cmd: self.fg_cmd.clone(),
@@ -330,6 +343,8 @@ impl State {
                 zoomed: t.zoomed,
                 focus: t.focus.clone(),
                 scheme: t.scheme,
+                broadcast: Some(t.broadcast),
+                floats_hidden: Some(t.floats_hidden),
             })
             .collect();
         let marks = s

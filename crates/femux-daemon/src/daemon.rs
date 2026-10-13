@@ -190,6 +190,45 @@ fn keymods(mods: &[m::Mod]) -> femux_vt::Mods {
     out
 }
 
+/// Input events as the bytes `vt`'s program expects (its keyboard, mouse and paste modes).
+fn encode_input(vt: &mut Terminal, events: &[m::InputEvent]) -> R<Vec<u8>> {
+    let mut out = Vec::new();
+    for e in events {
+        let bytes = match e {
+            m::InputEvent::KeyEvent(k) => vt.encode_key(&femux_vt::Key {
+                name: &k.key,
+                mods: keymods(&k.mods),
+                text: k.text.as_deref(),
+                action: match k.event {
+                    m::KeyEventKind::Press => femux_vt::KeyAction::Press,
+                    m::KeyEventKind::Repeat => femux_vt::KeyAction::Repeat,
+                    m::KeyEventKind::Release => femux_vt::KeyAction::Release,
+                },
+            }),
+            m::InputEvent::MouseEvent(e) => vt.encode_mouse(&femux_vt::MouseInput {
+                x: e.x,
+                y: e.y,
+                button: e.button.map(|b| match b {
+                    m::MouseButton::Left => femux_vt::MouseButton::Left,
+                    m::MouseButton::Middle => femux_vt::MouseButton::Middle,
+                    m::MouseButton::Right => femux_vt::MouseButton::Right,
+                }),
+                mods: keymods(&e.mods),
+                action: match e.event {
+                    m::MouseEventKind::Press => femux_vt::MouseAction::Press,
+                    m::MouseEventKind::Release => femux_vt::MouseAction::Release,
+                    m::MouseEventKind::Move => femux_vt::MouseAction::Move,
+                    m::MouseEventKind::WheelUp => femux_vt::MouseAction::WheelUp,
+                    m::MouseEventKind::WheelDown => femux_vt::MouseAction::WheelDown,
+                },
+            }),
+            m::InputEvent::Paste(p) => vt.encode_paste(&p.text),
+        };
+        out.extend(bytes.map_err(|e| (m::ErrorCode::Internal, e.to_string()))?);
+    }
+    Ok(out)
+}
+
 /// Strips a `file://host` prefix from an OSC 7 URL.
 fn osc7_path(url: &str) -> String {
     match url.strip_prefix("file://") {
@@ -634,6 +673,8 @@ impl Daemon {
                 rects: Vec::new(),
                 layout_gen: 0,
                 gap,
+                broadcast: false,
+                floats_hidden: false,
             },
         );
         let opts = SpawnOpts {
@@ -867,6 +908,28 @@ impl Daemon {
         Ok((p.vt.clone(), p.input.clone()))
     }
 
+    /// The other panes of `pane`'s tab when that tab broadcasts (ADR-022).
+    fn broadcast_targets(
+        &self,
+        pane: &str,
+    ) -> Vec<(String, SharedTerminal, mpsc::UnboundedSender<Vec<u8>>)> {
+        let st = self.state.lock().unwrap();
+        let Some(tab) = st.panes.get(pane).and_then(|p| st.tabs.get(&p.tab)) else {
+            return Vec::new();
+        };
+        if !tab.broadcast {
+            return Vec::new();
+        }
+        tab.panes()
+            .into_iter()
+            .filter(|p| p != pane)
+            .filter_map(|p| {
+                let x = st.panes.get(&p)?;
+                Some((p, x.vt.clone(), x.input.clone()))
+            })
+            .collect()
+    }
+
     /// Records input to a pane (ADR-018 #1).
     fn touch(&self, pane: &str) {
         if let Some(p) = self.state.lock().unwrap().panes.get(pane) {
@@ -906,55 +969,26 @@ impl Daemon {
                 }
                 Q::PaneInput(r) => {
                     let (vt, input) = self.terminal(&r.pane_id)?;
-                    let mut out = Vec::new();
-                    {
-                        let mut vt = vt.lock().unwrap();
-                        for e in &r.events {
-                            let bytes = match e {
-                                m::InputEvent::KeyEvent(k) => vt.encode_key(&femux_vt::Key {
-                                    name: &k.key,
-                                    mods: keymods(&k.mods),
-                                    text: k.text.as_deref(),
-                                    action: match k.event {
-                                        m::KeyEventKind::Press => femux_vt::KeyAction::Press,
-                                        m::KeyEventKind::Repeat => femux_vt::KeyAction::Repeat,
-                                        m::KeyEventKind::Release => femux_vt::KeyAction::Release,
-                                    },
-                                }),
-                                m::InputEvent::MouseEvent(e) => {
-                                    vt.encode_mouse(&femux_vt::MouseInput {
-                                        x: e.x,
-                                        y: e.y,
-                                        button: e.button.map(|b| match b {
-                                            m::MouseButton::Left => femux_vt::MouseButton::Left,
-                                            m::MouseButton::Middle => femux_vt::MouseButton::Middle,
-                                            m::MouseButton::Right => femux_vt::MouseButton::Right,
-                                        }),
-                                        mods: keymods(&e.mods),
-                                        action: match e.event {
-                                            m::MouseEventKind::Press => {
-                                                femux_vt::MouseAction::Press
-                                            }
-                                            m::MouseEventKind::Release => {
-                                                femux_vt::MouseAction::Release
-                                            }
-                                            m::MouseEventKind::Move => femux_vt::MouseAction::Move,
-                                            m::MouseEventKind::WheelUp => {
-                                                femux_vt::MouseAction::WheelUp
-                                            }
-                                            m::MouseEventKind::WheelDown => {
-                                                femux_vt::MouseAction::WheelDown
-                                            }
-                                        },
-                                    })
-                                }
-                                m::InputEvent::Paste(p) => vt.encode_paste(&p.text),
-                            };
-                            out.extend(bytes.map_err(|e| (m::ErrorCode::Internal, e.to_string()))?);
-                        }
-                    }
+                    let out = encode_input(&mut vt.lock().unwrap(), &r.events)?;
                     if !out.is_empty() {
                         let _ = input.send(out);
+                    }
+                    // A broadcasting tab (ADR-022): keys and pastes reach every other pane of
+                    // it too, each encoded for that pane's own modes. Mouse events stay put.
+                    let typed: Vec<m::InputEvent> = r
+                        .events
+                        .iter()
+                        .filter(|e| !matches!(e, m::InputEvent::MouseEvent(_)))
+                        .cloned()
+                        .collect();
+                    if !typed.is_empty() {
+                        for (id, vt, input) in self.broadcast_targets(&r.pane_id) {
+                            let out = encode_input(&mut vt.lock().unwrap(), &typed)?;
+                            if !out.is_empty() {
+                                let _ = input.send(out);
+                            }
+                            self.touch(&id);
+                        }
                     }
                     self.touch(&r.pane_id);
                     Response::PaneInput(m::Empty {})
@@ -1254,6 +1288,50 @@ impl Daemon {
                     State::session_scope(&session),
                 );
                 Response::TabMove(m::Empty {})
+            }
+            Q::TabSet(r) => {
+                let tab = st.tab_mut(&r.tab_id)?;
+                let floats_changed = r.floats_hidden.is_some_and(|h| h != tab.floats_hidden);
+                if let Some(b) = r.broadcast {
+                    tab.broadcast = b;
+                }
+                let mut refocused = None;
+                if let Some(h) = r.floats_hidden {
+                    tab.floats_hidden = h;
+                    // Focus leaves a float that is hidden.
+                    if h && tab.floats.iter().any(|(p, _)| *p == tab.focus)
+                        && let Some(first) =
+                            tab.tree.as_ref().and_then(|t| t.panes().first().cloned())
+                    {
+                        tab.focus = first.clone();
+                        refocused = Some(first);
+                    }
+                }
+                let (session, broadcast, floats_hidden) =
+                    (tab.session.clone(), tab.broadcast, tab.floats_hidden);
+                self.emit(
+                    m::TabFlags {
+                        tab_id: r.tab_id.clone(),
+                        broadcast,
+                        floats_hidden,
+                        ..Default::default()
+                    },
+                    State::session_scope(&session),
+                );
+                if let Some(pane_id) = refocused {
+                    self.emit(
+                        m::LayoutFocused {
+                            tab_id: r.tab_id.clone(),
+                            pane_id,
+                            ..Default::default()
+                        },
+                        State::session_scope(&session),
+                    );
+                }
+                if floats_changed {
+                    self.layout_changed(st, &r.tab_id);
+                }
+                Response::TabSet(m::Empty {})
             }
             Q::TabRename(r) => {
                 let tab = st.tab_mut(&r.tab_id)?;
@@ -1586,16 +1664,23 @@ impl Daemon {
                 let session = st
                     .session_of_pane(&r.pane_id)
                     .ok_or_else(|| not_found("pane"))?;
-                st.sessions
-                    .get_mut(&session)
-                    .unwrap()
-                    .marks
-                    .insert(mark, r.pane_id.clone());
+                let marks = &mut st.sessions.get_mut(&session).unwrap().marks;
+                let clear = r.clear == Some(true);
+                if clear {
+                    // Only this pane's mark goes (ADR-022).
+                    if marks.get(&mark) != Some(&r.pane_id) {
+                        return Err(not_found("mark on this pane"));
+                    }
+                    marks.remove(&mark);
+                } else {
+                    marks.insert(mark, r.pane_id.clone());
+                }
                 let scope = st.pane_scope(&r.pane_id);
                 self.emit(
                     m::PaneMarked {
                         pane_id: r.pane_id,
                         mark: r.mark,
+                        cleared: clear.then_some(true),
                         ..Default::default()
                     },
                     scope,
@@ -1862,6 +1947,19 @@ async fn reader(
         }
         if changes != femux_vt::Changes::default() {
             d.pane_changes(&id, changes);
+        }
+        // The raw bytes, for whoever records the pane (ADR-022).
+        if d.bus.lock().unwrap().wants_output(&id) {
+            use base64::Engine;
+            let scope = d.state.lock().unwrap().pane_scope(&id);
+            d.emit(
+                m::PaneOutput {
+                    pane_id: id.clone(),
+                    data: base64::engine::general_purpose::STANDARD.encode(&buf[..n]),
+                    ..Default::default()
+                },
+                scope,
+            );
         }
         // Output changes what a snapshot holds only when scrollback is persisted (REQ-STORE-006).
         if d.settings.lock().unwrap().restore.scrollback {

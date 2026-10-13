@@ -136,6 +136,13 @@
         "last_output": {
           "$ref": "common.json#/$defs/U64",
           "description": "ms since epoch of the pane's newest output; 0 before any."
+        },
+        "cols": {
+          "$ref": "common.json#/$defs/U16",
+          "description": "The pane's size in cells (ADR-022)."
+        },
+        "rows": {
+          "$ref": "common.json#/$defs/U16"
         }
       },
       "required": [
@@ -182,6 +189,10 @@
         "mark": {
           "type": "string",
           "pattern": "^[a-z]$"
+        },
+        "clear": {
+          "type": "boolean",
+          "description": "Remove the mark instead (when it is on this pane)."
         }
       },
       "required": [

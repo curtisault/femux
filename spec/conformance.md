@@ -173,3 +173,9 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-GFX-004 | femux-vt `graphics::tests::gfx_004_image_memory_is_capped_and_old_images_go_first` | pass |
 | Plugin `graphics` (`femux graphics list`) | femux-cli `graphics::graphics_list_shows_the_images_a_pane_holds`, `cli::cli_001_every_subcommand_has_json`; femux-plugin-graphics `tests::*` | pass |
 | 0.7.0 acceptance | femux-test `graphics::acceptance_mpv_plays_into_a_pane` (`mpv --vo=kitty`, where mpv is installed), femux-vt `graphics::tests::icat_style_query_and_temp_file_transfer_work` (icat's query and temp-file transfer), femux-test `graphics::gfx_001_003_placements_reach_clients_and_survive_reattach` (images survive reattach) | pass |
+
+## 0.8.0
+
+| Requirement | Tests | Status |
+| --- | --- | --- |
+| REQ-PROTO-010 (ADR-022 tab flags, mark removal, pane.output) | femux-test `tabflags::*`; femux-proto `schema::*` | pass |

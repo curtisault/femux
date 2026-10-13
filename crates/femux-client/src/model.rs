@@ -432,6 +432,11 @@ impl Model {
                     self.mark_urgent(&tab);
                 }
             }
+            Event::PaneMarked(p) if p.cleared == Some(true) => {
+                if self.marks.get(&p.mark) == Some(&p.pane_id) {
+                    self.marks.remove(&p.mark);
+                }
+            }
             Event::PaneMarked(p) => {
                 self.marks.insert(p.mark.clone(), p.pane_id.clone());
             }

@@ -297,6 +297,10 @@
         "mark": {
           "type": "string",
           "pattern": "^[a-z]$"
+        },
+        "cleared": {
+          "type": "boolean",
+          "description": "The mark was removed."
         }
       },
       "required": [
@@ -708,6 +712,60 @@
         "pane_id",
         "data"
       ]
+    },
+    "TabFlags": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "ts": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch"
+        },
+        "tab_id": {
+          "$ref": "common.json#/$defs/TabId"
+        },
+        "broadcast": {
+          "type": "boolean"
+        },
+        "floats_hidden": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "tab_id",
+        "broadcast",
+        "floats_hidden"
+      ]
+    },
+    "PaneOutput": {
+      "type": "object",
+      "description": "Bytes a pane's program wrote (the recorder plugin). Only for subscribers that name `pane.output` in `kinds`, never retained for `since`.",
+      "properties": {
+        "seq": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "ts": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch"
+        },
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        },
+        "data": {
+          "type": "string",
+          "description": "Base64 of the bytes."
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "pane_id",
+        "data"
+      ]
     }
   },
   "x-messages": [
@@ -756,6 +814,10 @@
       "body": "TabRenamed"
     },
     {
+      "kind": "tab.flags",
+      "body": "TabFlags"
+    },
+    {
       "kind": "layout.changed",
       "body": "LayoutChanged"
     },
@@ -802,6 +864,10 @@
     {
       "kind": "pane.report",
       "body": "PaneReport"
+    },
+    {
+      "kind": "pane.output",
+      "body": "PaneOutput"
     },
     {
       "kind": "view.attached",

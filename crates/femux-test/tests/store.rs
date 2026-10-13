@@ -125,6 +125,7 @@ async fn store_004_sessions_come_back_with_their_ids_layout_and_marks() {
     c.call(PaneMark {
         pane_id: b.clone(),
         mark: "q".into(),
+        clear: None,
     })
     .await
     .unwrap();

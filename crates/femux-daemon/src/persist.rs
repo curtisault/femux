@@ -272,6 +272,8 @@ impl Daemon {
                     rects: Vec::new(),
                     layout_gen: 0,
                     gap: self.settings.lock().unwrap().gaps,
+                    broadcast: false,
+                    floats_hidden: false,
                 },
             );
             let mut spawned = Vec::new();
