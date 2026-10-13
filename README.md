@@ -7,7 +7,7 @@ from the `femux` CLI. Agent tracking and the other extras are built-in plugins o
 
 ## Status
 
-femux is pre-1.0 and at version 0.6: a client and CLI meant for daily use, locally and over SSH,
+femux is pre-1.0 and at version 0.7: a client and CLI meant for daily use, locally and over SSH,
 with sessions that can survive a daemon restart and tracking of the coding agents running in them.
 
 Working now: tabs, BSP splits with preselection, master and scroll layouts, floating panes, zoom,
@@ -15,10 +15,10 @@ marks, copy mode with regex search, a command palette, which-key hints, mouse su
 bar on any side with cpu, memory, network, battery, git, agent and notification modules, session
 and window navigators, a side nav, themes, the `femux` CLI with `--json` output, session files
 with `femux launch`, opt-in restore of sessions after the daemon restarts
-(`[restore] enabled = true`), agent state tracking with an inbox, notifications, and attaching
-to a remote femux over SSH.
-
-Not yet: image passthrough. The order
+(`[restore] enabled = true`), agent state tracking with an inbox, notifications, attaching
+to a remote femux over SSH, and images: Kitty graphics and sixel from programs such as
+`kitten icat` and `mpv --vo=kitty`, drawn when your terminal speaks the Kitty graphics
+protocol (`femux graphics list` shows what each pane holds). The order
 they arrive in is the milestone table in [SPEC §13](spec/SPEC.md#13-milestones-and-branches).
 
 ## Build
