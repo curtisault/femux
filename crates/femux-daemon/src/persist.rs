@@ -11,7 +11,7 @@ use femux_proto::msg as m;
 use femux_vt::{Cell, Color, attrs};
 
 use crate::bus::{Scope, now_ms};
-use crate::daemon::{CLEAN, Daemon, SpawnOpts};
+use crate::daemon::{CLEAN, Daemon, SpawnOpts, scheme};
 use crate::layout::{Node, Rect};
 use crate::state::{R, Session, Tab, invalid};
 use crate::store::{PaneRow, SessionRow, Snapshot, Store, TabRow};
@@ -271,6 +271,7 @@ impl Daemon {
                     size: t.size,
                     rects: Vec::new(),
                     layout_gen: 0,
+                    gap: self.settings.lock().unwrap().gaps,
                 },
             );
             let mut spawned = Vec::new();
@@ -347,14 +348,39 @@ impl Daemon {
 
     /// `server.reload` (ADR-013, ADR-017 #3): re-reads the config file and applies what can
     /// change while running. An invalid file changes nothing.
-    pub fn reload(&self) -> R<()> {
+    pub fn reload(self: &Arc<Self>) -> R<()> {
         if let Some(path) = &self.cfg.config_path {
             let c = femux_config::Config::load(path).map_err(invalid)?;
-            let mut s = self.settings.lock().unwrap();
-            s.keep_alive = c.daemon.keep_alive;
-            s.scrollback_lines = c.terminal.scrollback_lines;
-            s.restore = c.restore;
-            s.env_allow = c.env.allow;
+            let gaps = c.layout.gaps;
+            {
+                let mut s = self.settings.lock().unwrap();
+                s.keep_alive = c.daemon.keep_alive;
+                s.scrollback_lines = c.terminal.scrollback_lines;
+                s.restore = c.restore;
+                s.env_allow = c.env.allow;
+                s.gaps = gaps;
+                s.scheme = scheme(c.layout.scheme);
+            }
+            // Gaps apply to every tab at once; the scheme only to new tabs.
+            let mut st = self.state.lock().unwrap();
+            let changed: Vec<String> = st
+                .tabs
+                .values_mut()
+                .filter(|t| t.gap != gaps)
+                .map(|t| {
+                    t.gap = gaps;
+                    t.id.clone()
+                })
+                .collect();
+            let redraw = !changed.is_empty();
+            for id in changed {
+                self.layout_changed(&mut st, &id);
+            }
+            drop(st);
+            // Reload returns before the request path's own redraw: send the new geometry.
+            if redraw {
+                self.dirty();
+            }
         }
         self.emit(m::ConfigReloaded::default(), Scope::default());
         Ok(())

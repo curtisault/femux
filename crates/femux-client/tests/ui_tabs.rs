@@ -31,7 +31,10 @@ async fn ui_020_tab_strip_shows_running_urgent_and_zoom() {
     d.until("pane info", |a| a.model.panes[&pane].known).await;
     // The shell's own name: sh here, bash on macOS, where /bin/sh is bash and the name the
     // daemon reports settles shortly after spawn. Read it when asserting, never earlier.
-    wait_strip(&mut d, |a| format!(" 1 {}", a.model.panes[&pane].fg_cmd)).await;
+    wait_strip(&mut d, |a| {
+        format!(" 1 {}", a.model.tab_title(&a.model.tabs[0]))
+    })
+    .await;
     // A new tab becomes current; a long-running command marks it.
     d.press_all(&["ctrl+space", "t"]).await;
     d.until("second tab", |a| {
@@ -44,7 +47,7 @@ async fn ui_020_tab_strip_shows_running_urgent_and_zoom() {
     d.type_text("sleep 30\n").await;
     d.until("running", |a| a.model.panes[&p2].running()).await;
     wait_strip(&mut d, |a| {
-        format!(" 1 {}   2 sleep ●", a.model.panes[&pane].fg_cmd)
+        format!(" 1 {}   2 sleep ●", a.model.tab_title(&a.model.tabs[0]))
     })
     .await;
     // Back on tab 1, a bell in tab 2 marks it urgent; selecting it clears the mark.
@@ -79,7 +82,8 @@ async fn ui_020_tab_strip_shows_running_urgent_and_zoom() {
     wait_strip(&mut d, |a| {
         format!(
             " 1 {}   2 {} !",
-            a.model.panes[&pane].fg_cmd, a.model.panes[&p2].fg_cmd
+            a.model.tab_title(&a.model.tabs[0]),
+            a.model.tab_title(&a.model.tabs[1])
         )
     })
     .await;
@@ -94,7 +98,8 @@ async fn ui_020_tab_strip_shows_running_urgent_and_zoom() {
     wait_strip(&mut d, |a| {
         format!(
             " 1 {}   2 {} Z",
-            a.model.panes[&pane].fg_cmd, a.model.panes[&p2].fg_cmd
+            a.model.tab_title(&a.model.tabs[0]),
+            a.model.tab_title(&a.model.tabs[1])
         )
     })
     .await;
@@ -106,14 +111,32 @@ async fn ui_021_title_precedence() {
     let pane = d.pane.clone();
     d.wait_pane_text(&pane, "$").await;
     d.until("pane info", |a| a.model.panes[&pane].known).await;
-    // fg command (the shell) beats the cwd basename.
-    wait_strip(&mut d, |a| format!(" 1 {}", a.model.panes[&pane].fg_cmd)).await;
+    // At the prompt: the shell and its directory.
+    wait_strip(&mut d, |a| {
+        let p = &a.model.panes[&pane];
+        format!(" 1 {} {}", p.fg_cmd, femux_client::model::short_dir(&p.cwd))
+    })
+    .await;
     assert!(!d.app.model.panes[&pane].fg_cmd.is_empty());
-    // OSC 2 beats the fg command.
-    d.type_text("printf '\\033]2;notes\\a'\n").await;
-    d.until("osc 2 title", |a| a.model.panes[&pane].title == "notes")
-        .await;
-    assert_eq!(d.screen_line(0), " 1 notes");
+    // A shell's own OSC 2 title does not replace that…
+    d.type_text("printf '\\033]2;shell-title\\a'\n").await;
+    d.until("osc 2 title", |a| {
+        a.model.panes[&pane].title == "shell-title"
+    })
+    .await;
+    d.settle().await;
+    assert!(
+        !d.screen_line(0).contains("shell-title"),
+        "{}",
+        d.screen_line(0)
+    );
+    // …but a program's does: OSC 2 beats the fg command.
+    d.type_text("printf '\\033]2;notes\\a'; sleep 30\n").await;
+    d.until("program title", |a| {
+        a.model.panes[&pane].title == "notes" && a.model.panes[&pane].running()
+    })
+    .await;
+    wait_strip(&mut d, |_| " 1 notes ●".to_owned()).await;
     // A user rename beats everything.
     d.press_all(&["ctrl+space", "T"]).await;
     d.press_all(&[
@@ -130,7 +153,16 @@ async fn ui_021_title_precedence() {
         a.model.tabs[0].custom_title.as_deref() == Some("work")
     })
     .await;
-    assert_eq!(d.screen_line(0), " 1 work");
+    assert_eq!(d.screen_line(0), " 1 work ●");
+    d.obs
+        .call(femux_proto::msg::PaneSignal {
+            pane_id: pane.clone(),
+            sig: femux_proto::msg::Signal::Sigint,
+        })
+        .await
+        .unwrap();
+    d.until("back at the prompt", |a| !a.model.panes[&pane].running())
+        .await;
     d.type_text("printf '\\033]2;other\\a'\n").await;
     d.until("osc 2 again", |a| a.model.panes[&pane].title == "other")
         .await;

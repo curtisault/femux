@@ -58,6 +58,22 @@ impl PaneScreen {
     }
 }
 
+/// `~` for the home directory, else the last path component (`/` for the root).
+pub fn short_dir(cwd: &str) -> String {
+    if cwd.is_empty() {
+        return String::new();
+    }
+    if let Some(home) = std::env::var_os("HOME")
+        && std::path::Path::new(cwd) == std::path::Path::new(&home)
+    {
+        return "~".into();
+    }
+    cwd.rsplit('/')
+        .find(|s| !s.is_empty())
+        .unwrap_or("/")
+        .to_owned()
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Pane {
     pub id: String,
@@ -211,7 +227,8 @@ impl Model {
         self.current_tab().map(|t| t.focus.clone())
     }
 
-    /// REQ-UI-021: user rename > OSC 2 > fg command > cwd basename.
+    /// REQ-UI-021: user rename > OSC 2 > fg command > cwd basename. While the shell itself
+    /// is in the foreground, its OSC 2 title (often `~ - fish`) gives way to `<shell> <dir>`.
     pub fn tab_title(&self, tab: &Tab) -> String {
         if let Some(t) = &tab.custom_title {
             return t.clone();
@@ -219,17 +236,21 @@ impl Model {
         let Some(p) = self.panes.get(&tab.focus) else {
             return String::new();
         };
+        let dir = short_dir(&p.cwd);
+        if p.known && !p.running() && !p.fg_cmd.is_empty() {
+            return if dir.is_empty() {
+                p.fg_cmd.clone()
+            } else {
+                format!("{} {dir}", p.fg_cmd)
+            };
+        }
         if !p.title.is_empty() {
             return p.title.clone();
         }
         if !p.fg_cmd.is_empty() {
             return p.fg_cmd.clone();
         }
-        p.cwd
-            .rsplit('/')
-            .find(|s| !s.is_empty())
-            .unwrap_or(if p.cwd.is_empty() { "" } else { "/" })
-            .to_owned()
+        dir
     }
 
     /// Whether any pane of `tab` is a restored shell (REQ-STORE-008).

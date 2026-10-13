@@ -229,6 +229,7 @@ section!(Plugins {
         "shell-integration",
         "which-key",
         "launcher",
+        "hosts",
     ]),
 });
 
@@ -371,6 +372,75 @@ impl SessionFile {
     }
 }
 
+// ------------------------------------------------------------------ hosts
+
+/// One saved remote (`femux hosts add`, SPEC §11): how to reach it over OpenSSH.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct HostEntry {
+    /// The `ssh` destination: `host`, `user@host` or an alias from `~/.ssh/config`.
+    pub ssh: String,
+    /// The `femux` command on the remote (default `femux`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub femux: Option<String>,
+    /// Reach the remote daemon through a socket forwarded with `ssh -L` instead of
+    /// `femux attach --stdio` (REQ-PROTO-003).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub forward: bool,
+}
+
+/// `hosts.toml` next to `config.toml`: `[host.<name>]` tables.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct HostsFile {
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub host: BTreeMap<String, HostEntry>,
+}
+
+/// `hosts.toml` in the directory of [`config_path`].
+pub fn hosts_path() -> PathBuf {
+    config_path()
+        .parent()
+        .map(|d| d.join("hosts.toml"))
+        .unwrap_or_else(|| config_dir().join("hosts.toml"))
+}
+
+impl HostsFile {
+    pub fn parse(text: &str) -> Result<HostsFile, String> {
+        parse(text)
+    }
+
+    /// Loads `path`; empty when it does not exist.
+    pub fn load(path: &Path) -> Result<HostsFile, String> {
+        match read(path)? {
+            Some(text) => HostsFile::parse(&text).map_err(|e| format!("{}: {e}", path.display())),
+            None => Ok(HostsFile::default()),
+        }
+    }
+
+    pub fn save(&self, path: &Path) -> Result<(), String> {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        }
+        let text = toml::to_string(self).map_err(|e| e.to_string())?;
+        std::fs::write(path, text).map_err(|e| format!("{}: {e}", path.display()))
+    }
+
+    /// What `attach --host <arg>` means: a saved host, else `arg` as a raw ssh destination.
+    pub fn resolve(&self, arg: &str) -> (String, HostEntry) {
+        match self.host.get(arg) {
+            Some(e) => (arg.to_owned(), e.clone()),
+            None => (
+                arg.to_owned(),
+                HostEntry {
+                    ssh: arg.to_owned(),
+                    ..Default::default()
+                },
+            ),
+        }
+    }
+}
+
 /// Where `launch <arg>` finds its file: an existing path, else `sessions/<arg>.toml`.
 pub fn session_file_path(arg: &str) -> PathBuf {
     let p = expand(arg);
@@ -382,6 +452,22 @@ pub fn session_file_path(arg: &str) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn hosts_file_roundtrips_and_resolves_raw_destinations() {
+        let text = "[host.box]\nssh = \"me@build-box\"\nforward = true\n\n[host.pi]\nssh = \"pi\"\nfemux = \"~/bin/femux\"\n";
+        let h = HostsFile::parse(text).unwrap();
+        assert!(h.host["box"].forward);
+        assert_eq!(h.host["pi"].femux.as_deref(), Some("~/bin/femux"));
+        assert_eq!(HostsFile::parse(&toml::to_string(&h).unwrap()).unwrap(), h);
+        assert_eq!(h.resolve("box").1.ssh, "me@build-box");
+        let (label, raw) = h.resolve("other@host");
+        assert_eq!(
+            (label.as_str(), raw.ssh.as_str(), raw.forward),
+            ("other@host", "other@host", false)
+        );
+        assert!(HostsFile::parse("[host.x]\nssh = \"a\"\nport = 2\n").is_err());
+    }
+
     use super::*;
 
     #[test]

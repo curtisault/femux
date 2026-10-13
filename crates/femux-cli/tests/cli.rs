@@ -87,6 +87,9 @@ const LEAVES: &[&[&str]] = &[
     &["agent", "prompt"],
     &["agent", "explain"],
     &["notify", "test"],
+    &["hosts", "add"],
+    &["hosts", "list"],
+    &["hosts", "rm"],
 ];
 
 #[test]

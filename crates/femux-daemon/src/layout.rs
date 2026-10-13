@@ -3,6 +3,8 @@
 //!
 //! Geometry: a split gives its first child `ratio` of the space left after a one-cell
 //! separator, so panes never overlap and the client can draw borders in the gaps.
+//! `[layout] gaps = n` widens every separator to `1 + 2n` cells (the border in the middle),
+//! falling back to one cell where the space is too small.
 
 use femux_proto::msg::{self as m, Direction, SplitDir};
 
@@ -96,14 +98,21 @@ pub enum Node {
     },
 }
 
-/// Splits `len` cells into (first, second) around a one-cell separator.
-fn divide(len: u16, ratio: Ratio) -> (u16, u16) {
-    let avail = len.saturating_sub(1);
+/// The separator width for `gap`, or one cell when `len` cannot hold it and two panes.
+fn sep_width(len: u16, gap: u16) -> u16 {
+    let wide = 1 + 2 * gap;
+    if gap > 0 && len >= wide + 2 { wide } else { 1 }
+}
+
+/// Splits `len` cells into (first, second, separator) around a separator.
+fn divide(len: u16, ratio: Ratio, gap: u16) -> (u16, u16, u16) {
+    let sep = sep_width(len, gap);
+    let avail = len.saturating_sub(sep);
     if avail < 2 {
-        return (avail.max(1), 1);
+        return (avail.max(1), 1, sep);
     }
     let a = ratio.of(avail).clamp(1, avail - 1);
-    (a, avail - a)
+    (a, avail - a, sep)
 }
 
 impl Node {
@@ -130,14 +139,14 @@ impl Node {
         }
     }
 
-    /// Each pane's rectangle within `area`.
-    pub fn rects(&self, area: Rect) -> Vec<(PaneId, Rect)> {
+    /// Each pane's rectangle within `area`, with `gap` blank cells beside each separator.
+    pub fn rects(&self, area: Rect, gap: u16) -> Vec<(PaneId, Rect)> {
         let mut out = Vec::new();
-        self.layout(area, &mut out);
+        self.layout(area, gap, &mut out);
         out
     }
 
-    fn layout(&self, r: Rect, out: &mut Vec<(PaneId, Rect)>) {
+    fn layout(&self, r: Rect, gap: u16, out: &mut Vec<(PaneId, Rect)>) {
         match self {
             Node::Pane(p) => out.push((p.clone(), r)),
             Node::Split {
@@ -146,14 +155,15 @@ impl Node {
                 a,
                 b,
             } => {
-                let (wa, wb) = divide(r.w, *ratio);
-                a.layout(Rect { w: wa, ..r }, out);
+                let (wa, wb, sep) = divide(r.w, *ratio, gap);
+                a.layout(Rect { w: wa, ..r }, gap, out);
                 b.layout(
                     Rect {
-                        x: r.x + wa + 1,
+                        x: r.x + wa + sep,
                         w: wb,
                         ..r
                     },
+                    gap,
                     out,
                 );
             }
@@ -163,14 +173,15 @@ impl Node {
                 a,
                 b,
             } => {
-                let (ha, hb) = divide(r.h, *ratio);
-                a.layout(Rect { h: ha, ..r }, out);
+                let (ha, hb, sep) = divide(r.h, *ratio, gap);
+                a.layout(Rect { h: ha, ..r }, gap, out);
                 b.layout(
                     Rect {
-                        y: r.y + ha + 1,
+                        y: r.y + ha + sep,
                         h: hb,
                         ..r
                     },
+                    gap,
                     out,
                 );
             }
@@ -287,7 +298,7 @@ impl Node {
 
     /// Moves the nearest separator in `dir`'s axis that bounds `pane` by `delta` cells
     /// (positive: right/down for l/j, left/up for h/k).
-    pub fn resize(&mut self, pane: &str, dir: Direction, delta: i32, area: Rect) -> bool {
+    pub fn resize(&mut self, pane: &str, dir: Direction, delta: i32, area: Rect, gap: u16) -> bool {
         let axis = match dir {
             Direction::H | Direction::L => SplitDir::H,
             Direction::J | Direction::K => SplitDir::V,
@@ -296,21 +307,29 @@ impl Node {
             Direction::L | Direction::J => delta,
             Direction::H | Direction::K => -delta,
         };
-        self.resize_in(pane, axis, shift, area).unwrap_or(false)
+        self.resize_in(pane, axis, shift, area, gap)
+            .unwrap_or(false)
     }
 
     /// `None`: pane not in this subtree. `Some(done)`: pane found; `done` once a split moved.
-    fn resize_in(&mut self, pane: &str, axis: SplitDir, shift: i32, r: Rect) -> Option<bool> {
+    fn resize_in(
+        &mut self,
+        pane: &str,
+        axis: SplitDir,
+        shift: i32,
+        r: Rect,
+        gap: u16,
+    ) -> Option<bool> {
         match self {
             Node::Pane(p) => (p == pane).then_some(false),
             Node::Split { dir, ratio, a, b } => {
                 let len = if *dir == SplitDir::H { r.w } else { r.h };
-                let (la, lb) = divide(len, *ratio);
+                let (la, lb, sep) = divide(len, *ratio, gap);
                 let (ra, rb) = match dir {
                     SplitDir::H => (
                         Rect { w: la, ..r },
                         Rect {
-                            x: r.x + la + 1,
+                            x: r.x + la + sep,
                             w: lb,
                             ..r
                         },
@@ -318,20 +337,20 @@ impl Node {
                     SplitDir::V => (
                         Rect { h: la, ..r },
                         Rect {
-                            y: r.y + la + 1,
+                            y: r.y + la + sep,
                             h: lb,
                             ..r
                         },
                     ),
                 };
-                let found = match a.resize_in(pane, axis, shift, ra) {
+                let found = match a.resize_in(pane, axis, shift, ra, gap) {
                     Some(d) => Some(d),
-                    None => b.resize_in(pane, axis, shift, rb),
+                    None => b.resize_in(pane, axis, shift, rb, gap),
                 }?;
                 if found || *dir != axis {
                     return Some(found);
                 }
-                let avail = len.saturating_sub(1) as i32;
+                let avail = len.saturating_sub(sep) as i32;
                 if avail < 2 {
                     return Some(true);
                 }
@@ -391,7 +410,7 @@ fn chain(panes: &[PaneId], dir: SplitDir) -> Option<Node> {
 
 /// `master` scheme (REQ-UI-010): the first pane takes the left half, the rest stack on the
 /// right with equal heights.
-pub fn master_rects(panes: &[PaneId], area: Rect) -> Vec<(PaneId, Rect)> {
+pub fn master_rects(panes: &[PaneId], area: Rect, gap: u16) -> Vec<(PaneId, Rect)> {
     let Some((master, stack)) = panes.split_first() else {
         return Vec::new();
     };
@@ -404,7 +423,7 @@ pub fn master_rects(panes: &[PaneId], area: Rect) -> Vec<(PaneId, Rect)> {
         a: Box::new(Node::Pane(master.clone())),
         b: Box::new(stack),
     };
-    node.rects(area)
+    node.rects(area, gap)
 }
 
 /// How many panes the `scroll` scheme shows side by side.
@@ -412,7 +431,7 @@ pub const SCROLL_VISIBLE: usize = 2;
 
 /// `scroll` scheme (REQ-UI-010): panes form a horizontal strip of equal widths; the strip is
 /// positioned so the focused pane is visible, and panes off the strip get no rectangle.
-pub fn scroll_rects(panes: &[PaneId], focus: &str, area: Rect) -> Vec<(PaneId, Rect)> {
+pub fn scroll_rects(panes: &[PaneId], focus: &str, area: Rect, gap: u16) -> Vec<(PaneId, Rect)> {
     let n = panes.len();
     let k = n.min(SCROLL_VISIBLE);
     if k == 0 {
@@ -421,7 +440,7 @@ pub fn scroll_rects(panes: &[PaneId], focus: &str, area: Rect) -> Vec<(PaneId, R
     let f = panes.iter().position(|p| p == focus).unwrap_or(0);
     let start = f.min(n - k);
     chain(&panes[start..start + k], SplitDir::H)
-        .map(|c| c.rects(area))
+        .map(|c| c.rects(area, gap))
         .unwrap_or_default()
 }
 
@@ -486,12 +505,39 @@ mod tests {
         let t = three();
         assert_eq!(t.panes(), ["a", "b", "c"]);
         assert_eq!(
-            t.rects(area(81, 25)),
+            t.rects(area(81, 25), 0),
             [
                 ("a".into(), r(0, 0, 40, 25)),
                 ("b".into(), r(41, 0, 40, 12)),
                 ("c".into(), r(41, 13, 40, 12))
             ]
+        );
+    }
+
+    #[test]
+    fn gaps_widen_every_separator_and_give_way_when_space_is_short() {
+        let t = three();
+        assert_eq!(
+            t.rects(area(81, 25), 1),
+            [
+                ("a".into(), r(0, 0, 39, 25)),
+                ("b".into(), r(42, 0, 39, 11)),
+                ("c".into(), r(42, 14, 39, 11))
+            ]
+        );
+        // Too narrow for 2 + 5 + 2 cells: the plain one-cell separator.
+        let mut two = Node::Pane("a".into());
+        two.split("a", "b".into(), SplitDir::H, Ratio::HALF, false);
+        assert_eq!(two.rects(area(6, 3), 2), two.rects(area(6, 3), 0));
+        // Resizing keeps the gap.
+        let mut t = three();
+        assert!(t.resize("a", Direction::L, 2, area(81, 25), 1));
+        assert_eq!(t.rects(area(81, 25), 1)[1].1.x, 44);
+        assert_eq!(
+            master_rects(&["a".into(), "b".into()], area(81, 25), 1)[1]
+                .1
+                .x,
+            42
         );
     }
 
@@ -510,7 +556,7 @@ mod tests {
         );
         // New pane first (above) gets the remaining third.
         assert_eq!(
-            t.rects(area(10, 31)),
+            t.rects(area(10, 31), 0),
             [
                 ("b".into(), r(0, 0, 10, 10)),
                 ("a".into(), r(0, 11, 10, 20))
@@ -522,7 +568,7 @@ mod tests {
     fn remove_promotes_sibling() {
         let t = three().remove("b").unwrap();
         assert_eq!(
-            t.rects(area(81, 25)),
+            t.rects(area(81, 25), 0),
             [
                 ("a".into(), r(0, 0, 40, 25)),
                 ("c".into(), r(41, 0, 40, 25))
@@ -534,7 +580,7 @@ mod tests {
     #[test]
     fn neighbors_by_direction() {
         let t = three();
-        let rects = t.rects(area(81, 25));
+        let rects = t.rects(area(81, 25), 0);
         assert_eq!(neighbor(&rects, "a", Direction::L).as_deref(), Some("b"));
         assert_eq!(neighbor(&rects, "c", Direction::K).as_deref(), Some("b"));
         assert_eq!(neighbor(&rects, "c", Direction::H).as_deref(), Some("a"));
@@ -544,13 +590,13 @@ mod tests {
     #[test]
     fn resize_moves_nearest_separator() {
         let mut t = three();
-        assert!(t.resize("c", Direction::H, 5, area(81, 25)));
-        assert_eq!(t.rects(area(81, 25))[0].1, r(0, 0, 35, 25));
-        assert!(t.resize("b", Direction::J, 2, area(81, 25)));
-        assert_eq!(t.rects(area(81, 25))[1].1.h, 14);
+        assert!(t.resize("c", Direction::H, 5, area(81, 25), 0));
+        assert_eq!(t.rects(area(81, 25), 0)[0].1, r(0, 0, 35, 25));
+        assert!(t.resize("b", Direction::J, 2, area(81, 25), 0));
+        assert_eq!(t.rects(area(81, 25), 0)[1].1.h, 14);
         // Clamped to keep both sides at least one cell.
-        assert!(t.resize("a", Direction::L, 500, area(81, 25)));
-        assert_eq!(t.rects(area(81, 25))[0].1.w, 79);
+        assert!(t.resize("a", Direction::L, 500, area(81, 25), 0));
+        assert_eq!(t.rects(area(81, 25), 0)[0].1.w, 79);
     }
 
     #[test]
@@ -559,12 +605,16 @@ mod tests {
         t.swap("a", "c");
         assert_eq!(t.panes(), ["c", "b", "a"]);
         assert!(t.rotate("b"));
-        assert_eq!(t.rects(area(81, 25))[1].1, r(41, 0, 20, 25));
+        assert_eq!(t.rects(area(81, 25), 0)[1].1, r(41, 0, 20, 25));
         let mut chain = Node::Pane("a".into());
         chain.split("a", "b".into(), SplitDir::H, Ratio::HALF, false);
         chain.split("b", "c".into(), SplitDir::H, Ratio::HALF, false);
         chain.equalize();
-        let widths: Vec<u16> = chain.rects(area(32, 5)).iter().map(|(_, r)| r.w).collect();
+        let widths: Vec<u16> = chain
+            .rects(area(32, 5), 0)
+            .iter()
+            .map(|(_, r)| r.w)
+            .collect();
         assert_eq!(widths, [10, 10, 10]);
     }
 
@@ -572,7 +622,7 @@ mod tests {
     fn master_and_scroll_schemes_follow_pane_order() {
         let panes: Vec<PaneId> = ["a", "b", "c"].map(String::from).to_vec();
         assert_eq!(
-            master_rects(&panes, area(81, 25)),
+            master_rects(&panes, area(81, 25), 0),
             [
                 ("a".into(), r(0, 0, 40, 25)),
                 ("b".into(), r(41, 0, 40, 12)),
@@ -580,25 +630,25 @@ mod tests {
             ]
         );
         assert_eq!(
-            master_rects(&panes[..1], area(81, 25)),
+            master_rects(&panes[..1], area(81, 25), 0),
             [("a".into(), r(0, 0, 81, 25))]
         );
         // Two panes fit the strip; focusing the third scrolls it into view.
         assert_eq!(
-            scroll_rects(&panes, "a", area(81, 25)),
+            scroll_rects(&panes, "a", area(81, 25), 0),
             [
                 ("a".into(), r(0, 0, 40, 25)),
                 ("b".into(), r(41, 0, 40, 25))
             ]
         );
         assert_eq!(
-            scroll_rects(&panes, "c", area(81, 25)),
+            scroll_rects(&panes, "c", area(81, 25), 0),
             [
                 ("b".into(), r(0, 0, 40, 25)),
                 ("c".into(), r(41, 0, 40, 25))
             ]
         );
-        assert!(scroll_rects(&[], "a", area(81, 25)).is_empty());
+        assert!(scroll_rects(&[], "a", area(81, 25), 0).is_empty());
     }
 
     #[test]

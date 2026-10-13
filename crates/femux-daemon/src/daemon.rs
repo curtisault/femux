@@ -47,6 +47,9 @@ pub struct Config {
     pub env_allow: Vec<String>,
     /// The config file `server.reload` re-reads (ADR-013, ADR-017 #3).
     pub config_path: Option<PathBuf>,
+    /// `[layout] gaps` and `scheme`: new tabs start with them.
+    pub gaps: u16,
+    pub scheme: m::Scheme,
     /// REQ-STORE-003: snapshot this long after a layout change, and this often while dirty.
     pub snapshot_debounce: Duration,
     pub snapshot_interval: Duration,
@@ -74,6 +77,8 @@ impl Config {
             restore: femux_config::Restore::default(),
             env_allow: pty::default_env_allow(),
             config_path: None,
+            gaps: 0,
+            scheme: m::Scheme::Bsp,
             snapshot_debounce: Duration::from_millis(500),
             snapshot_interval: Duration::from_secs(30),
         }
@@ -88,6 +93,7 @@ pub const SERVED: &[&str] = &[
     "layout",
     "notify",
     "pane",
+    "plugin",
     "scrollback",
     "server",
     "session",
@@ -95,6 +101,15 @@ pub const SERVED: &[&str] = &[
     "tab",
     "view",
 ];
+
+/// `[layout] scheme` as the protocol names it.
+pub fn scheme(s: femux_config::Scheme) -> m::Scheme {
+    match s {
+        femux_config::Scheme::Bsp => m::Scheme::Bsp,
+        femux_config::Scheme::Master => m::Scheme::Master,
+        femux_config::Scheme::Scroll => m::Scheme::Scroll,
+    }
+}
 
 /// What `server.reload` can change while running (ADR-013).
 #[derive(Debug, Clone)]
@@ -104,6 +119,9 @@ pub struct Settings {
     pub scrollback_lines: usize,
     pub restore: femux_config::Restore,
     pub env_allow: Vec<String>,
+    /// `[layout] gaps` for every tab; `scheme` for new tabs.
+    pub gaps: u16,
+    pub scheme: m::Scheme,
 }
 
 /// How dirty the saved state is (REQ-STORE-003).
@@ -182,6 +200,8 @@ impl Daemon {
             scrollback_lines: cfg.scrollback_lines,
             restore: cfg.restore.clone(),
             env_allow: cfg.env_allow.clone(),
+            gaps: cfg.gaps,
+            scheme: cfg.scheme,
         };
         Arc::new(Daemon {
             cfg,
@@ -585,6 +605,10 @@ impl Daemon {
             .and_then(|t| st.tabs.get(t))
             .map_or((80, 24), |t| t.size);
         let tab_id = new_id();
+        let (gap, scheme) = {
+            let s = self.settings.lock().unwrap();
+            (s.gaps, s.scheme)
+        };
         st.tabs.insert(
             tab_id.clone(),
             Tab {
@@ -595,10 +619,11 @@ impl Daemon {
                 floats: Vec::new(),
                 zoomed: false,
                 focus: String::new(),
-                scheme: m::Scheme::Bsp,
+                scheme,
                 size,
                 rects: Vec::new(),
                 layout_gen: 0,
+                gap,
             },
         );
         let opts = SpawnOpts {
@@ -1311,11 +1336,11 @@ impl Daemon {
             Q::LayoutResize(r) => {
                 let tab_id = st.pane(&r.pane_id)?.tab.clone();
                 let tab = st.tabs.get_mut(&tab_id).unwrap();
-                let area = tab.area();
+                let (area, gap) = (tab.area(), tab.gap);
                 let moved = tab
                     .tree
                     .as_mut()
-                    .is_some_and(|t| t.resize(&r.pane_id, r.dir, r.delta_cells, area));
+                    .is_some_and(|t| t.resize(&r.pane_id, r.dir, r.delta_cells, area, gap));
                 if !moved {
                     return Err(invalid("no separator to move in that direction"));
                 }
@@ -1614,6 +1639,18 @@ impl Daemon {
                 );
                 Response::NotifyPost(m::Empty {})
             }
+            Q::PluginPublish(r) => {
+                // Relayed unread to every subscriber (ADR-020).
+                self.emit(
+                    m::PluginData {
+                        plugin: r.plugin,
+                        data: r.data,
+                        ..Default::default()
+                    },
+                    Scope::default(),
+                );
+                Response::PluginPublish(m::Empty {})
+            }
             Q::ServerInfo(_) => Response::ServerInfo(m::ServerInfoOk {
                 version: env!("CARGO_PKG_VERSION").into(),
                 uptime: self.started.elapsed().as_millis() as u64,
@@ -1652,7 +1689,7 @@ impl Daemon {
         })
     }
 
-    fn layout_changed(self: &Arc<Self>, st: &mut State, tab_id: &str) {
+    pub(crate) fn layout_changed(self: &Arc<Self>, st: &mut State, tab_id: &str) {
         let Some(tab) = st.tabs.get(tab_id) else {
             return;
         };

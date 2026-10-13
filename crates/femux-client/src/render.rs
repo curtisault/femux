@@ -151,7 +151,38 @@ pub fn dashed(glyph: &'static str) -> &'static str {
     }
 }
 
+/// Half of each separator around `r` (`[layout] gaps`): left, top, right, bottom. A
+/// separator is `1 + 2g` cells wide and its border runs down the middle, `g` cells from `r`.
+fn half_gaps(r: &m::Rect, rects: &[(String, m::Rect)]) -> (u16, u16, u16, u16) {
+    let rows = |q: &m::Rect| q.y < r.y + r.h && r.y < q.y + q.h;
+    let cols = |q: &m::Rect| q.x < r.x + r.w && r.x < q.x + q.w;
+    let half = |d: Option<u16>| d.map_or(0, |d| d.saturating_sub(1) / 2);
+    let left = rects
+        .iter()
+        .filter(|(_, q)| rows(q) && q.x + q.w <= r.x)
+        .map(|(_, q)| r.x - (q.x + q.w))
+        .min();
+    let right = rects
+        .iter()
+        .filter(|(_, q)| rows(q) && q.x >= r.x + r.w)
+        .map(|(_, q)| q.x - (r.x + r.w))
+        .min();
+    let up = rects
+        .iter()
+        .filter(|(_, q)| cols(q) && q.y + q.h <= r.y)
+        .map(|(_, q)| r.y - (q.y + q.h))
+        .min();
+    let down = rects
+        .iter()
+        .filter(|(_, q)| cols(q) && q.y >= r.y + r.h)
+        .map(|(_, q)| q.y - (r.y + r.h))
+        .min();
+    (half(left), half(up), half(right), half(down))
+}
+
 /// Border cells in the gaps between tiled rectangles: `(x, y, glyph, touches_focused)`.
+/// With `[layout] gaps` the borders run down the middle of each separator and reach across
+/// the gaps to meet at the junctions.
 pub fn borders(
     rects: &[(String, m::Rect)],
     area: (u16, u16),
@@ -161,24 +192,50 @@ pub fn borders(
     use std::collections::HashSet;
     let mut cells: HashSet<(u16, u16)> = HashSet::new();
     for (_, r) in rects {
+        let (gl, gt, gr, gb) = half_gaps(r, rects);
         let right = r.x + r.w;
         let bottom = r.y + r.h;
+        let top = r.y.saturating_sub(gt);
+        let left = r.x.saturating_sub(gl);
         if right < area.0 {
-            for y in r.y..bottom.min(area.1) {
-                cells.insert((right, y));
+            let x = right + gr;
+            let end = if bottom < area.1 {
+                bottom + gb
+            } else {
+                bottom - 1
+            };
+            for y in top..=end.min(area.1 - 1) {
+                cells.insert((x, y));
             }
         }
         if bottom < area.1 {
-            for x in r.x..right.min(area.0) {
-                cells.insert((x, bottom));
+            let y = bottom + gb;
+            let end = if right < area.0 {
+                right + gr
+            } else {
+                right - 1
+            };
+            for x in left..=end.min(area.0 - 1) {
+                cells.insert((x, y));
             }
         }
-        if right < area.0 && bottom < area.1 {
-            cells.insert((right, bottom));
-        }
     }
-    let f = rects.iter().find(|(p, _)| p == focused).map(|(_, r)| r);
-    let touches = |x: u16, y: u16| f.is_some_and(|r| on_edge(x, y, r));
+    let f = rects.iter().find(|(p, _)| p == focused).map(|(_, r)| {
+        let (gl, gt, gr, gb) = half_gaps(r, rects);
+        (
+            r.x as i32 - gl as i32 - 1,
+            r.y as i32 - gt as i32 - 1,
+            (r.x + r.w + gr) as i32,
+            (r.y + r.h + gb) as i32,
+        )
+    });
+    let touches = |x: u16, y: u16| {
+        let (x, y) = (x as i32, y as i32);
+        f.is_some_and(|(x0, y0, x1, y1)| {
+            ((x == x0 || x == x1) && (y0..=y1).contains(&y))
+                || ((y == y0 || y == y1) && (x0..=x1).contains(&x))
+        })
+    };
     let g = glyphs(style);
     let mut out: Vec<(u16, u16, &'static str, bool)> = cells
         .iter()
@@ -225,6 +282,9 @@ fn transient(app: &App) -> Option<Transient> {
     }
     let mut spans: Spans = Vec::new();
     let mut cursor = false;
+    if let Some(l) = &app.link_status {
+        spans.push(Span::new(l.clone(), Style::Error));
+    }
     if let Some(d) = app.preselect {
         spans.push(Span::new(
             format!(
@@ -278,10 +338,20 @@ fn mode_label(app: &App, theme: &Theme) -> (&'static str, CellAttributes) {
     }
     match (app.prefix_armed(), app.mode) {
         (true, _) => ("PREFIX", bold(attr(theme.accent_fg, theme.warn))),
-        (false, Mode::Terminal) => ("TERMINAL", attr(theme.muted, theme.bar_bg)),
+        // Typing into panes is the normal state: no label (the other modes announce
+        // themselves).
+        (false, Mode::Terminal) => ("", attr(theme.muted, theme.bar_bg)),
         (false, Mode::Normal) => ("NORMAL", bold(attr(theme.accent_fg, theme.ok))),
         (false, Mode::Copy) => ("COPY", bold(attr(theme.accent_fg, theme.accent))),
     }
+}
+
+/// Where text after the session chip and mode label starts on a horizontal bar at `x0`.
+fn after_chip(app: &App, theme: &Theme, x0: usize) -> usize {
+    let (mode, _) = mode_label(app, theme);
+    let mode_w = if mode.is_empty() { 0 } else { mode.len() + 2 };
+    // One cell of padding, the chip with its own spaces, the mode, one space.
+    x0 + 1 + app.session_chip().chars().count() + 2 + mode_w + 1
 }
 
 /// The first `max` columns of `spans`: modules may ignore their width, the bar may not.
@@ -323,7 +393,7 @@ fn draw_bar(app: &mut App, c: &mut Canvas, theme: &Theme, l: &Layout, tr: &Optio
     let bar = l.bar;
     let bg = theme.bar_bg;
     let (mode, mode_attr) = mode_label(app, theme);
-    let chip = format!(" {} ", app.model.session);
+    let chip = format!(" {} ", app.session_chip());
     if !l.bar_vertical {
         let (x0, y, w) = (bar.x as usize, bar.y as usize, bar.w as usize);
         c.fill(x0, y, w, ' ', &attr(theme.bar_fg, bg));
@@ -346,16 +416,13 @@ fn draw_bar(app: &mut App, c: &mut Canvas, theme: &Theme, l: &Layout, tr: &Optio
             );
         }
         let right_line = clip(&right_line, w.saturating_sub(chip.chars().count() + 12));
+        // One cell of padding at either end.
         let rw = femux_plugin::width(&right_line) + 1;
-        let mut x = c.put(x0, y, &chip, &bold(attr(theme.accent_fg, theme.accent)));
-        x = c.put(x, y, &format!(" {mode} "), &mode_attr);
+        let mut x = c.put(x0 + 1, y, &chip, &bold(attr(theme.accent_fg, theme.accent)));
+        if !mode.is_empty() {
+            x = c.put(x, y, &format!(" {mode} "), &mode_attr);
+        }
         if !matches!(tr, Some(Transient::Text(..))) {
-            x = c.put(
-                x,
-                y,
-                &format!(" prefix {}", app.prefix_label()),
-                &attr(theme.muted, bg),
-            );
             for name in app.cfg.bar_left.clone() {
                 if name == "session" {
                     continue;
@@ -391,9 +458,11 @@ fn draw_bar(app: &mut App, c: &mut Canvas, theme: &Theme, l: &Layout, tr: &Optio
     let mut y = bar.y as usize + 1;
     c.put(x0, y, &chip, &bold(attr(theme.accent_fg, theme.accent)));
     y += 2;
-    c.put(x0, y, "mode", &attr(theme.muted, bg));
-    c.put(x0, y + 1, mode, &mode_attr);
-    y += 3;
+    if !mode.is_empty() {
+        c.put(x0, y, "mode", &attr(theme.muted, bg));
+        c.put(x0, y + 1, mode, &mode_attr);
+        y += 3;
+    }
     let ctx = app.bar_ctx(true);
     let block = |app: &mut App, name: &str| -> Option<Vec<Spans>> {
         let sp = app.module_spans(name, &ctx, w)?;
@@ -475,8 +544,7 @@ fn draw_status(
                 x0 + 1
             } else {
                 // After the chip and the mode.
-                let (mode, _) = mode_label(app, theme);
-                x0 + app.model.session.chars().count() + 2 + mode.len() + 2 + 1
+                after_chip(app, theme, x0)
             };
             let end = c.spans(x, y, spans, theme, bg);
             if *wants_cursor {
@@ -1002,5 +1070,30 @@ mod tests {
         assert!(at(81, 0).is_none() && at(0, 25).is_none());
         // Spaces style draws blanks.
         assert_eq!(borders(&rects, (81, 25), "a", Borders::Spaces)[0].2, " ");
+    }
+
+    #[test]
+    fn borders_run_down_the_middle_of_gaps() {
+        // The same layout with `gaps = 1`: separators are three cells wide.
+        let rects = vec![
+            ("a".to_owned(), r(0, 0, 39, 25)),
+            ("b".to_owned(), r(42, 0, 39, 11)),
+            ("c".to_owned(), r(42, 14, 39, 11)),
+        ];
+        let b = borders(&rects, (81, 25), "b", Borders::Single);
+        let at = |x: u16, y: u16| {
+            b.iter()
+                .find(|(bx, by, _, _)| (*bx, *by) == (x, y))
+                .map(|(_, _, g, f)| (*g, *f))
+        };
+        assert_eq!(at(40, 0), Some(("│", true)));
+        assert_eq!(at(40, 12), Some(("├", true)));
+        assert_eq!(at(41, 12), Some(("─", true)));
+        assert_eq!(at(60, 12), Some(("─", true)));
+        assert_eq!(at(40, 20), Some(("│", false)));
+        // The cells beside the border stay blank.
+        for (x, y) in [(39, 5), (41, 5), (60, 11), (60, 13)] {
+            assert!(at(x, y).is_none(), "{x},{y}");
+        }
     }
 }

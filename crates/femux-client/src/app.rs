@@ -220,6 +220,12 @@ pub struct App {
     pub overlay: Overlay,
     pub copy: Option<CopyMode>,
     pub message: Option<String>,
+    /// The remote host this client is attached through (`attach --host`), if any.
+    pub remote: Option<String>,
+    /// Shown while a remote link is down (it outlives key presses, unlike `message`).
+    pub link_status: Option<String>,
+    /// The daemon host's values from the `hosts` plugin (`plugin.data`), for `remote:` modules.
+    pub remote_data: std::collections::BTreeMap<String, String>,
     pub cols: u16,
     pub rows: u16,
     out: Vec<(u64, Request)>,
@@ -303,6 +309,9 @@ impl App {
             dir_fetched: None,
             preview_fetched: None,
             inbox_fetched: None,
+            remote: None,
+            link_status: None,
+            remote_data: std::collections::BTreeMap::new(),
             return_to: None,
         };
         app.modules = app
@@ -386,6 +395,53 @@ impl App {
         crate::layout::Layout::compute(self.cols, self.rows, &self.cfg, self.sidenav_open)
     }
 
+    /// The remote link dropped (`retry`: the last failed attempt, its error and the wait
+    /// before the next). The remote daemon keeps the session; the client reconnects.
+    pub fn link_lost(&mut self, label: &str, retry: Option<(u32, String, std::time::Duration)>) {
+        let text = match retry {
+            None => format!("link to {label} lost; reconnecting · prefix d quits"),
+            Some((n, e, next)) => {
+                let e = e.lines().last().unwrap_or("").to_owned();
+                format!(
+                    "link to {label} lost; attempt {n} failed ({e}); retrying in {}s · prefix d quits",
+                    next.as_secs()
+                )
+            }
+        };
+        if self.link_status.as_ref() != Some(&text) {
+            self.link_status = Some(text);
+            self.dirty = true;
+        }
+    }
+
+    /// The session chip: `host:session` when attached through `--host`.
+    pub fn session_chip(&self) -> String {
+        match &self.remote {
+            Some(h) => format!("{h}:{}", self.model.session),
+            None => self.model.session.clone(),
+        }
+    }
+
+    /// A new link attached a view again: start over from its snapshot.
+    pub fn reattached(&mut self, a: &m::SessionAttachOk) {
+        self.pending.clear();
+        let (model, fx) = crate::model::Model::from_attach(a);
+        self.model = model;
+        self.model_effects(fx);
+        self.copy = None;
+        self.mode = Mode::Terminal;
+        self.overlay = Overlay::None;
+        let view_id = a.view_id.clone();
+        self.quiet(m::FrameSubscribe { view_id });
+        self.link_status = None;
+        self.message = Some(format!(
+            "reconnected to {}",
+            self.remote.clone().unwrap_or_default()
+        ));
+        self.refresh_dir();
+        self.dirty = true;
+    }
+
     /// The size the daemon sizes our view to (REQ-VIEW-001): the pane area.
     pub fn view_size(&self) -> (u16, u16) {
         let p = self.layout().panes;
@@ -423,7 +479,7 @@ impl App {
             .bar_left
             .iter()
             .chain(&self.cfg.bar_right)
-            .map(|n| n.strip_prefix("remote:").unwrap_or(n).to_owned())
+            .flat_map(|n| [n.clone(), n.strip_prefix("remote:").unwrap_or(n).to_owned()])
             .collect();
         let ctx = self.bar_ctx(self.cfg.bar.vertical());
         let floor = self.cfg.bar_interval;
@@ -493,11 +549,13 @@ impl App {
                 .filter(|c| !c.is_empty()),
             notifications,
             vertical,
+            remote: self.remote_data.clone(),
         }
     }
 
-    /// A module's output for `name` (`remote:<module>` renders the local one until 0.6.0);
-    /// `None` when the module is unknown or has nothing to show.
+    /// A module's output for `name`; `None` when the module is unknown or has nothing to show.
+    /// `remote:<module>` is the `hosts` plugin's module of that name (the daemon host's
+    /// values), else the local `<module>` (without the plugin, or for modules it lacks).
     pub fn module_spans(
         &self,
         name: &str,
@@ -505,7 +563,11 @@ impl App {
         w: usize,
     ) -> Option<femux_plugin::Spans> {
         let base = name.strip_prefix("remote:").unwrap_or(name);
-        let (module, _) = self.modules.iter().find(|(m, _)| m.name() == base)?;
+        let (module, _) = self
+            .modules
+            .iter()
+            .find(|(m, _)| m.name() == name)
+            .or_else(|| self.modules.iter().find(|(m, _)| m.name() == base))?;
         let spans = module.render(ctx, w);
         (femux_plugin::width(&spans) > 0).then_some(spans)
     }
@@ -562,6 +624,11 @@ impl App {
     fn on_event(&mut self, e: &Event) {
         if let Event::ConfigReloaded(_) = e {
             self.effects.push(Effect::Reload);
+        }
+        if let Event::PluginData(d) = e
+            && d.plugin == "hosts"
+        {
+            self.remote_data = d.data.clone();
         }
         if let Event::NotifyPosted(n) = e {
             self.notifications

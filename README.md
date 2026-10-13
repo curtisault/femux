@@ -7,17 +7,18 @@ from the `femux` CLI. Agent tracking and the other extras are built-in plugins o
 
 ## Status
 
-femux is pre-1.0 and at version 0.5: a client and CLI meant for daily local use, with sessions
-that can survive a daemon restart and tracking of the coding agents running in them.
+femux is pre-1.0 and at version 0.6: a client and CLI meant for daily use, locally and over SSH,
+with sessions that can survive a daemon restart and tracking of the coding agents running in them.
 
 Working now: tabs, BSP splits with preselection, master and scroll layouts, floating panes, zoom,
 marks, copy mode with regex search, a command palette, which-key hints, mouse support, an info
 bar on any side with cpu, memory, network, battery, git, agent and notification modules, session
 and window navigators, a side nav, themes, the `femux` CLI with `--json` output, session files
 with `femux launch`, opt-in restore of sessions after the daemon restarts
-(`[restore] enabled = true`), agent state tracking with an inbox, and notifications.
+(`[restore] enabled = true`), agent state tracking with an inbox, notifications, and attaching
+to a remote femux over SSH.
 
-Not yet: SSH attach and image passthrough. The order
+Not yet: image passthrough. The order
 they arrive in is the milestone table in [SPEC §13](spec/SPEC.md#13-milestones-and-branches).
 
 ## Build
@@ -93,6 +94,23 @@ femux agent explain %3    # why femux thinks the agent is in that state
 
 `[notify]` in the config plays a sound, shows a desktop notification or calls a webhook
 when an agent finishes, blocks or fails. `femux notify test` tries the actions out.
+
+## Remote hosts
+
+femux attaches to a daemon on another machine through your own OpenSSH setup: keys, agent
+forwarding and `~/.ssh/config` all apply, and femux never opens a port. Install femux on the
+remote, then:
+
+```sh
+femux hosts add box me@build-box      # once
+femux attach --host box               # or: femux attach --host me@build-box
+```
+
+The client runs locally and the remote keeps the sessions. If the link drops, the remote
+carries on and the client reconnects on its own. Notifications from the remote play on your
+machine with your own `[notify]` settings, and `remote:cpu`, `remote:mem`, `remote:net` and
+`remote:hostname` in the info bar show the remote machine. `femux hosts add --forward` forwards
+the remote socket with `ssh -L` instead of running the protocol over the SSH channel.
 
 ## Documentation
 

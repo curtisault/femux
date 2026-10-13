@@ -1373,6 +1373,37 @@
     "shown": false,
     "event": "agent_blocked"
    }
+  },
+  {
+   "dir": "request",
+   "kind": "plugin.publish",
+   "body": {
+    "plugin": "hosts",
+    "data": {
+     "hostname": "build-box",
+     "cpu": "12.5",
+     "mem_used": "6442450944",
+     "mem_total": "17179869184"
+    }
+   }
+  },
+  {
+   "dir": "response",
+   "kind": "plugin.publish",
+   "body": {}
+  },
+  {
+   "dir": "event",
+   "kind": "plugin.data",
+   "body": {
+    "seq": 62,
+    "ts": 1760140801000,
+    "plugin": "hosts",
+    "data": {
+     "hostname": "build-box",
+     "cpu": "12.5"
+    }
+   }
   }
  ]
 }

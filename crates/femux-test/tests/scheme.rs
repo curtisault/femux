@@ -133,3 +133,45 @@ async fn ui_010_schemes_change_the_geometry() {
     })
     .await;
 }
+
+/// `[layout] scheme` and `gaps` (SPEC §10): new tabs start in the configured scheme, every
+/// separator is `1 + 2 * gaps` wide, and `server.reload` re-applies gaps to open tabs.
+#[tokio::test(flavor = "multi_thread")]
+async fn layout_config_sets_the_scheme_and_gaps() {
+    let dir = tempfile::tempdir().unwrap();
+    let conf = dir.path().join("config.toml");
+    std::fs::write(&conf, "[layout]\nscheme = \"master\"\ngaps = 1\n").unwrap();
+    let h = Harness::start_with(|c| {
+        c.config_path = Some(conf.clone());
+        c.scheme = Scheme::Master;
+        c.gaps = 1;
+    });
+    let (mut c, _view, _tab, panes) = three(&h).await;
+    let (a, rest) = (panes[0].clone(), panes[1..].to_vec());
+    // master: a on the left half, the others stacked on the right, 3-cell separators.
+    c.wait_for(
+        "gapped master layout",
+        std::time::Duration::from_secs(10),
+        |c| {
+            rect_of(c, &a) == Some((0, 0, 39, 25))
+                && rest
+                    .iter()
+                    .all(|p| rect_of(c, p).is_some_and(|r| r.0 == 42))
+        },
+    )
+    .await;
+    let mut ys: Vec<(u16, u16)> = rest
+        .iter()
+        .map(|p| rect_of(&c, p).map(|r| (r.1, r.3)).unwrap())
+        .collect();
+    ys.sort();
+    assert_eq!(ys, [(0, 11), (14, 11)]);
+    // Reload without gaps: the open tab closes them up.
+    std::fs::write(&conf, "[layout]\nscheme = \"master\"\n").unwrap();
+    c.call(ServerReload {}).await.unwrap();
+    c.wait_for("gaps removed", std::time::Duration::from_secs(10), |c| {
+        rect_of(c, &a) == Some((0, 0, 40, 25))
+    })
+    .await;
+    assert_eq!(h.daemon().settings.lock().unwrap().gaps, 0);
+}

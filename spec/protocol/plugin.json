@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://femux.dev/protocol/plugin.json",
+  "title": "femux protocol: plugin data",
+  "description": "A daemon plugin publishes small key/value data that every subscribed client receives (ADR-020). The daemon relays it without reading it; the hosts plugin uses it for the daemon host's remote: info bar modules (REQ-UI-032).",
+  "$defs": {
+    "PluginPublish": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string",
+          "description": "The publishing plugin's name."
+        },
+        "data": {
+          "$ref": "pane.json#/$defs/Meta"
+        }
+      },
+      "required": [
+        "plugin",
+        "data"
+      ]
+    },
+    "PluginData": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "ts": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch"
+        },
+        "plugin": {
+          "type": "string"
+        },
+        "data": {
+          "$ref": "pane.json#/$defs/Meta"
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "plugin",
+        "data"
+      ]
+    }
+  },
+  "x-messages": [
+    {
+      "kind": "plugin.publish",
+      "request": "PluginPublish",
+      "response": "Empty"
+    }
+  ],
+  "x-events": [
+    {
+      "kind": "plugin.data",
+      "body": "PluginData"
+    }
+  ]
+}

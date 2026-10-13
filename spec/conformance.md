@@ -141,3 +141,23 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-NOTIFY-003 | femux-client `notify::notify_002_003_the_client_acts_on_posted_events_unless_shown` | pass |
 | 0.5.0 acceptance | femux-cli `agents::agent_wait_returns_when_the_claude_code_hook_reports_done`; femux-client `notify::chime_plays_when_the_hook_reports_done` | pass |
 | REQ-PLUG-002 (plugin ticks, responses, CLI events) | femux-plugin-agents `detect::*`; femux-cli `agents::*` | pass |
+
+## 0.6.0
+
+| Requirement | Tests | Status |
+| --- | --- | --- |
+| REQ-PROTO-010 (ADR-020 plugin.publish/plugin.data) | femux-test `plugin::plugin_data_reaches_every_subscriber`, `protocol::*` | pass |
+| REQ-PROTO-003 | femux-cli `remote::attach_over_ssh_runs_the_remote_session_and_detaches`, `remote::forwarded_socket_attach`, `remote::a_dropped_link_reconnects_and_the_session_survives`; femux-client `remote::tests::ssh_commands_use_openssh_with_keepalives` | pass |
+| REQ-SEC-007 | femux-cli `remote::remote_notifications_play_on_the_client` | pass |
+| REQ-UI-032 (`remote:` modules) | femux-client `ui_bar::ui_032_remote_modules_show_the_daemon_hosts_values`; femux-plugin-hosts `tests::*` | pass |
+| `femux hosts add\|list\|rm` | femux-cli `remote::hosts_add_list_rm`; femux-config `tests::hosts_file_roundtrips_and_resolves_raw_destinations` | pass |
+| 0.6.0 acceptance | femux-cli `remote::attach_over_ssh_runs_the_remote_session_and_detaches` (attach over SSH), `remote::a_dropped_link_reconnects_and_the_session_survives` (detach survives link drop), `remote::remote_notifications_play_on_the_client` (remote notifications play locally) | pass |
+
+## 0.6.1
+
+| Requirement | Tests | Status |
+| --- | --- | --- |
+| REQ-UI-010 (`[layout] scheme`, `gaps`) | femux-daemon `layout::tests::gaps_widen_every_separator_and_give_way_when_space_is_short`; femux-test `scheme::layout_config_sets_the_scheme_and_gaps`; femux-client `render::tests::borders_run_down_the_middle_of_gaps` | pass |
+| REQ-UI-051 (background before mode 2031, colors from the terminal) | femux-client `theme::tests::picks_by_name_then_background_then_mode`, `theme::tests::terminal_theme_takes_the_hosts_colors` | pass |
+| REQ-UI-021 (shell titles) | femux-client `ui_tabs::ui_021_title_precedence`, `ui_tabs::ui_020_tab_strip_shows_running_urgent_and_zoom` | pass |
+| REQ-UI-030 (padding, no TERMINAL label or prefix hint) | femux-client `ui_bar::ui_030_the_bar_sits_on_any_side_and_the_panes_move_over` | pass |

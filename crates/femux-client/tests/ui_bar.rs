@@ -67,13 +67,14 @@ async fn ui_030_the_bar_sits_on_any_side_and_the_panes_move_over() {
             Some('$'),
             "{bar:?}: {screen:#?}"
         );
-        // The session chip is on the bar's side.
+        // The session chip is on the bar's side, one cell in; typing into panes shows no
+        // mode label.
         match bar {
-            BarPosition::Bottom => assert!(screen[29].starts_with(" s  TERMINAL"), "{screen:#?}"),
-            BarPosition::Top => assert!(screen[0].starts_with(" s  TERMINAL"), "{screen:#?}"),
+            BarPosition::Bottom => assert!(screen[29].starts_with("  s  "), "{screen:#?}"),
+            BarPosition::Top => assert!(screen[0].starts_with("  s  "), "{screen:#?}"),
             BarPosition::Left => {
                 assert!(screen[1].starts_with("  s "), "{screen:#?}");
-                assert!(screen[4].starts_with(" TERMINAL"), "{screen:#?}");
+                assert!(!screen[4].contains("TERMINAL"), "{screen:#?}");
             }
             BarPosition::Right => {
                 let x = (100 - BAR_WIDTH) as usize + 1;
@@ -320,7 +321,8 @@ impl InfoModule for Wide {
         "wide"
     }
     fn render(&self, _ctx: &BarCtx, _w: usize) -> Spans {
-        vec![Span::text("W".repeat(80))]
+        // A glyph no tab title or temp directory name contains.
+        vec![Span::text("░".repeat(80))]
     }
     fn interval(&self) -> Duration {
         Duration::from_secs(1)
@@ -353,9 +355,48 @@ async fn ui_030_a_column_bar_never_draws_over_the_panes() {
                 .skip(l.panes.x as usize)
                 .take(l.panes.w as usize)
                 .collect();
-            assert!(!in_panes.contains('W'), "{bar:?} row {y}: {row:?}");
+            assert!(!in_panes.contains('░'), "{bar:?} row {y}: {row:?}");
         }
-        let count: usize = screen.iter().map(|r| r.matches('W').count()).sum();
+        let count: usize = screen.iter().map(|r| r.matches('░').count()).sum();
         assert_eq!(count, (BAR_WIDTH - 2) as usize, "{bar:?}");
+    }
+}
+
+/// REQ-UI-032 (0.6.0): `remote:` modules show what the daemon host's `hosts` plugin publishes,
+/// and a client attached through `--host` names the host in its session chip.
+#[tokio::test(flavor = "multi_thread")]
+async fn ui_032_remote_modules_show_the_daemon_hosts_values() {
+    let cfg = bar_cfg(
+        BarPosition::Bottom,
+        &["session"],
+        &["remote:hostname", "remote:cpu", "cpu"],
+    );
+    let hosts = femux_plugin_hosts::plugin().client.unwrap();
+    let mut d = Drive::with(cfg, vec![hosts, infobar()], 120, 30).await;
+    d.app.remote = Some("box".into());
+    d.obs
+        .call(m::PluginPublish {
+            plugin: "hosts".into(),
+            data: [
+                ("hostname".to_owned(), "build-box".to_owned()),
+                ("cpu".to_owned(), "12.6".to_owned()),
+            ]
+            .into(),
+        })
+        .await
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        d.app.tick(Instant::now());
+        d.settle().await;
+        let line = d.screen_line(29);
+        if line.contains("build-box:cpu 13%") {
+            assert!(line.contains(" box:s "), "{line}");
+            // The plain `cpu` is still the client's own machine.
+            assert!(line.matches("cpu").count() >= 2, "{line}");
+            break;
+        }
+        assert!(Instant::now() < deadline, "{line}");
+        std::thread::sleep(Duration::from_millis(50));
     }
 }

@@ -145,6 +145,7 @@ Layer rules:
 - REQ-PROTO-002: Peer UID MUST be checked (`SO_PEERCRED` / `LOCAL_PEERCRED`) and connections from other UIDs refused before any message is read.
   Note: refusal of other UIDs is unit-tested; an integration test would need a second user.
 - REQ-PROTO-003: No TCP listener. Remote attach uses `ssh <host> femux attach --stdio` with the protocol on stdin/stdout, or a socket forwarded by OpenSSH.
+  Note (0.6.0): before it takes over the terminal, `femux attach --host <h>` runs `ssh <dest> true` with `ControlMaster=auto`, `ControlPersist=600` and `ControlPath=/tmp/femux-ssh-<uid>/%C`, so host-key and password prompts appear as they do for plain `ssh`. Every later command uses the same options and so the same master connection: `ssh -T -o ServerAliveInterval=5 -o ServerAliveCountMax=3 <dest> femux attach --stdio` (`$FEMUX_SSH` overrides `ssh`). `<h>` is a name from `hosts.toml` (next to `config.toml`, kept by `femux hosts add|list|rm`) or a raw ssh destination. `--stdio` starts the remote daemon if none runs and copies bytes between stdin/stdout and its socket. A host saved with `--forward` instead runs `femux daemon --ensure` over ssh (start if needed, print the socket), forwards that socket with `ssh -N -L` to a local socket in `$TMPDIR` and connects there. When the link drops, the remote daemon sees an ordinary disconnect and keeps the session; the client says the link is lost and reconnects in the background (1 s, doubling to 30 s) with `BatchMode=yes`, since it owns the terminal (the master connection, while it lasts, spares the prompts), then reattaches the same session. `prefix d` quits meanwhile. The session chip, the side nav and the session navigator name the host.
 - REQ-PROTO-004: Framing is 4-byte big-endian length prefix followed by one MessagePack map. Max frame 16 MiB.
 
 ### 4.2 Schema
@@ -290,6 +291,7 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
 
 - REQ-UI-010: BSP with preselection (`prefix` then `shift+h/j/k/l` chooses where the next split goes), master-stack and scrolling schemes selectable per tab.
   Note: `shift+h/j/k/l` are the resize keys in the §5.1 table, so preselection is `prefix ctrl+h/j/k/l` (actions `preselect left|down|up|right`); the choice shows in the status line and applies to the next split. Schemes are palette actions `scheme bsp|master|scroll` (`layout.set_scheme`).
+  Note (0.6.1): `[layout] scheme` is the scheme new tabs start in. `[layout] gaps = n` widens every separator between tiled panes to `1 + 2n` cells with the border down the middle, falling back to one cell where a split is too small for it; the outer edge gets no margin. `femux reload` re-applies gaps to open tabs; the scheme applies to tabs created afterwards.
 - REQ-UI-011: Floating panes render above tiles; mouse drag moves and resizes them.
   Note: dragging a float's top border moves it, dragging its bottom-right corner resizes it; both send `layout.float` with the new rect (ADR-016 #5).
 - REQ-UI-012: Layout templates can be saved and loaded by name (`femux layout save|load`); they serialize `layout.get` output plus cwd and cmd per pane.
@@ -300,14 +302,17 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
 - REQ-UI-020: The tab strip shows index, title, a running indicator when the fg process is not the shell, an urgency marker on bell or agent state change in an unfocused tab, and a zoom marker.
   Note: "not the shell" is `pane.info.fg_pid != pid` (ADR-016 #1); urgency (`!`) comes from `pane.bell` or a `pane.meta_changed` setting `agent.state` and clears when the tab is selected; zoom shows `Z`.
 - REQ-UI-021: Title precedence: user rename > OSC 2 > fg command > cwd basename.
+  Note (0.6.1): while the shell itself is in the foreground (the pane runs no other program), the title is `<shell> <dir>` (`~` for home, else the last path component) instead of the shell's OSC 2 title, which is usually that same information spelled `~ - fish`. A program's OSC 2 title still beats its command name.
 
 ### 5.4 Info bar
 
 - REQ-UI-030: One bar at `top|bottom|left|right`; `left` and `right` are vertical and stack modules.
   Note: a `left`/`right` bar is a 24-column column the full height of the terminal, with the tab strip and panes beside it; the session chip and mode come first, the `left` modules follow from the top and the `right` ones are anchored to the bottom. Prompts, confirmations and messages use the bar row, or with a vertical bar the bottom row of the pane area while they are shown.
+  Note (0.6.1): the horizontal bar keeps one cell of padding at each end. It shows no mode label while typing into panes, only `PREFIX`, `NORMAL`, `COPY` and the navigators' names, and no permanent prefix hint (the which-key panel shows the prefix table).
 - REQ-UI-031: Modules are listed in config in order; each is a plugin implementing `InfoModule { fn render(&self, w: usize) -> Spans; fn interval(&self) -> Duration }`.
   Note: modules also get `sample(&mut self, ctx)`, called every `max(interval(), [infobar] interval_ms)` and only for modules the config shows, and `render` reads a `BarCtx` (session, tabs, agent counts, the focused pane's cwd, notifications of hidden panes, orientation). Unknown names are skipped. `session` is the client's own chip and mode, so with the `infobar` plugin disabled the bar still shows them.
 - REQ-UI-032: Built-in modules: `session`, `tabs`, `clock`, `cpu`, `mem`, `net`, `battery`, `git`, `agents`, `notifications`, `hostname`. A module name prefixed `remote:` renders on the daemon host (data arrives as pane-independent events).
+  Note (0.6.0): the `hosts` plugin's daemon side samples hostname, cpu, memory and network on the daemon's machine every 2 s and publishes them (`plugin.publish`, ADR-020); its client side provides `remote:cpu`, `remote:mem`, `remote:net` and `remote:hostname`, labelled `<host>:<module>`. Other `remote:` names still render the local module.
   Note (0.4.0): `remote:<module>` renders the local module until SSH attach (0.6.0) gives the daemon a different host. `agents` counts `agent.state` metadata as it stands; `notifications` shows `notify.posted` (ADR-018 #2). `cpu`, `mem` and `net` use the `sysinfo` crate; `battery` reads `/sys/class/power_supply` on Linux and `pmset` on macOS; `git` runs `git status` off the client's thread. `battery` and `git` show nothing without a battery or a repository.
 - REQ-UI-033: `notifications` shows the newest N notification titles when the originating pane is hidden (useful in zoom).
   Note: hidden means not in this client's current tab, or zoomed away; a notification about no pane always shows. A row bar shows the newest, a column the newest three.
@@ -331,6 +336,7 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
   Note: support is probed at startup with `DECRQM 2026`, together with OSC 10/11/12, `DSR 996` (light/dark), the Kitty keyboard query and DA1.
 - REQ-UI-051: Theme from `[theme]` or, when `theme = "terminal"`, from OSC 10/11 queries at startup; light/dark follows mode 2031 when available.
   Note: `terminal` picks the built-in dark or light theme from the mode 2031 answer, else from the OSC 11 background's luminance. Other names come from the `theme` plugin (0.4.0): `dark`, `light`, `high-contrast`, or a path to a JSON file of `#rrggbb` colors over a `base`; unknown keys are errors. A theme the plugin cannot load falls back to `terminal` and says why in the status row. `femux reload` re-applies it.
+  Note (0.6.1): mode 2031 reports the desktop's light/dark preference in some terminals (Ghostty), which can differ from the terminal's own colors, so the OSC 11 background's luminance decides and mode 2031 only applies when no background is reported. With a reported background, `terminal` colors the chrome from the terminal itself: text and accent-foreground are its foreground and background, bars and overlays its background tinted 5–8% toward the foreground, muted text halfway between, and accent, warn, ok and error its own palette's blue, yellow, green and red (ANSI 4, 3, 2, 1). Without one, the bundled dark or light theme applies.
 - REQ-UI-052: Kitty graphics placements are re-emitted with pane offsets and clipped at pane bounds.
   Note: 0.2.0 implements the geometry and the `a=p` re-emission for `frame.images`; the daemon sends placements from 0.7.0 (GFX-*).
 - REQ-UI-053: Mouse support is on by default and fully disableable.
@@ -368,6 +374,7 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
 - REQ-SEC-005: Environment persisted to the store is limited to `[env] allow` (default: `PATH HOME SHELL LANG LC_* TERM EDITOR`).
 - REQ-SEC-006: `femux update` verifies a signed checksum before replacing the binary and never restarts a running daemon.
 - REQ-SEC-007: Over SSH, notifications are forwarded as events; sound files are never transferred, only names resolved on the client.
+  Note (0.6.0): `notify.posted` carries the `[notify]` entry name (`event`), never an action; the client runs its own config's actions for it, so a remote's sound paths are never used.
 
 ---
 
@@ -526,6 +533,8 @@ cwd = "~/writing/notes"
   Note: the pane's tab and session default the same way (`pane.info`); outside femux, `tab new` needs `--session` unless exactly one session exists. `tab select` switches every attached client of the session (ADR-016 #8); tab indexes are resolved with the read-only `session.tabs` (ADR-016 #11).
 - REQ-CLI-003: Shell completions for bash, zsh, fish are generated from the CLI definition.
   Note: `femux completions <shell>`, including the subcommands plugins add.
+
+Note (0.6.0): `hosts` is enabled by default. `femux daemon --ensure` starts a daemon only if none runs and prints its socket (what `--forward` hosts ask the remote for).
 
 Note (§11): `launch`, `config check|edit` and `reload` arrive in 0.3.0; `agent`, `update`, `hosts` and `notify` with their milestones (0.5.0, 1.0, 0.6.0, 0.5.0). `integration install` ships early (0.2.0) because its hook target, `femux pane set`, exists.
 
