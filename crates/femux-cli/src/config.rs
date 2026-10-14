@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 
-use femux_client::config::{BarPosition, Borders, ClientConfig, TabsPosition};
+use femux_client::config::{BarPosition, Borders, ClientConfig};
 pub use femux_config::{Config, config_dir, home, state_dir};
 
 /// The client's settings from the config file.
@@ -19,25 +19,17 @@ pub fn client(c: &Config) -> ClientConfig {
             femux_config::Borders::Double => Borders::Double,
             femux_config::Borders::Spaces => Borders::Spaces,
         },
-        tabs: match c.tabs.position {
-            femux_config::TabsPosition::Top => TabsPosition::Top,
-            femux_config::TabsPosition::Bottom => TabsPosition::Bottom,
-            femux_config::TabsPosition::Hidden => TabsPosition::Hidden,
-        },
-        running_indicator: c.tabs.running_indicator.clone(),
+        running_indicator: c.bar.running_indicator.clone(),
         theme: c.theme.name.clone(),
         keys_prefix: c.keys.prefix.clone(),
         keys_root: c.keys.root.clone(),
         keys_copy: c.keys.copy.clone(),
-        bar: match c.infobar.position {
+        bar: match c.bar.position {
             femux_config::BarPosition::Top => BarPosition::Top,
             femux_config::BarPosition::Bottom => BarPosition::Bottom,
-            femux_config::BarPosition::Left => BarPosition::Left,
-            femux_config::BarPosition::Right => BarPosition::Right,
         },
-        bar_left: c.infobar.left.clone(),
-        bar_right: c.infobar.right.clone(),
-        bar_interval: Duration::from_millis(c.infobar.interval_ms),
+        bar_modules: c.bar.modules.clone(),
+        bar_interval: Duration::from_millis(c.bar.interval_ms),
         kitty_graphics: c.terminal.kitty_graphics,
         sixel: c.terminal.sixel,
     }

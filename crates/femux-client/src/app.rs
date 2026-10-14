@@ -671,10 +671,19 @@ impl App {
 
     /// The session chip, `session <name>` (`host:name` when attached through `--host`): it
     /// says what it is so a name like `0` never reads as a tab number.
+    /// The session chip (REQ-UI-030): the session's name (`host:name` over `--host`), with a
+    /// `session ` prefix only when the name is all digits, so it never reads as a tab number.
     pub fn session_chip(&self) -> String {
-        match &self.remote {
-            Some(h) => format!("session {h}:{}", self.model.session),
-            None => format!("session {}", self.model.session),
+        let name = match &self.remote {
+            Some(h) => format!("{h}:{}", self.model.session),
+            None => self.model.session.clone(),
+        };
+        let digits = !self.model.session.is_empty()
+            && self.model.session.chars().all(|c| c.is_ascii_digit());
+        if digits {
+            format!("session {name}")
+        } else {
+            name
         }
     }
 
@@ -732,12 +741,11 @@ impl App {
         // REQ-UI-031: each shown module samples on its own interval.
         let shown: Vec<String> = self
             .cfg
-            .bar_left
+            .bar_modules
             .iter()
-            .chain(&self.cfg.bar_right)
             .flat_map(|n| [n.clone(), n.strip_prefix("remote:").unwrap_or(n).to_owned()])
             .collect();
-        let ctx = self.bar_ctx(self.cfg.bar.vertical());
+        let ctx = self.bar_ctx(false);
         let floor = self.cfg.bar_interval;
         for (module, last) in &mut self.modules {
             if !shown.iter().any(|n| n == module.name()) {
@@ -765,7 +773,8 @@ impl App {
     }
 
     /// What info modules may read (REQ-UI-031).
-    pub fn bar_ctx(&self, vertical: bool) -> femux_plugin::BarCtx {
+    /// What info modules may read (REQ-UI-031); `short` asks for their short form.
+    pub fn bar_ctx(&self, short: bool) -> femux_plugin::BarCtx {
         let tabs = self
             .model
             .tabs
@@ -804,7 +813,7 @@ impl App {
                 .map(|p| p.cwd.clone())
                 .filter(|c| !c.is_empty()),
             notifications,
-            vertical,
+            short,
             remote: self.remote_data.clone(),
         }
     }
@@ -2094,11 +2103,7 @@ impl App {
     /// What is at screen cell `(x, y)`.
     pub fn hit(&self, x: u16, y: u16) -> Hit {
         let layout = self.layout();
-        if let Some((sx, sy, sw)) = layout.strip
-            && y == sy
-            && x >= sx
-            && x < sx + sw
-        {
+        if layout.bar.contains(x, y) {
             return self
                 .tab_hits
                 .iter()
@@ -2456,6 +2461,21 @@ mod tests {
         assert_eq!(a.clipboard.as_deref(), Some("other"));
     }
 
+    /// REQ-UI-030 (0.10.0): the chip is the session's bare name, `host:name` over `--host`,
+    /// and says `session` only when the name is all digits.
+    #[test]
+    fn the_session_chip_is_the_bare_name_unless_it_is_a_number() {
+        let mut a = app(ClientConfig::default());
+        a.model.session = "api".into();
+        assert_eq!(a.session_chip(), "api");
+        a.remote = Some("box".into());
+        assert_eq!(a.session_chip(), "box:api");
+        a.model.session = "0".into();
+        assert_eq!(a.session_chip(), "session box:0");
+        a.remote = None;
+        assert_eq!(a.session_chip(), "session 0");
+    }
+
     /// REQ-SEC-004: a passed-through sequence reaches the host only from a pane this client
     /// shows.
     #[test]
@@ -2564,8 +2584,8 @@ mod tests {
         // The separator between A and B is column 10; A is restored, so it is dashed.
         assert_eq!(rows[1].chars().nth(10), Some('┆'), "{rows:?}");
         assert!(
-            rows[0].contains('↺'),
-            "tab strip marks restored panes: {rows:?}"
+            rows.last().unwrap().contains('↺'),
+            "the bar's tabs mark restored panes: {rows:?}"
         );
         // A command runs in A: the border is ordinary again.
         a.on_msg(ServerMsg::Event(Event::PaneFgChanged(m::PaneFgChanged {
@@ -2608,7 +2628,7 @@ mod tests {
     }
 
     #[test]
-    fn a_reload_that_moves_the_bar_aside_resizes_the_view() {
+    fn a_reload_that_moves_the_bar_keeps_the_view() {
         let mut a = app(ClientConfig::default());
         a.on_resize(100, 30);
         a.take_out();
@@ -2627,13 +2647,6 @@ mod tests {
             ..Default::default()
         });
         assert!(resizes(&mut a).is_empty());
-        // Top to left: the panes lose the bar's columns and gain its row.
-        a.apply_config(ClientConfig {
-            bar: crate::config::BarPosition::Left,
-            ..Default::default()
-        });
-        assert_eq!(resizes(&mut a), [a.view_size()]);
-        assert!(a.view_size().0 < 100, "{:?}", a.view_size());
     }
 
     /// A client plugin that forwards clipboard events like the real `clipboard` plugin.

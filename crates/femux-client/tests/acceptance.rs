@@ -9,7 +9,8 @@ use femux_proto::msg as m;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn copy_mode_search_selects_and_yanks() {
-    let mut d = Drive::new(ClientConfig::default()).await;
+    // A 22-row pane under the one bar: line19 is in history once line40 is printed.
+    let mut d = Drive::with(ClientConfig::default(), Vec::new(), 80, 23).await;
     let pane = d.pane.clone();
     d.wait_pane_text(&pane, "$").await;
     d.obs.call(m::EventsSubscribe::default()).await.unwrap();

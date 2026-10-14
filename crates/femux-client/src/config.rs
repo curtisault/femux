@@ -13,28 +13,12 @@ pub enum Borders {
     Spaces,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum TabsPosition {
-    #[default]
-    Top,
-    Bottom,
-    Hidden,
-}
-
-/// Where the info bar goes (REQ-UI-030).
+/// Where the one bar goes (REQ-UI-030): the row at the top or the bottom.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BarPosition {
     Top,
     #[default]
     Bottom,
-    Left,
-    Right,
-}
-
-impl BarPosition {
-    pub fn vertical(self) -> bool {
-        matches!(self, BarPosition::Left | BarPosition::Right)
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,9 +33,7 @@ pub struct ClientConfig {
     pub which_key_delay: Duration,
     /// `[layout] borders`.
     pub borders: Borders,
-    /// `[tabs] position`.
-    pub tabs: TabsPosition,
-    /// `[tabs] running_indicator` (REQ-UI-020).
+    /// `[bar] running_indicator` (REQ-UI-020).
     pub running_indicator: String,
     /// `[theme] name`: `terminal`, `dark` or `light` (REQ-UI-051).
     pub theme: String,
@@ -61,12 +43,11 @@ pub struct ClientConfig {
     pub keys_root: BTreeMap<String, String>,
     /// `[keys.copy]`: copy-mode bindings.
     pub keys_copy: BTreeMap<String, String>,
-    /// `[infobar] position` (REQ-UI-030).
+    /// `[bar] position` (REQ-UI-030).
     pub bar: BarPosition,
-    /// `[infobar] left` / `right`: module names in order (REQ-UI-031).
-    pub bar_left: Vec<String>,
-    pub bar_right: Vec<String>,
-    /// `[infobar] interval_ms`: modules sample at most this often.
+    /// `[bar] modules`: module names in order, on the bar's right (REQ-UI-031).
+    pub bar_modules: Vec<String>,
+    /// `[bar] interval_ms`: modules sample at most this often.
     pub bar_interval: Duration,
     /// `[terminal] kitty_graphics` / `sixel`: show pane images on the host (REQ-GFX-*), when
     /// the host supports them.
@@ -82,15 +63,13 @@ impl Default for ClientConfig {
             mouse: true,
             which_key_delay: Duration::from_millis(400),
             borders: Borders::Single,
-            tabs: TabsPosition::Top,
             running_indicator: "●".into(),
             theme: "terminal".into(),
             keys_prefix: BTreeMap::new(),
             keys_root: BTreeMap::new(),
             keys_copy: BTreeMap::new(),
             bar: BarPosition::Bottom,
-            bar_left: ["session", "tabs"].map(String::from).to_vec(),
-            bar_right: ["agents", "git", "cpu", "mem", "net", "clock"]
+            bar_modules: ["agents", "git", "cpu", "mem", "net", "clock"]
                 .map(String::from)
                 .to_vec(),
             bar_interval: Duration::from_millis(1000),

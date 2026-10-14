@@ -98,8 +98,9 @@ pub struct BarCtx {
     /// What the daemon host's `hosts` plugin last published (`plugin.data`, ADR-020): the
     /// values `remote:` modules show.
     pub remote: std::collections::BTreeMap<String, String>,
-    /// The bar is a column (`left`/`right`): modules may use several lines (`\n` in a span).
-    pub vertical: bool,
+    /// The bar is short of room: render the short form, the value without its label
+    /// (`31%` for `cpu 31%`), REQ-UI-030.
+    pub short: bool,
 }
 
 /// An info bar module (REQ-UI-031): the bar calls `sample` every `interval` to refresh what

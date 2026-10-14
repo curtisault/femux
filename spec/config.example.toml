@@ -16,15 +16,11 @@ scheme = "bsp"                # bsp | master | scroll
 gaps = 0
 borders = "single"            # single | heavy | double | spaces
 
-[tabs]
-position = "top"              # top | bottom | hidden
-running_indicator = "●"
-
-[infobar]
-position = "bottom"           # top | bottom | left | right
-left  = ["session"]           # "tabs" adds a `tab 2/5` counter (the strip lists them)
-right = ["agents", "git", "cpu", "mem", "net", "clock"]
+[bar]
+position = "bottom"           # top | bottom
+modules = ["agents", "git", "cpu", "mem", "net", "clock"]
 interval_ms = 1000
+running_indicator = "●"
 
 [terminal]
 scrollback_lines = 10000

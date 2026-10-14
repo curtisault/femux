@@ -185,7 +185,8 @@ pub fn render(what: &str, ctx: &BarCtx) -> Spans {
     let num = |k: &str| r.get(k).and_then(|v| v.parse::<f64>().ok());
     let host = r.get("hostname").cloned().unwrap_or_default();
     let label = |name: &str| {
-        (!ctx.vertical).then(|| {
+        // The short form is the value alone (REQ-UI-030).
+        (!ctx.short).then(|| {
             Span::new(
                 if host.is_empty() {
                     format!("{name} ")
@@ -206,17 +207,11 @@ pub fn render(what: &str, ctx: &BarCtx) -> Spans {
         }
         "cpu" => num("cpu").map(|c| format!("{c:.0}%")),
         "mem" => match (num("mem_used"), num("mem_total")) {
-            (Some(u), Some(t)) if t > 0.0 && ctx.vertical => {
-                Some(format!("{} / {}", human(u), human(t)))
-            }
             (Some(u), Some(t)) if t > 0.0 => Some(human(u)),
             _ => None,
         },
         "net" => match (num("net_rx"), num("net_tx")) {
-            (Some(d), Some(u)) => {
-                let sep = if ctx.vertical { "\n" } else { " " };
-                Some(format!("↓{}{sep}↑{}", human(d), human(u)))
-            }
+            (Some(d), Some(u)) => Some(format!("↓{} ↑{}", human(d), human(u))),
             _ => None,
         },
         _ => None,
@@ -368,13 +363,13 @@ impl CliPlugin for Cli {
 mod tests {
     use super::*;
 
-    fn ctx(pairs: &[(&str, &str)], vertical: bool) -> BarCtx {
+    fn ctx(pairs: &[(&str, &str)], short: bool) -> BarCtx {
         BarCtx {
             remote: pairs
                 .iter()
                 .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
                 .collect(),
-            vertical,
+            short,
             ..Default::default()
         }
     }
@@ -400,8 +395,8 @@ mod tests {
         assert_eq!(text(&render("mem", &c)), "build-box:mem 1.5G");
         assert_eq!(text(&render("net", &c)), "build-box:net ↓1.5k ↑0");
         assert_eq!(text(&render("hostname", &c)), "build-box");
-        let v = ctx(&[("mem_used", "1024"), ("mem_total", "2048")], true);
-        assert_eq!(text(&render("mem", &v)), "1.0k / 2.0k");
+        let short = ctx(&[("mem_used", "1024"), ("mem_total", "2048")], true);
+        assert_eq!(text(&render("mem", &short)), "1.0k");
         // Nothing published yet: nothing shown.
         assert!(render("cpu", &BarCtx::default()).is_empty());
     }

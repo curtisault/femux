@@ -6,18 +6,25 @@ use common::Drive;
 use femux_client::app::App;
 use femux_client::config::ClientConfig;
 
+/// The tabs as the bar shows them: its row after the session chip (`  s  `), trailing blanks
+/// trimmed (REQ-UI-030, 0.10.0: the tabs are part of the one bar).
+fn strip(d: &mut Drive) -> String {
+    let row = d.app.rows as usize - 1;
+    d.screen_line(row).chars().skip(5).collect()
+}
+
 /// Settles until the tab strip reads what `want` computes from the current model.
 async fn wait_strip(d: &mut Drive, want: impl Fn(&App) -> String) {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     loop {
         let expected = want(&d.app);
-        if d.screen_line(0) == expected {
+        if strip(d) == expected {
             return;
         }
         assert!(
             std::time::Instant::now() < deadline,
             "strip {:?} never became {expected:?}",
-            d.screen_line(0)
+            strip(d)
         );
         d.settle().await;
     }
@@ -47,7 +54,7 @@ async fn ui_020_tab_strip_shows_running_urgent_and_zoom() {
     d.type_text("sleep 30\n").await;
     d.until("running", |a| a.model.panes[&p2].running()).await;
     wait_strip(&mut d, |a| {
-        format!(" 1 {}   2 sleep ●", a.model.tab_title(&a.model.tabs[0]))
+        format!(" 1 {}  2 sleep ●", a.model.tab_title(&a.model.tabs[0]))
     })
     .await;
     // Back on tab 1, a bell in tab 2 marks it urgent; selecting it clears the mark.
@@ -81,7 +88,7 @@ async fn ui_020_tab_strip_shows_running_urgent_and_zoom() {
     d.until("urgent", |a| a.model.tabs[1].urgent).await;
     wait_strip(&mut d, |a| {
         format!(
-            " 1 {}   2 {} !",
+            " 1 {}  2 {} !",
             a.model.tab_title(&a.model.tabs[0]),
             a.model.tab_title(&a.model.tabs[1])
         )
@@ -97,7 +104,7 @@ async fn ui_020_tab_strip_shows_running_urgent_and_zoom() {
     d.until("zoomed", |a| a.model.tabs[1].zoomed).await;
     wait_strip(&mut d, |a| {
         format!(
-            " 1 {}   2 {} Z",
+            " 1 {}  2 {} Z",
             a.model.tab_title(&a.model.tabs[0]),
             a.model.tab_title(&a.model.tabs[1])
         )
@@ -125,11 +132,7 @@ async fn ui_021_title_precedence() {
     })
     .await;
     d.settle().await;
-    assert!(
-        !d.screen_line(0).contains("shell-title"),
-        "{}",
-        d.screen_line(0)
-    );
+    assert!(!strip(&mut d).contains("shell-title"), "{}", strip(&mut d));
     // …but a program's does: OSC 2 beats the fg command.
     d.type_text("printf '\\033]2;notes\\a'; sleep 30\n").await;
     d.until("program title", |a| {
@@ -153,7 +156,7 @@ async fn ui_021_title_precedence() {
         a.model.tabs[0].custom_title.as_deref() == Some("work")
     })
     .await;
-    assert_eq!(d.screen_line(0), " 1 work ●");
+    assert_eq!(strip(&mut d), " 1 work ●");
     d.obs
         .call(femux_proto::msg::PaneSignal {
             pane_id: pane.clone(),
@@ -166,7 +169,7 @@ async fn ui_021_title_precedence() {
     d.type_text("printf '\\033]2;other\\a'\n").await;
     d.until("osc 2 again", |a| a.model.panes[&pane].title == "other")
         .await;
-    assert_eq!(d.screen_line(0), " 1 work");
+    assert_eq!(strip(&mut d), " 1 work");
     // A fresh attach gets the rename from the snapshot (custom_title, ADR-016 #2).
     let snap = d.obs.attach("s", 80, 22).await.snapshot;
     assert_eq!(snap.tabs[0].custom_title.as_deref(), Some("work"));

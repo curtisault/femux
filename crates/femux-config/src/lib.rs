@@ -106,23 +106,14 @@ pub enum Borders {
     Spaces,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum TabsPosition {
-    #[default]
-    Top,
-    Bottom,
-    Hidden,
-}
-
+/// Where the one bar goes (REQ-UI-030): a row at the top or the bottom. The left side is the
+/// panel's (REQ-UI-042).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum BarPosition {
     Top,
     #[default]
     Bottom,
-    Left,
-    Right,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
@@ -176,16 +167,11 @@ section!(Layout {
     borders: Borders = Borders::Single,
 });
 
-section!(Tabs {
-    position: TabsPosition = TabsPosition::Top,
-    running_indicator: String = "●".into(),
-});
-
-section!(Infobar {
+section!(Bar {
     position: BarPosition = BarPosition::Bottom,
-    left: Vec<String> = strings(&["session"]),
-    right: Vec<String> = strings(&["agents", "git", "cpu", "mem", "net", "clock"]),
+    modules: Vec<String> = strings(&["agents", "git", "cpu", "mem", "net", "clock"]),
     interval_ms: u64 = 1000,
+    running_indicator: String = "●".into(),
 });
 
 section!(Terminal {
@@ -260,8 +246,7 @@ pub struct Config {
     pub input: Input,
     pub ui: Ui,
     pub layout: Layout,
-    pub tabs: Tabs,
-    pub infobar: Infobar,
+    pub bar: Bar,
     pub terminal: Terminal,
     pub restore: Restore,
     pub env: Env,
@@ -290,8 +275,7 @@ impl Default for Config {
             input: Input::default(),
             ui: Ui::default(),
             layout: Layout::default(),
-            tabs: Tabs::default(),
-            infobar: Infobar::default(),
+            bar: Bar::default(),
             terminal: Terminal::default(),
             restore: Restore::default(),
             env: Env::default(),
@@ -306,8 +290,17 @@ impl Default for Config {
 }
 
 impl Config {
-    /// Parses config TOML; unknown keys are errors (REQ-CFG-003).
+    /// Parses config TOML; unknown keys are errors (REQ-CFG-003). The sections 0.10.0
+    /// replaced name what replaced them.
     pub fn parse(text: &str) -> Result<Config, String> {
+        for (old, new) in REPLACED {
+            if let Some(at) = text
+                .lines()
+                .position(|l| l.trim_start().starts_with(&format!("[{old}]")))
+            {
+                return Err(format!("line {}: {new}", at + 1));
+            }
+        }
         parse(text)
     }
 
@@ -319,6 +312,18 @@ impl Config {
         }
     }
 }
+
+/// Sections that were replaced, with what to write instead (REQ-UI-030, 0.10.0).
+const REPLACED: [(&str, &str); 2] = [
+    (
+        "infobar",
+        "[infobar] was replaced by [bar] in 0.10.0: `position` is top or bottom, `left` and `right` became one `modules` list (the session chip and the tabs are part of the bar), `interval_ms` is unchanged; a left column is now [panel]",
+    ),
+    (
+        "tabs",
+        "[tabs] was replaced by [bar] in 0.10.0: the tabs are part of the one bar, `running_indicator` moved to [bar] and `position` follows [bar] position",
+    ),
+];
 
 // ------------------------------------------------------------------ session files
 
@@ -485,6 +490,29 @@ mod tests {
         );
         c.keys = Keys::default();
         assert_eq!(c, Config::default());
+    }
+
+    /// REQ-UI-030 (0.10.0): the replaced sections say what replaced them, with their line.
+    #[test]
+    fn replaced_sections_name_their_replacement() {
+        let err =
+            Config::parse("[input]\nmouse = true\n\n[infobar]\nposition = \"left\"\n").unwrap_err();
+        assert!(
+            err.starts_with("line 4:") && err.contains("[bar]") && err.contains("[panel]"),
+            "{err}"
+        );
+        let err = Config::parse("[tabs]\nposition = \"top\"\n").unwrap_err();
+        assert!(
+            err.starts_with("line 1:") && err.contains("running_indicator"),
+            "{err}"
+        );
+        let err = Config::parse("[bar]\nposition = \"left\"\n").unwrap_err();
+        assert!(err.starts_with("line 2:"), "{err}");
+        let c = Config::parse("[bar]\nposition = \"top\"\nmodules = [\"clock\"]\n").unwrap();
+        assert_eq!(
+            (c.bar.position, c.bar.modules),
+            (BarPosition::Top, vec!["clock".to_owned()])
+        );
     }
 
     #[test]

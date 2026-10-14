@@ -379,139 +379,189 @@ pub(crate) fn clip(spans: &Spans, max: usize) -> Spans {
     out
 }
 
-/// Splits a module's spans into lines at `\n` (vertical bars only).
-fn lines_of(spans: &Spans) -> Vec<Spans> {
-    let mut out: Vec<Spans> = vec![Vec::new()];
-    for sp in spans {
-        for (i, part) in sp.text.split('\n').enumerate() {
-            if i > 0 {
-                out.push(Vec::new());
-            }
-            if !part.is_empty() {
-                out.last_mut()
-                    .unwrap()
-                    .push(Span::new(part.to_owned(), sp.style));
-            }
-        }
-    }
-    out
+/// One tab in the bar (REQ-UI-020): its number, title and markers, styled.
+struct TabLabel {
+    id: String,
+    num: String,
+    title: String,
+    marks: String,
+    attr: CellAttributes,
 }
 
-/// The info bar (REQ-UI-030/031): a row at the top or bottom, or a column at the left or
-/// right with modules stacked.
+impl TabLabel {
+    /// ` 2 api ●● `: the title truncated to `title_w` columns (`…` marks a cut), dropped when
+    /// no room is left for it.
+    fn text(&self, title_w: usize) -> String {
+        let n = self.title.chars().count();
+        let title = if n <= title_w {
+            self.title.clone()
+        } else if title_w >= 2 {
+            let mut t: String = self.title.chars().take(title_w - 1).collect();
+            t.push('…');
+            t
+        } else {
+            String::new()
+        };
+        if title.is_empty() {
+            format!(" {}{} ", self.num, self.marks)
+        } else {
+            format!(" {} {title}{} ", self.num, self.marks)
+        }
+    }
+}
+
+/// The widest title every tab may keep so the strip fits `room` columns: titles shorter than
+/// it keep their length and the longer ones share what is left (tab numbers always show).
+fn title_width(tabs: &[TabLabel], room: usize) -> usize {
+    let longest = tabs
+        .iter()
+        .map(|t| t.title.chars().count())
+        .max()
+        .unwrap_or(0);
+    let fits = |cap: usize| -> bool {
+        let w: usize = tabs.iter().map(|t| t.text(cap).chars().count()).sum();
+        w <= room
+    };
+    (0..=longest).rev().find(|&c| fits(c)).unwrap_or(0)
+}
+
+/// Blank cells between two modules.
+const MODULE_GAP: usize = 2;
+/// Tab titles shrink to this many columns before a module is dropped (narrow.png).
+const TITLE_MIN: usize = 8;
+
+fn spans_width(mods: &[Spans]) -> usize {
+    let w: usize = mods.iter().map(|m| femux_plugin::width(m)).sum();
+    w + MODULE_GAP * mods.len().saturating_sub(1)
+}
+
+/// The one bar (REQ-UI-020, REQ-UI-030/031): the session chip and the mode on the left, the
+/// tabs next, the modules on the right. When the row is short, modules switch to their short
+/// form; then tab titles shrink to [`TITLE_MIN`]; then modules drop from the right end; then
+/// titles shrink further. Tab numbers always show. `app.tab_hits` is refreshed for the mouse.
 fn draw_bar(app: &mut App, c: &mut Canvas, theme: &Theme, l: &Layout, tr: &Option<Transient>) {
+    app.tab_hits.clear();
     let bar = l.bar;
     let bg = theme.bar_bg;
-    let (mode, mode_attr) = mode_label(app, theme);
-    let chip = format!(" {} ", app.session_chip());
-    if !l.bar_vertical {
-        let (x0, y, w) = (bar.x as usize, bar.y as usize, bar.w as usize);
-        c.fill(x0, y, w, ' ', &attr(theme.bar_fg, bg));
-        let ctx = app.bar_ctx(false);
-        let right: Vec<Spans> = app
-            .cfg
-            .bar_right
-            .clone()
-            .iter()
-            .filter_map(|n| app.module_spans(n, &ctx, w / 2))
-            .collect();
-        let mut right_line: Spans = Vec::new();
-        for (i, sp) in right.into_iter().enumerate() {
-            if i > 0 {
-                right_line.push(Span::new(" │ ", Style::Muted));
-            }
-            right_line.extend(
-                sp.into_iter()
-                    .map(|s| Span::new(s.text.replace('\n', " "), s.style)),
-            );
-        }
-        let right_line = clip(&right_line, w.saturating_sub(chip.chars().count() + 12));
-        // One cell of padding at either end.
-        let rw = femux_plugin::width(&right_line) + 1;
-        let mut x = c.put(x0 + 1, y, &chip, &bold(attr(theme.accent_fg, theme.accent)));
-        if !mode.is_empty() {
-            x = c.put(x, y, &format!(" {mode} "), &mode_attr);
-        }
-        if !matches!(tr, Some(Transient::Text(..))) {
-            for name in app.cfg.bar_left.clone() {
-                if name == "session" {
-                    continue;
-                }
-                if let Some(sp) = app.module_spans(&name, &ctx, w / 2) {
-                    let sp: Spans = sp
-                        .into_iter()
-                        .map(|s| Span::new(s.text.replace('\n', " "), s.style))
-                        .collect();
-                    x = c.spans(x + 2, y, &sp, theme, bg);
-                }
-            }
-        }
-        let _ = x;
-        if rw < w {
-            c.spans(x0 + w - rw, y, &right_line, theme, bg);
-        }
+    let (x0, y, w) = (bar.x as usize, bar.y as usize, bar.w as usize);
+    if w == 0 || bar.h == 0 {
         return;
     }
-    // A column: the chip and mode, then the left modules from the top, the right ones at the
-    // bottom (REQ-UI-030: vertical bars stack modules).
-    let (x0, w) = (bar.x as usize + 1, bar.w.saturating_sub(2) as usize);
-    for y in bar.y..bar.y + bar.h {
-        c.fill(
-            bar.x as usize,
-            y as usize,
-            bar.w as usize,
-            ' ',
-            &attr(theme.bar_fg, bg),
-        );
-    }
-    let bottom = (bar.y + bar.h) as usize;
-    let mut y = bar.y as usize + 1;
-    c.put(x0, y, &chip, &bold(attr(theme.accent_fg, theme.accent)));
-    y += 2;
+    c.fill(x0, y, w, ' ', &attr(theme.bar_fg, bg));
+    // One cell of padding at either end.
+    let end = x0 + w.saturating_sub(1);
+    let (mode, mode_attr) = mode_label(app, theme);
+    let chip = format!(" {} ", app.session_chip());
+    let mut x = c.put(x0 + 1, y, &chip, &bold(attr(theme.accent_fg, theme.accent)));
     if !mode.is_empty() {
-        c.put(x0, y, "mode", &attr(theme.muted, bg));
-        c.put(x0, y + 1, mode, &mode_attr);
-        y += 3;
+        x = c.put(x, y, &format!(" {mode} "), &mode_attr);
     }
-    let ctx = app.bar_ctx(true);
-    let block = |app: &mut App, name: &str| -> Option<Vec<Spans>> {
-        let sp = app.module_spans(name, &ctx, w)?;
-        let mut lines = vec![vec![Span::new(name.to_owned(), Style::Muted)]];
-        lines.extend(lines_of(&sp));
-        // A column never draws past its own width.
-        Some(lines.iter().map(|l| clip(l, w)).collect())
-    };
-    for name in app.cfg.bar_left.clone() {
-        if name == "session" {
-            continue;
-        }
-        if let Some(lines) = block(app, &name) {
-            for line in lines {
-                if y < bottom {
-                    c.spans(x0, y, &line, theme, bg);
+    let start = (x + 1).min(end);
+    let room = end - start;
+
+    // A message takes the tabs' place (draw_status writes it).
+    let tabs: Vec<TabLabel> = if matches!(tr, Some(Transient::Text(..))) {
+        Vec::new()
+    } else {
+        app.model
+            .tabs
+            .clone()
+            .iter()
+            .enumerate()
+            .map(|(i, t)| {
+                let mut marks = String::new();
+                if app.model.tab_running(t) {
+                    marks.push(' ');
+                    marks.push_str(&app.cfg.running_indicator);
                 }
-                y += 1;
-            }
-            y += 1;
+                if app.model.tab_restored(t) {
+                    marks.push_str(" ↺");
+                }
+                if t.urgent {
+                    marks.push_str(" !");
+                }
+                if t.zoomed {
+                    marks.push_str(" Z");
+                }
+                let attr = if t.id == app.model.current {
+                    bold(attr(theme.accent_fg, theme.accent))
+                } else if t.urgent {
+                    bold(attr(theme.warn, bg))
+                } else {
+                    attr(theme.bar_fg, bg)
+                };
+                TabLabel {
+                    id: t.id.clone(),
+                    num: (i + 1).to_string(),
+                    title: app.model.tab_title(t),
+                    marks,
+                    attr,
+                }
+            })
+            .collect()
+    };
+    let longest = tabs
+        .iter()
+        .map(|t| t.title.chars().count())
+        .max()
+        .unwrap_or(0);
+
+    // Modules: full, else short, else fewer from the right end.
+    let modules = app.cfg.bar_modules.clone();
+    let render = |app: &App, short: bool| -> Vec<Spans> {
+        let ctx = app.bar_ctx(short);
+        modules
+            .iter()
+            .filter_map(|n| app.module_spans(n, &ctx, room))
+            .map(|sp| {
+                sp.into_iter()
+                    .map(|s| Span::new(s.text.replace('\n', " "), s.style))
+                    .collect()
+            })
+            .collect()
+    };
+    let tab_room = |mods: &[Spans]| {
+        let m = spans_width(mods);
+        room.saturating_sub(if m == 0 { 0 } else { m + MODULE_GAP })
+    };
+    // Full forms only while every title fits whole; short ones while titles keep at least
+    // TITLE_MIN columns.
+    let mut mods = render(app, false);
+    if title_width(&tabs, tab_room(&mods)) < longest {
+        mods = render(app, true);
+        let floor = longest.min(TITLE_MIN);
+        while !mods.is_empty()
+            && (spans_width(&mods) > room || title_width(&tabs, tab_room(&mods)) < floor)
+        {
+            mods.pop();
         }
     }
-    let blocks: Vec<Vec<Spans>> = app
-        .cfg
-        .bar_right
-        .clone()
-        .iter()
-        .filter_map(|n| block(app, n))
-        .collect();
-    let height: usize = blocks.iter().map(|b| b.len() + 1).sum();
-    let mut y = y.max(bottom.saturating_sub(height));
-    for b in blocks {
-        for line in b {
-            if y < bottom {
-                c.spans(x0, y, &line, theme, bg);
+    let mods_w = spans_width(&mods);
+    if mods_w > 0 && mods_w <= room {
+        let mut mx = end - mods_w;
+        for (i, m) in mods.iter().enumerate() {
+            if i > 0 {
+                mx += MODULE_GAP;
             }
-            y += 1;
+            mx = c.spans(mx, y, m, theme, bg);
         }
-        y += 1;
+    }
+
+    // Tabs, titles truncated to what the modules left.
+    let title_w = title_width(&tabs, tab_room(&mods));
+    let mut tx = start;
+    for t in &tabs {
+        let label: String = t
+            .text(title_w)
+            .chars()
+            .take(end.saturating_sub(tx))
+            .collect();
+        if label.is_empty() {
+            break;
+        }
+        let x1 = c.put(tx, y, &label, &t.attr);
+        app.tab_hits.push((tx as u16, x1 as u16, t.id.clone()));
+        tx = x1;
     }
 }
 
@@ -524,11 +574,7 @@ fn draw_status(
     tr: &Option<Transient>,
     cursor: &mut Option<(usize, usize)>,
 ) {
-    let (x0, y, w) = (
-        l.status.0 as usize,
-        l.status.1 as usize,
-        l.status.2 as usize,
-    );
+    let (x0, y, w) = (l.bar.x as usize, l.bar.y as usize, l.bar.w as usize);
     let bg = theme.bar_bg;
     match tr {
         None => {}
@@ -549,58 +595,12 @@ fn draw_status(
             *cursor = Some((x, y));
         }
         Some(Transient::Text(spans, wants_cursor)) => {
-            let x = if l.bar_vertical {
-                c.fill(x0, y, w, ' ', &attr(theme.bar_fg, bg));
-                x0 + 1
-            } else {
-                // After the chip and the mode.
-                after_chip(app, theme, x0)
-            };
+            // After the chip and the mode, where the tabs were.
+            let x = after_chip(app, theme, x0);
             let end = c.spans(x, y, spans, theme, bg);
             if *wants_cursor {
                 *cursor = Some((end, y));
             }
-        }
-    }
-}
-
-/// The tab strip (REQ-UI-020). `app.tab_hits` is refreshed for the mouse.
-fn draw_strip(app: &mut App, c: &mut Canvas, theme: &Theme, l: &Layout) {
-    app.tab_hits.clear();
-    let Some((sx, sy, sw)) = l.strip else { return };
-    let (sx, y, end) = (sx as usize, sy as usize, (sx + sw) as usize);
-    c.fill(sx, y, sw as usize, ' ', &attr(theme.bar_fg, theme.bar_bg));
-    let mut x = sx;
-    let tabs = app.model.tabs.clone();
-    for (i, t) in tabs.iter().enumerate() {
-        let mut label = format!(" {} {}", i + 1, app.model.tab_title(t));
-        if app.model.tab_running(t) {
-            label.push(' ');
-            label.push_str(&app.cfg.running_indicator);
-        }
-        if app.model.tab_restored(t) {
-            label.push_str(" ↺");
-        }
-        if t.urgent {
-            label.push_str(" !");
-        }
-        if t.zoomed {
-            label.push_str(" Z");
-        }
-        label.push(' ');
-        let a = if t.id == app.model.current {
-            bold(attr(theme.accent_fg, theme.accent))
-        } else if t.urgent {
-            bold(attr(theme.warn, theme.bar_bg))
-        } else {
-            attr(theme.bar_fg, theme.bar_bg)
-        };
-        let label: String = label.chars().take(end.saturating_sub(x)).collect();
-        let x1 = c.put(x, y, &label, &a);
-        app.tab_hits.push((x as u16, x1 as u16, t.id.clone()));
-        x = x1 + 1;
-        if x >= end {
-            break;
         }
     }
 }
@@ -746,7 +746,6 @@ pub fn render(app: &mut App, theme: &Theme, s: &mut Surface) {
         }
     }
 
-    draw_strip(app, &mut c, theme, &l);
     crate::nav::draw_sidenav(app, &mut c, theme, &l);
     let tr = transient(app);
     draw_bar(app, &mut c, theme, &l, &tr);

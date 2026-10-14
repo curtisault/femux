@@ -1,6 +1,6 @@
-//! REQ-UI-030..033: the info bar on any side, modules in config order on their intervals,
-//! notifications for hidden panes; and the 0.4.0 acceptance "bar on all four sides with every
-//! built-in module".
+//! REQ-UI-020, REQ-UI-030..033 (0.10.0): one bar at the top or bottom with the session chip,
+//! mode, tabs and modules; modules in config order on their intervals; a short row gives
+//! from the right first; notifications for hidden panes.
 
 mod common;
 
@@ -9,15 +9,14 @@ use std::time::{Duration, Instant};
 
 use common::Drive;
 use femux_client::config::{BarPosition, ClientConfig};
-use femux_client::layout::{BAR_WIDTH, Layout};
+use femux_client::layout::Layout;
 use femux_plugin::{BarCtx, ClientPlugin, InfoModule, Span, Spans};
 use femux_proto::msg as m;
 
-fn bar_cfg(bar: BarPosition, left: &[&str], right: &[&str]) -> ClientConfig {
+fn bar_cfg(bar: BarPosition, modules: &[&str]) -> ClientConfig {
     ClientConfig {
         bar,
-        bar_left: left.iter().map(|s| s.to_string()).collect(),
-        bar_right: right.iter().map(|s| s.to_string()).collect(),
+        bar_modules: modules.iter().map(|s| s.to_string()).collect(),
         bar_interval: Duration::from_millis(10),
         ..Default::default()
     }
@@ -29,58 +28,49 @@ fn infobar() -> Box<dyn ClientPlugin> {
 
 /// Every built-in module name, plus a `remote:` one.
 fn every_module() -> Vec<&'static str> {
-    let mut v: Vec<&str> = femux_plugin_infobar::MODULES
-        .iter()
-        .copied()
-        .filter(|m| *m != "tabs")
-        .collect();
+    let mut v: Vec<&str> = femux_plugin_infobar::MODULES.to_vec();
     v.push("remote:cpu");
     v
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn ui_030_the_bar_sits_on_any_side_and_the_panes_move_over() {
-    for bar in [
-        BarPosition::Bottom,
-        BarPosition::Top,
-        BarPosition::Left,
-        BarPosition::Right,
-    ] {
-        let cfg = bar_cfg(bar, &["session"], &[]);
+async fn ui_030_one_bar_at_the_top_or_bottom() {
+    for bar in [BarPosition::Bottom, BarPosition::Top] {
+        let cfg = bar_cfg(bar, &["clock"]);
         let mut d = Drive::with(cfg.clone(), vec![infobar()], 100, 30).await;
         let pane = d.pane.clone();
         d.wait_pane_text(&pane, "$").await;
         let l = Layout::compute(100, 30, &cfg, false);
-        // The daemon sizes the pane to the area beside the bar.
+        // The daemon sizes the pane to everything but the bar's row.
         let rect = d.app.model.panes[&pane]
             .screen
             .as_ref()
             .unwrap()
             .rect
             .clone();
-        assert_eq!((rect.w, rect.h), (l.panes.w, l.panes.h), "{bar:?}");
+        assert_eq!((rect.w, rect.h), (100, 29), "{bar:?}");
+        assert_eq!((l.panes.w, l.panes.h), (100, 29));
         let screen: Vec<String> = d.screen().lines().map(str::to_owned).collect();
-        // The prompt is drawn at the pane area's corner.
-        let row = &screen[l.panes.y as usize];
-        assert_eq!(
-            row.chars().nth(l.panes.x as usize),
-            Some('$'),
-            "{bar:?}: {screen:#?}"
+        let (row, other) = match bar {
+            BarPosition::Bottom => (29, 0),
+            BarPosition::Top => (0, 29),
+        };
+        // One cell in: the bare session name, then the tabs, the modules at the end.
+        assert!(screen[row].starts_with("  s   1 "), "{bar:?}: {screen:#?}");
+        assert!(
+            screen[row]
+                .trim_end()
+                .ends_with(&femux_plugin_infobar::local_time()),
+            "{screen:#?}"
         );
-        // The session chip is on the bar's side, one cell in; typing into panes shows no
-        // mode label.
-        match bar {
-            BarPosition::Bottom => assert!(screen[29].starts_with("  session s  "), "{screen:#?}"),
-            BarPosition::Top => assert!(screen[0].starts_with("  session s  "), "{screen:#?}"),
-            BarPosition::Left => {
-                assert!(screen[1].starts_with("  session s "), "{screen:#?}");
-                assert!(!screen[4].contains("TERMINAL"), "{screen:#?}");
-            }
-            BarPosition::Right => {
-                let x = (100 - BAR_WIDTH) as usize + 1;
-                assert_eq!(&screen[1][x..x + 11], " session s ", "{screen:#?}");
-            }
-        }
+        // No second row of chrome: the other edge is pane content.
+        assert!(!screen[other].contains(" 1 "), "{screen:#?}");
+        // The prompt sits at the pane area's corner.
+        assert_eq!(
+            screen[l.panes.y as usize].chars().next(),
+            Some('$'),
+            "{screen:#?}"
+        );
     }
 }
 
@@ -131,23 +121,13 @@ async fn ui_031_modules_come_from_plugins_in_config_order_on_their_interval() {
         ("bb", Arc::default()),
         ("cc", Arc::default()),
     ];
-    let cfg = bar_cfg(
-        BarPosition::Bottom,
-        &["session", "cc"],
-        &["bb", "aa", "missing"],
-    );
+    let cfg = bar_cfg(BarPosition::Bottom, &["cc", "bb", "aa", "missing"]);
     let mut d = Drive::with(cfg, vec![Box::new(Probes(counts.clone()))], 100, 20).await;
     let t0 = Instant::now();
     d.app.tick(t0);
+    // In their configured order at the right end; unknown ones vanish.
     let bar = d.screen_line(19);
-    // Left modules follow the mode; right ones in their configured order; unknown ones vanish.
-    let (c, b, a) = (
-        bar.find("CC").unwrap(),
-        bar.find("BB").unwrap(),
-        bar.find("AA").unwrap(),
-    );
-    assert!(c < b && b < a, "{bar}");
-    assert!(bar.ends_with("BB │ AA"), "{bar}");
+    assert!(bar.ends_with("CC  BB  AA"), "{bar}");
     // Each module samples on its own interval, not every tick.
     for ms in [50, 100, 150, 210, 260, 420] {
         d.app.tick(t0 + Duration::from_millis(ms));
@@ -158,7 +138,7 @@ async fn ui_031_modules_come_from_plugins_in_config_order_on_their_interval() {
     // A module not configured is never sampled.
     let unused: Vec<(&'static str, Arc<Mutex<u32>>)> = vec![("zz", Arc::default())];
     let mut d = Drive::with(
-        bar_cfg(BarPosition::Bottom, &[], &[]),
+        bar_cfg(BarPosition::Bottom, &[]),
         vec![Box::new(Probes(unused.clone()))],
         80,
         20,
@@ -168,9 +148,141 @@ async fn ui_031_modules_come_from_plugins_in_config_order_on_their_interval() {
     assert_eq!(*unused[0].1.lock().unwrap(), 0);
 }
 
+/// A module with a long full form and a short one.
+struct Sized {
+    name: &'static str,
+    full: &'static str,
+    short: &'static str,
+}
+
+impl InfoModule for Sized {
+    fn name(&self) -> &str {
+        self.name
+    }
+    fn render(&self, ctx: &BarCtx, _w: usize) -> Spans {
+        vec![Span::text(if ctx.short { self.short } else { self.full })]
+    }
+    fn interval(&self) -> Duration {
+        Duration::from_secs(1)
+    }
+}
+
+struct SizedPlugin;
+
+impl ClientPlugin for SizedPlugin {
+    fn name(&self) -> &'static str {
+        "sized"
+    }
+    fn modules(&self) -> Vec<Box<dyn InfoModule>> {
+        vec![
+            Box::new(Sized {
+                name: "alpha",
+                full: "alpha-full-form",
+                short: "A1",
+            }),
+            Box::new(Sized {
+                name: "beta",
+                full: "beta-full-form",
+                short: "B2",
+            }),
+        ]
+    }
+}
+
+/// Which module forms one width of the bar shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Level {
+    Full,
+    Short,
+    OneModule,
+    NoModule,
+}
+
+/// REQ-UI-030 (0.10.0): a short row gives from the right first: modules switch to their short
+/// form, then titles shrink to 8 columns, then modules drop from the right end, then titles
+/// shrink further; tab numbers always show.
+#[tokio::test(flavor = "multi_thread")]
+async fn ui_030_a_short_row_gives_from_the_right_first() {
+    let cfg = bar_cfg(BarPosition::Bottom, &["alpha", "beta"]);
+    let mut d = Drive::with(cfg, vec![Box::new(SizedPlugin)], 200, 20).await;
+    let pane = d.pane.clone();
+    d.wait_pane_text(&pane, "$").await;
+    // Three tabs titled like their shells: `sh <temp dir>`, longer than 8 columns.
+    d.press_all(&["ctrl+space", "t"]).await;
+    d.press_all(&["ctrl+space", "t"]).await;
+    d.until("three tabs", |a| a.model.tabs.len() == 3).await;
+    let longest = d
+        .app
+        .model
+        .tabs
+        .iter()
+        .map(|t| d.app.model.tab_title(t).chars().count())
+        .max()
+        .unwrap();
+    assert!(longest > 8);
+    // The widest title shown, `…` included.
+    let widest = |bar: &str| -> usize {
+        bar.split("  ")
+            .filter_map(|part| {
+                let part = part.trim();
+                let (n, title) = part.split_once(' ')?;
+                n.parse::<u8>().ok()?;
+                Some(title.chars().count())
+            })
+            .max()
+            .unwrap_or(0)
+    };
+    let mut seen = Vec::new();
+    for cols in (30..=200).rev() {
+        d.app.on_resize(cols, 20);
+        let bar = d.screen_line(19);
+        assert!(bar.chars().count() <= cols as usize, "{cols}: {bar}");
+        for n in ["1", "2", "3"] {
+            assert!(
+                bar.contains(&format!(" {n} ")) || bar.ends_with(&format!(" {n}")),
+                "{cols}: {bar}"
+            );
+        }
+        let level = match (
+            bar.contains("alpha-full"),
+            bar.contains("A1"),
+            bar.contains("B2"),
+        ) {
+            (true, _, _) => Level::Full,
+            (_, true, true) => Level::Short,
+            (_, true, false) => Level::OneModule,
+            _ => Level::NoModule,
+        };
+        assert!(
+            !(bar.contains("B2") && !bar.contains("A1")),
+            "{cols}: {bar}"
+        );
+        match level {
+            // Full forms only with every title whole.
+            Level::Full => assert!(!bar.contains('…'), "{cols}: {bar}"),
+            // A module drops only once titles have given way (to 8 columns; dropping it
+            // hands its room back to them).
+            Level::OneModule => assert!(widest(&bar) < longest, "{cols}: {bar}"),
+            _ => {}
+        }
+        if seen.last() != Some(&level) {
+            seen.push(level);
+        }
+    }
+    assert_eq!(
+        seen,
+        [Level::Full, Level::Short, Level::OneModule, Level::NoModule],
+        "the bar gives way in order"
+    );
+    // The narrowest: titles cut with `…`, every tab number still there.
+    d.app.on_resize(30, 20);
+    let bar = d.screen_line(19);
+    assert!(bar.contains('…') && bar.contains(" 3"), "{bar}");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn ui_033_notifications_show_while_their_pane_is_hidden() {
-    let cfg = bar_cfg(BarPosition::Bottom, &["session"], &["notifications"]);
+    let cfg = bar_cfg(BarPosition::Bottom, &["notifications"]);
     let mut d = Drive::with(cfg, vec![infobar()], 100, 20).await;
     let first = d.pane.clone();
     d.wait_pane_text(&first, "$").await;
@@ -236,18 +348,13 @@ async fn ui_033_notifications_show_while_their_pane_is_hidden() {
     );
 }
 
+/// The 0.10.0 bar with every built-in module, at the top and at the bottom.
 #[tokio::test(flavor = "multi_thread")]
-async fn acceptance_0_4_bar_on_all_four_sides_with_every_built_in_module() {
-    let right = every_module();
-    for bar in [
-        BarPosition::Bottom,
-        BarPosition::Top,
-        BarPosition::Left,
-        BarPosition::Right,
-    ] {
-        let cfg = bar_cfg(bar, &["session", "tabs"], &right);
-        let rows = if bar.vertical() { 50 } else { 20 };
-        let mut d = Drive::with(cfg, vec![infobar()], 300, rows).await;
+async fn acceptance_0_10_one_bar_with_every_built_in_module() {
+    let modules = every_module();
+    for bar in [BarPosition::Bottom, BarPosition::Top] {
+        let cfg = bar_cfg(bar, &modules);
+        let mut d = Drive::with(cfg, vec![infobar()], 300, 20).await;
         let pane = d.pane.clone();
         d.wait_pane_text(&pane, "$").await;
         d.obs
@@ -275,93 +382,22 @@ async fn acceptance_0_4_bar_on_all_four_sides_with_every_built_in_module() {
         d.app.tick(t0);
         std::thread::sleep(Duration::from_millis(300));
         d.app.tick(t0 + Duration::from_millis(1100));
-        let screen = d.screen();
-        // A column clips to its width, so a long hostname shows only its start there.
-        let host: String = femux_plugin_infobar::hostname()
-            .chars()
-            .take(if bar.vertical() {
-                (BAR_WIDTH - 2) as usize
-            } else {
-                usize::MAX
-            })
-            .collect();
+        let row = d.screen_line(if bar == BarPosition::Top { 0 } else { 19 });
         let clock = femux_plugin_infobar::local_time();
-        let mut want = vec![
-            "cpu".to_owned(),
-            "mem".to_owned(),
-            "net".to_owned(),
-            "↓".to_owned(),
-            "◐".to_owned(),
+        let second = d.app.model.tab_title(&d.app.model.tabs[1]);
+        for w in [
+            "cpu ".to_owned(),
+            "mem ".to_owned(),
+            "net ↓".to_owned(),
+            "◐ 1".to_owned(),
             "agent done".to_owned(),
-            host,
+            femux_plugin_infobar::hostname(),
             clock[..4].to_owned(),
-        ];
-        if bar.vertical() {
-            // Module names label their blocks; tabs list their titles.
-            want.extend(["remote:cpu", "hostname", "notifications"].map(String::from));
-            // The tab's title is the shell's name: sh, or bash on macOS.
-            let second = &d.app.model.tabs[1];
-            want.push(format!("2 {}", d.app.model.tab_title(second)));
-        } else {
-            // A row counts them instead of repeating the strip.
-            want.push("tab 2/2".to_owned());
-        }
-        for w in &want {
-            assert!(
-                screen.contains(w.as_str()),
-                "{bar:?} lacks {w:?}:\n{screen}"
-            );
+            format!(" 2 {second}"),
+        ] {
+            assert!(row.contains(w.as_str()), "{bar:?} lacks {w:?}:\n{row}");
         }
         // Battery and git show only where there is a battery or a repository.
-    }
-}
-
-/// A module wider than a column bar is clipped to the bar: nothing spills into the panes.
-struct Wide;
-
-impl InfoModule for Wide {
-    fn name(&self) -> &str {
-        "wide"
-    }
-    fn render(&self, _ctx: &BarCtx, _w: usize) -> Spans {
-        // A glyph no tab title or temp directory name contains.
-        vec![Span::text("░".repeat(80))]
-    }
-    fn interval(&self) -> Duration {
-        Duration::from_secs(1)
-    }
-}
-
-struct WidePlugin;
-
-impl ClientPlugin for WidePlugin {
-    fn name(&self) -> &'static str {
-        "wide"
-    }
-    fn modules(&self) -> Vec<Box<dyn InfoModule>> {
-        vec![Box::new(Wide)]
-    }
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn ui_030_a_column_bar_never_draws_over_the_panes() {
-    for bar in [BarPosition::Left, BarPosition::Right] {
-        let cfg = bar_cfg(bar, &["wide"], &[]);
-        let mut d = Drive::with(cfg.clone(), vec![Box::new(WidePlugin)], 100, 30).await;
-        let pane = d.pane.clone();
-        d.wait_pane_text(&pane, "$").await;
-        let l = Layout::compute(100, 30, &cfg, false);
-        let screen: Vec<String> = d.screen().lines().map(str::to_owned).collect();
-        for (y, row) in screen.iter().enumerate() {
-            let in_panes: String = row
-                .chars()
-                .skip(l.panes.x as usize)
-                .take(l.panes.w as usize)
-                .collect();
-            assert!(!in_panes.contains('░'), "{bar:?} row {y}: {row:?}");
-        }
-        let count: usize = screen.iter().map(|r| r.matches('░').count()).sum();
-        assert_eq!(count, (BAR_WIDTH - 2) as usize, "{bar:?}");
     }
 }
 
@@ -371,7 +407,6 @@ async fn ui_030_a_column_bar_never_draws_over_the_panes() {
 async fn ui_032_remote_modules_show_the_daemon_hosts_values() {
     let cfg = bar_cfg(
         BarPosition::Bottom,
-        &["session"],
         &["remote:hostname", "remote:cpu", "cpu"],
     );
     let hosts = femux_plugin_hosts::plugin().client.unwrap();
@@ -394,7 +429,7 @@ async fn ui_032_remote_modules_show_the_daemon_hosts_values() {
         d.settle().await;
         let line = d.screen_line(29);
         if line.contains("build-box:cpu 13%") {
-            assert!(line.contains(" session box:s "), "{line}");
+            assert!(line.contains(" box:s "), "{line}");
             // The plain `cpu` is still the client's own machine.
             assert!(line.matches("cpu").count() >= 2, "{line}");
             break;

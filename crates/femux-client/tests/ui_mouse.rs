@@ -31,7 +31,7 @@ async fn ui_053_mouse_focuses_forwards_and_can_be_disabled() {
         _ => None,
     });
     assert!(
-        matches!(&press, Some(m::InputEvent::MouseEvent(e)) if e.x == 3 && e.y == 3 && e.event == m::MouseEventKind::Press),
+        matches!(&press, Some(m::InputEvent::MouseEvent(e)) if e.x == 3 && e.y == 4 && e.event == m::MouseEventKind::Press),
         "{press:?}"
     );
     d.until("focus moved", |a| {
@@ -51,10 +51,12 @@ async fn ui_053_mouse_focuses_forwards_and_can_be_disabled() {
     d.press_all(&["ctrl+space", "t"]).await;
     d.until("two tabs", |a| a.model.tabs.len() == 2).await;
     let _ = d.screen();
+    // The tabs are in the bar, the bottom row (0.10.0).
     let (x0, _, first) = d.app.tab_hits[0].clone();
+    let bar = d.app.rows - 1;
     d.sent.clear();
     d.app
-        .on_mouse(x0 + 1, 0, MouseKind::Press(m::MouseButton::Left), vec![]);
+        .on_mouse(x0 + 1, bar, MouseKind::Press(m::MouseButton::Left), vec![]);
     d.settle().await;
     assert!(
         d.sent

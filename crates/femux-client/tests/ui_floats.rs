@@ -31,12 +31,14 @@ async fn ui_011_floats_render_above_tiles_and_follow_the_mouse() {
         .unwrap()
         .rect
         .clone();
-    // The float is drawn with a box over the tiled pane behind it.
+    // The float is drawn with a box over the tiled pane behind it; its top border is the row
+    // above its rect, on screen below the pane area's origin.
+    let area = d.app.layout().panes;
     let screen = d.screen();
-    let top = screen.lines().nth(rect.y as usize).unwrap(); // tab strip is row 0
+    let top = screen.lines().nth((area.y + rect.y - 1) as usize).unwrap();
     assert!(top.contains('┌') && top.contains('┐'), "{screen}");
     // Drag the title bar: the float moves (layout.float with a new rect).
-    let (gx, gy) = (rect.x + 2, rect.y); // screen row of the top border = rect.y - 1 + 1
+    let (gx, gy) = (area.x + rect.x + 2, area.y + rect.y - 1);
     d.sent.clear();
     d.app
         .on_mouse(gx, gy, MouseKind::Press(m::MouseButton::Left), vec![]);
@@ -60,7 +62,7 @@ async fn ui_011_floats_render_above_tiles_and_follow_the_mouse() {
     assert_eq!(got.floats[0].rect.w, rect.w);
     // Drag the bottom-right corner: the float resizes.
     let rect = got.floats[0].rect.clone();
-    let (cx, cy) = (rect.x + rect.w, rect.y + rect.h + 1);
+    let (cx, cy) = (area.x + rect.x + rect.w, area.y + rect.y + rect.h);
     d.sent.clear();
     d.app
         .on_mouse(cx, cy, MouseKind::Press(m::MouseButton::Left), vec![]);
