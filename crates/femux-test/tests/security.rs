@@ -42,7 +42,9 @@ async fn sec_002_clipboard_reads_need_read_allow() {
         "denied reads carry no text:\n{text}"
     );
     // Allow the shell under whatever name the system gives it (`/bin/sh` is bash or dash),
-    // and `head`, which may already be in the foreground when the request is read.
+    // and every other command of the line: the daemon decides from whatever is in the
+    // foreground when it reads the request, which on a slow machine can already be the
+    // next command.
     // The daemon polls the foreground every 250 ms: wait until it has the shell itself
     // there again, not the last command, before taking the name.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
@@ -61,7 +63,7 @@ async fn sec_002_clipboard_reads_need_read_allow() {
     };
     std::fs::write(
         &conf,
-        format!("[clipboard]\nread_allow = [\"{shell}\", \"head\"]\n"),
+        format!("[clipboard]\nread_allow = [\"{shell}\", \"stty\", \"head\", \"od\"]\n"),
     )
     .unwrap();
     c.call(m::ServerReload {}).await.unwrap();
