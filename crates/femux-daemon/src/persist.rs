@@ -360,6 +360,9 @@ impl Daemon {
                 s.scrollback_lines = c.terminal.scrollback_lines;
                 s.restore = c.restore;
                 s.env_allow = c.env.allow;
+                s.read_allow = c.clipboard.read_allow;
+                self.passthrough
+                    .store(c.terminal.passthrough, std::sync::atomic::Ordering::Relaxed);
                 s.gaps = gaps;
                 s.scheme = scheme(c.layout.scheme);
             }

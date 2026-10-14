@@ -12,6 +12,9 @@ use tokio::sync::Notify;
 
 /// The raw output event's kind.
 const OUTPUT: &str = "pane.output";
+/// Passthrough sequences are terminal commands for the moment they were written: replaying
+/// them to a reattaching client would rerun stale ones (ADR-023).
+const PASSTHROUGH: &str = "pane.passthrough";
 
 /// What an event is about, for subscription filters.
 #[derive(Debug, Clone, Default)]
@@ -134,7 +137,7 @@ impl Bus {
             }
         }
         // Raw output is never retained: it would push every other event out of the ring.
-        if self.replay_cap > 0 && event.kind() != OUTPUT {
+        if self.replay_cap > 0 && event.kind() != OUTPUT && event.kind() != PASSTHROUGH {
             if self.replay.len() == self.replay_cap {
                 self.replay.pop_front();
             }

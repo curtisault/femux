@@ -197,3 +197,13 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-UI-043 (no root key by default; `[keys.root]` restores `ctrl+p`) | femux-client `ui_overlays::ui_043_palette_fuzzy_searches_actions_and_cli_commands`, `bindings::tests::every_default_binding_of_spec_5_1_exists` | pass |
 | REQ-UI-040 (`prefix S` names and starts a session) | femux-client `ui_nav::ui_040_prefix_shift_s_names_and_starts_a_session` | pass |
 | REQ-UI-002 (`docs/prefixes.md` matches the default bindings) | femux-cli `plugins::tests::prefixes_doc_matches_the_default_bindings` | pass |
+
+## 0.9.0
+
+| Requirement | Tests | Status |
+| --- | --- | --- |
+| REQ-PROTO-010 (ADR-023 cursor blink, frame mouse mode, pane.passthrough) | femux-test `adr023::frames_carry_cursor_blink_and_mouse_mode`; femux-proto `schema::*` | pass |
+| REQ-SEC-002 | femux-vt `tests::clipboard_writes_are_reported`, `tests::clipboard_reads_are_served_from_the_given_text_only`; femux-test `security::sec_002_clipboard_reads_need_read_allow` | pass |
+| REQ-SEC-004 | femux-vt `tests::dcs_sequences_pass_through_only_when_on`; femux-test `security::sec_004_dcs_passthrough_is_opt_in`; femux-client `app::tests::passthrough_is_written_for_shown_panes_only` | pass |
+| REQ-VT-002 (host cursor shape and blink follow the focused pane) | femux-client `ui_cursor::vt_002_the_host_cursor_follows_the_pane`, `tests::paint_sets_the_cursor_shape_when_it_changes`; femux-test `adr023::frames_carry_cursor_blink_and_mouse_mode` | pass |
+| REQ-UI-053 (drag selects, release copies; mouse-tracking panes get the drag unless shift) | femux-client `ui_mouse::ui_053_drag_selects_and_release_copies`, `ui_mouse::ui_053_mouse_focuses_forwards_and_can_be_disabled`; femux-test `adr023::frames_carry_cursor_blink_and_mouse_mode` | pass |

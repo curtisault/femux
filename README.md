@@ -7,7 +7,7 @@ from the `femux` CLI. Agent tracking and the other extras are built-in plugins o
 
 ## Status
 
-femux is pre-1.0 and at version 0.8: a client and CLI meant for daily use, locally and over SSH,
+femux is pre-1.0 and at version 0.9: a client and CLI meant for daily use, locally and over SSH,
 with sessions that can survive a daemon restart and tracking of the coding agents running in them.
 
 Working now: tabs, BSP splits with preselection, master and scroll layouts, floating panes, zoom,
@@ -20,7 +20,10 @@ to a remote femux over SSH, and images: Kitty graphics and sixel from programs s
 `kitten icat` and `mpv --vo=kitty`, drawn when your terminal speaks the Kitty graphics
 protocol (`femux graphics list` shows what each pane holds), git worktree tabs (`femux git tab
 <branch>`), typing into every pane of a tab at once (`prefix B`) and asciinema recording of a
-pane (`prefix R`, `femux record`). The order
+pane (`prefix R`, `femux record`). Dragging with the mouse selects text and copies it on release,
+and the cursor takes the shape a program asks for (neovim's insert-mode bar).
+`[clipboard] read_allow` lets named programs read the clipboard back, and
+`[terminal] passthrough = true` passes DCS sequences through to your terminal. The order
 they arrive in is the milestone table in [SPEC §13](spec/SPEC.md#13-milestones-and-branches).
 
 ## Build

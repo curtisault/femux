@@ -81,6 +81,7 @@ Layer rules:
 
 - REQ-VT-001: Each pane has one libghostty-vt instance holding screen grid, scrollback, modes and cursor.
 - REQ-VT-002: The daemon MUST emit cell diffs per frame (changed cells, cursor, scroll regions) and MUST NOT send raw escape bytes to clients.
+  Note (0.9.0): the frame cursor carries `blink` beside `shape` (ADR-023), both as the pane program set them (DECSCUSR). The client sets the host cursor's shape and blink (DECSCUSR) to the focused pane's whenever they change, so neovim's insert-mode bar shows; prompts and overlays use the host's default cursor, and the client restores it on detach.
 - REQ-VT-003: Default scrollback is 10,000 lines per pane, configurable.
   Note: the limit is passed to libghostty-vt, which prunes whole pages, so retained history stays within one page of it (measured: up to ~2,300 lines under at 20 columns, ~600 at 80).
 - REQ-VT-004: Frames MUST be coalesced per client: if a client cannot keep up, it receives the newest full state, never a backlog.
@@ -235,7 +236,7 @@ Color      "default" | u8 | [r,g,b]
 ### 4.5 Frames (d→c)
 
 ```
-frame {view_id, frame_seq, full: bool, panes: [{pane_id, rect, cells: [ {x,y,run:[Cell]} ], cursor: {x,y,shape,visible}, scroll_offset}], tab: {id, title, index, count}, images: [{id, pane_id, placement}]}
+frame {view_id, frame_seq, full: bool, panes: [{pane_id, rect, cells: [ {x,y,run:[Cell]} ], cursor: {x,y,shape,visible,blink}, mouse, scroll_offset}], tab: {id, title, index, count}, images: [{id, pane_id, placement}]}
 ```
 
 - REQ-PROTO-040: A client acks frames with `frame.ack`; the daemon keeps at most one unacked frame per view and coalesces newer state into it.
@@ -244,6 +245,7 @@ frame {view_id, frame_seq, full: bool, panes: [{pane_id, rect, cells: [ {x,y,run
 ### 4.6 Events (d→c, `id = 0`)
 
 `session.created|renamed|closed`, `tab.created|selected|closed|moved|renamed`, `layout.changed{tab_id, tree}`, `pane.spawned|exited{code}|fg_changed{pid, cmd}|cwd_changed|title_changed|meta_changed{set,unset}|bell`, `view.attached|detached|resized`, `store.snapshot`, `events_lost{from,to}`.
+  Note (0.9.0): `pane.passthrough{pane_id, data}` carries one DCS sequence a pane program emitted, base64, only while `[terminal] passthrough = true` (REQ-SEC-004); like `pane.output` it is never retained for `since`.
 
 ### 4.7 Errors
 
@@ -287,17 +289,17 @@ Default bindings (prefix table unless noted):
 | `S` | new session (asks for a name) |
 | `w` | pane navigator |
 | `:` | command palette |
-| `b` | toggle side nav |
+| `b` / `ctrl+b` | toggle the panel / focus it (0.10.0) |
 | `d` | detach |
 | `?` | help |
 | `space` | sticky normal mode |
 
 Copy mode: `hjkl`, `w b e`, `0 $`, `gg G`, `ctrl+u/d`, `/ ? n N` (regex), `v V ctrl+v` select, `y` yank (OSC 52 + clipboard.set), `[ ]` previous/next prompt mark, `q` exit.
 
-Note (0.8.3): the table was re-keyed so that one rule covers it: a lowercase letter acts or opens the list it names (`s` sessions, `w` panes, `b` side nav, `i` inbox), and shift on a letter means the same object the other way, its overview or a new one (`n`/`N` tabs, `o`/`O` floats, `m`/`M` marks, `t`/`T` tabs, `f`/`F` floats, `s`/`S` sessions, `h`/`H` focus and resize). `p` stays previous tab beside `N`, and `]` stays paste beside `[` copy mode, as in tmux. Splits moved to `-` and `|` (with `\` for those who would rather not hold shift), swap to `e` for exchange, and float cycling to `o`/`O`; `W`, `v`, `g` and `G` are unbound. Until 0.8.1 the table had `s`/`v` splits, `w` swap, `g`/`G` floats and `S`/`W` navigators.
+Note (0.8.3): the table was re-keyed so that one rule covers it: a lowercase letter acts or opens the list it names (`s` sessions, `w` panes, `b` panel, `i` inbox), and shift on a letter means the same object the other way, its overview or a new one (`n`/`N` tabs, `o`/`O` floats, `m`/`M` marks, `t`/`T` tabs, `f`/`F` floats, `s`/`S` sessions, `h`/`H` focus and resize). `p` stays previous tab beside `N`, and `]` stays paste beside `[` copy mode, as in tmux. Splits moved to `-` and `|` (with `\` for those who would rather not hold shift), swap to `e` for exchange, and float cycling to `o`/`O`; `W`, `v`, `g` and `G` are unbound. Until 0.8.1 the table had `s`/`v` splits, `w` swap, `g`/`G` floats and `S`/`W` navigators.
 Note (0.8.3): `S` opens a `new session` prompt holding the focused pane's directory name (empty in the home directory). `enter` creates the session rooted in that directory and switches to it; `esc` cancels; a name already taken is refused and named in the status line.
 Note (0.8.3): `docs/prefixes.md` is the user-facing key reference. Its tables are generated from the default bindings and every built-in plugin's keys; femux-cli `plugins::tests::prefixes_doc_matches_the_default_bindings` fails when they drift, and `UPDATE_DOCS=1` rewrites them.
-Note: `]` pastes the newest server clipboard text the client has seen (its own yank or any `clipboard.changed`). `s`, `w` and `b` open the navigators and the side nav from 0.4.0 (they were inert in 0.2.0). `x` confirms when the pane's foreground process is not its shell (`pane.info.pid`). Action names for `[keys.*]` are listed by `femux keys list`.
+Note: `]` pastes the newest server clipboard text the client has seen (its own yank or any `clipboard.changed`). `s`, `w` and `b` open the navigators and the panel (the side nav until 0.10.0) from 0.4.0 (they were inert in 0.2.0). `x` confirms when the pane's foreground process is not its shell (`pane.info.pid`). Action names for `[keys.*]` are listed by `femux keys list`.
 
 ### 5.2 Layout
 
@@ -313,23 +315,26 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
 ### 5.3 Tabs
 
 - REQ-UI-020: The tab strip shows index, title, a running indicator when the fg process is not the shell, an urgency marker on bell or agent state change in an unfocused tab, and a zoom marker.
+  Note (0.10.0): the strip is the middle of the one bar (REQ-UI-030), not a row of its own: `1 shell  2 api ●●  3 docs ●  4 infra !  5 scratch`, the current tab in the accent style. When the row is short, titles truncate to fit before any tab is dropped, and tab numbers always show. The strip's legend (`● running · ! needs you · Z zoomed`) is gone; the help overlay explains the markers.
   Note: "not the shell" is `pane.info.fg_pid != pid` (ADR-016 #1); urgency (`!`) comes from `pane.bell` or a `pane.meta_changed` setting `agent.state` and clears when the tab is selected; zoom shows `Z`.
 - REQ-UI-021: Title precedence: user rename > OSC 2 > fg command > cwd basename.
   Note (0.6.1): while the shell itself is in the foreground (the pane runs no other program), the title is `<shell> <dir>` (`~` for home, else the last path component) instead of the shell's OSC 2 title, which is usually that same information spelled `~ - fish`. A program's OSC 2 title still beats its command name. The session navigator and window navigator show the same titles as the tab strip.
 
 ### 5.4 Info bar
 
-- REQ-UI-030: One bar at `top|bottom|left|right`; `left` and `right` are vertical and stack modules.
-  Note: a `left`/`right` bar is a 24-column column the full height of the terminal, with the tab strip and panes beside it; the session chip and mode come first, the `left` modules follow from the top and the `right` ones are anchored to the bottom. Prompts, confirmations and messages use the bar row, or with a vertical bar the bottom row of the pane area while they are shown.
-  Note (0.8.1): the chip reads `session <name>` (`session <host>:<name>` over `--host`), so a session named by a number never reads as a tab index; the `tabs` module on a horizontal bar renders `tab 2/5` (`!` after it when another tab is urgent) instead of a second row of tab numbers, and the default `left` is `["session"]` because the tab strip already lists the tabs. `femux` with no session to attach to creates one named `main`.
+- REQ-UI-030: One bar, one row, at `[bar] position = top|bottom`: the session chip and mode on the left, the tab strip in the middle, the modules on the right. Nothing else frames the panes: no separate tab row, no vertical bar.
+  Note (0.10.0): this replaces the 0.4.0 `[infobar]` (`top|bottom|left|right`, `left`/`right` module lists) and `[tabs]` (`position`, `running_indicator`) sections with `[bar]` (`position`, `modules`, `interval_ms`, `running_indicator`); `config check` names the replacement for the old keys. When the row is short, the right side gives first: modules render their short form (the value without its label: `31%`, `9.2G`, `main`; `agents` drops zero counts; `clock` drops the day), then drop from the right end; then tab titles truncate (REQ-UI-020). Prompts, confirmations and messages use the bar row while they are shown. The left column that `[infobar] position = left` provided is now the panel (REQ-UI-042). `femux reload` applies `[bar]`.
+  Note (0.8.1): the chip reads `session <name>` (`session <host>:<name>` over `--host`), so a session named by a number never reads as a tab index. `femux` with no session to attach to creates one named `main`.
+  Note (0.10.0): with the tabs on the same row the chip is the bare name again (`api`, `build-box:deploy`), as the mocks draw it; only a name that is all digits keeps the `session ` prefix.
   Note (0.6.1): the horizontal bar keeps one cell of padding at each end. It shows no mode label while typing into panes, only `PREFIX`, `NORMAL`, `COPY` and the navigators' names, and no permanent prefix hint (the which-key panel shows the prefix table).
 - REQ-UI-031: Modules are listed in config in order; each is a plugin implementing `InfoModule { fn render(&self, w: usize) -> Spans; fn interval(&self) -> Duration }`.
-  Note: modules also get `sample(&mut self, ctx)`, called every `max(interval(), [infobar] interval_ms)` and only for modules the config shows, and `render` reads a `BarCtx` (session, tabs, agent counts, the focused pane's cwd, notifications of hidden panes, orientation). Unknown names are skipped. `session` is the client's own chip and mode, so with the `infobar` plugin disabled the bar still shows them.
-- REQ-UI-032: Built-in modules: `session`, `tabs`, `clock`, `cpu`, `mem`, `net`, `battery`, `git`, `agents`, `notifications`, `hostname`. A module name prefixed `remote:` renders on the daemon host (data arrives as pane-independent events).
+  Note: modules also get `sample(&mut self, ctx)`, called every `max(interval(), [bar] interval_ms)` and only for modules the config shows, and `render` reads a `BarCtx` (session, tabs, agent counts, the focused pane's cwd, notifications of hidden panes, orientation). Unknown names are skipped. `session` is the client's own chip and mode, so with the `infobar` plugin disabled the bar still shows them.
+  Note (0.10.0): `[bar] modules` is the one list, rendered on the right in order; `session` and `tabs` are no longer modules because the chip and the strip are fixed parts of the bar. `render` gets the width the bar can spare, and a module that returns nothing takes no room.
+- REQ-UI-032: Built-in modules: `clock`, `cpu`, `mem`, `net`, `battery`, `git`, `agents`, `notifications`, `hostname`. A module name prefixed `remote:` renders on the daemon host (data arrives as pane-independent events).
   Note (0.6.0): the `hosts` plugin's daemon side samples hostname, cpu, memory and network on the daemon's machine every 2 s and publishes them (`plugin.publish`, ADR-020); its client side provides `remote:cpu`, `remote:mem`, `remote:net` and `remote:hostname`, labelled `<host>:<module>`. Other `remote:` names still render the local module.
   Note (0.4.0): `remote:<module>` renders the local module until SSH attach (0.6.0) gives the daemon a different host. `agents` counts `agent.state` metadata as it stands; `notifications` shows `notify.posted` (ADR-018 #2). `cpu`, `mem` and `net` use the `sysinfo` crate; `battery` reads `/sys/class/power_supply` on Linux and `pmset` on macOS; `git` runs `git status` off the client's thread. `battery` and `git` show nothing without a battery or a repository.
 - REQ-UI-033: `notifications` shows the newest N notification titles when the originating pane is hidden (useful in zoom).
-  Note: hidden means not in this client's current tab, or zoomed away; a notification about no pane always shows. A row bar shows the newest, a column the newest three.
+  Note: hidden means not in this client's current tab, or zoomed away; a notification about no pane always shows. The bar shows the newest.
 
 ### 5.5 Navigators and overlays
 
@@ -339,8 +344,9 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
 - REQ-UI-041: Window navigator (`w`): tree of sessions → tabs → panes with a live preview of the selected pane.
   Note (0.8.1): named the pane navigator (`PANES` on the bar, action `panes`): femux has no window object, a tab owns its layout of panes, and the tree's leaves are panes. Pane rows are titled like the tab strip (`● fish ~`, or the program and its directory).
   Note: the preview reads the selected pane's screen with `scrollback.read` every 500 ms; `enter` goes to the pane, attaching to its session when it is another one.
-- REQ-UI-042: Side nav (`b`): persistent left column listing sessions and tabs; click to switch.
-  Note: 26 columns, between a `left` bar and the panes, which the daemon resizes. The attached session is expanded to its tabs and the others are collapsed; clicking a session attaches to it, clicking a tab selects it. Sessions refresh every 2 s while the side nav or a navigator is open.
+- REQ-UI-042: Panel (`b` toggles, `ctrl+b` focuses): a collapsible left column of stacked sections, each from a plugin, listed in `[panel] sections`; open state and width are the client's, the daemon resizes the view to what is left.
+  Note (0.10.0): replaces the 0.4.0 side nav. Width is `[panel] width` (default 28 columns) or whatever the mouse drags its right edge to; `[panel] open` says whether a new client starts with it open. Sections stack top to bottom with a header row each (`▾ workspace`, `▸ agents`); a header click or `h`/`l` on it collapses or expands the section, and a collapsed section keeps its header with a one-line summary on the right (`agents` shows its state counts, `◐3 ■1 ✓1`). Focused (`prefix ctrl+b`; `esc` or `q` give focus back to the pane, `prefix b` hides it), `j`/`k` move over every row of every section, `tab` jumps to the next section header, `enter` acts on the row. Mouse clicks act without focusing. Overlays (`s`, `w`, `i`) stay as they are: the panel is the persistent view, they are the quick one.
+  Note (0.10.0): built-in sections: `workspace`, sessions → tabs → panes with the attached session expanded and the others collapsed (a remote session reads `host:name`); a tab row carries its `●`/`!`/`Z` markers and, right-aligned, its git branch with the ahead count (`main +3`) when its focused pane is in a repository; a pane row shows the agent glyph, the program and the pane's title (`◐ claude  paginate.rs`, `$ fish` for a shell at its prompt); `enter` or a click attaches, selects or focuses. `agents`, every agent across sessions (name, state glyph, elapsed, last line of its pane), blocked rows answer `y`/`n` in place like the inbox; `enter` jumps to the pane. Sessions and agents refresh every 2 s while the panel is open. Other sections (commands, git, notifications, system) are later milestones or plugins.
 - REQ-UI-043: Command palette (`prefix :`): fuzzy search over all bound actions and CLI subcommands.
   Note (0.8.3): no root key by default. `ctrl+p` was bound at the root until 0.8.1, but it is readline's and fish's history key and the usual fuzzy-finder key inside editors, which ADR-008 set out to avoid; `[keys.root] "ctrl+p" = "palette"` restores it.
   Note: actions are listed by name (`femux keys list`) with their description and key; choosing a CLI subcommand types `femux <subcommand> ` into the focused pane. Matching is subsequence-based.
@@ -358,6 +364,7 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
   Note: 0.2.0 implements the geometry and the `a=p` re-emission for `frame.images`; the daemon sends placements from 0.7.0 (GFX-*).
 - REQ-UI-053: Mouse support is on by default and fully disableable.
   Note: `[input] mouse = false` disables reporting entirely. A click focuses the pane under it and is forwarded; wheel events are forwarded to the pane (in copy mode they scroll the view); clicking the tab strip selects a tab.
+  Note (0.9.0): dragging with the left button selects text in the pane under it and releasing copies the selection the way `y` does in copy mode (OSC 52 on the host plus `clipboard.set`). The selection is linear from the press to the release in reading order, trailing blanks trimmed per line, lines joined with newlines, and stays highlighted until the next key or click. A pane whose program tracks the mouse (frame `mouse`, ADR-023) gets the drag instead, unless `shift` is held, which always selects. With `mouse = false` nothing is selected.
 
 ---
 
@@ -386,8 +393,10 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
 
 - REQ-SEC-001: No authentication code in femux. Local trust = same UID. Remote trust = OpenSSH.
 - REQ-SEC-002: `clipboard.set` is allowed from any pane; clipboard read requests from panes are denied unless the fg command is in `[clipboard] read_allow`.
+  Note (0.9.0): a read (OSC 52 `?`, OSC 5522) is decided when its bytes arrive, from the process in the pane's foreground at that moment, by command name (`read_allow = ["nvim"]`). An allowed read gets the newest clipboard text the daemon has seen (a `clipboard.set` or any pane's write; the daemon holds no clipboard of its own); a denied one gets an empty clipboard (EPERM for OSC 5522). `femux reload` applies the list.
 - REQ-SEC-003: Metadata and titles are sanitized for control characters before rendering.
 - REQ-SEC-004: DCS passthrough to the host terminal is off by default (`terminal.passthrough = false`).
+  Note (0.9.0): off, DCS sequences a pane program emits are dropped inside the VT (sixel is decoded into an image regardless, REQ-GFX-002). On, the daemon forwards each one as `pane.passthrough` and a client showing the pane writes it to its host terminal verbatim, so programs can reach the outer terminal (`DCS tmux; … ST` style wrappers included). `femux reload` applies the setting. OSC 52 writes, Kitty graphics and synchronized output are not passthrough: they are handled by their own requirements.
 - REQ-SEC-005: Environment persisted to the store is limited to `[env] allow` (default: `PATH HOME SHELL LANG LC_* TERM EDITOR`).
 - REQ-SEC-006: `femux update` verifies a signed checksum before replacing the binary and never restarts a running daemon.
 - REQ-SEC-007: Over SSH, notifications are forwarded as events; sound files are never transferred, only names resolved on the client.
@@ -470,15 +479,16 @@ scheme = "bsp"                # bsp | master | scroll
 gaps = 0
 borders = "single"            # single | heavy | double | spaces
 
-[tabs]
-position = "top"              # top | bottom | hidden
+[bar]
+position = "bottom"           # top | bottom
+modules = ["agents", "git", "cpu", "mem", "net", "clock"]
+interval_ms = 1000
 running_indicator = "●"
 
-[infobar]
-position = "bottom"           # top | bottom | left | right
-left  = ["session", "tabs"]
-right = ["agents", "git", "cpu", "mem", "net", "clock"]
-interval_ms = 1000
+[panel]
+open = false
+width = 28
+sections = ["workspace", "agents"]
 
 [terminal]
 scrollback_lines = 10000
@@ -599,7 +609,9 @@ Each minor version is one feature set and one GitButler branch named `v0.N.0`. P
 | 0.6.0 | SEC-007, plugin `hosts`, `attach --stdio`, socket forwarding | Attach over SSH; detach survives link drop; remote notifications play locally |
 | 0.7.0 | GFX-*, plugin `graphics` | `kitten icat` and `mpv --vo=kitty` work inside a pane; images survive reattach |
 | 0.8.0 | SESS-004 marks UI, float UI, plugins `git`, `broadcast`, `recorder` | Worktree tabs, broadcast typing, asciinema recording |
-| 1.0.0 | Protocol frozen, `spec/conformance.md` complete, docs site | Third-party client built from the schema alone |
+| 0.9.0 | SEC-002 (`read_allow`), SEC-004 (`passthrough`), UI-053 drag selection, VT-002 cursor shapes (ADR-023) | A pane in `read_allow` reads the clipboard back and one outside it gets nothing; `passthrough = true` lets a DCS reach the host; drag-and-release copies text; neovim's insert cursor is a bar |
+| 0.10.0 | UI-020, UI-030–033 one bar; UI-042 panel with `workspace` and `agents`; `[bar]` and `[panel]` config | One row carries session, mode, tabs and modules at top or bottom and degrades right side first; `prefix b` opens a left panel whose sections collapse, `ctrl+b` focuses it, its width follows config or a drag; mocks in `spec/design/` |
+| 1.0.0 | Scoped in a release spec (`spec/RELEASE.md`), written when a release is ready; the protocol is not frozen before then | Set by the release spec |
 
 ---
 

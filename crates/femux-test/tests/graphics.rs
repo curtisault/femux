@@ -206,7 +206,8 @@ async fn yazi_previews_show_up_as_placements() {
         eprintln!("yazi not installed: skipped");
         return;
     }
-    let design = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../spec/design");
+    let design =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../spec/design/pre-0.10.0");
     let h = Harness::start();
     let mut hello = Client::hello(120, 30);
     if let Some(t) = &mut hello.term {

@@ -82,7 +82,8 @@ impl Term {
 
     pub fn leave(&mut self) {
         if self.entered {
-            let mut s = String::from("\x1b[0m\x1b[?25h");
+            // The host's own cursor shape back (REQ-VT-002).
+            let mut s = String::from("\x1b[0m\x1b[?25h\x1b[0 q");
             if self.mouse {
                 s.push_str("\x1b[?1006l\x1b[?1002l\x1b[?1000l");
             }

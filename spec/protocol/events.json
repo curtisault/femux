@@ -766,6 +766,32 @@
         "pane_id",
         "data"
       ]
+    },
+    "PanePassthrough": {
+      "type": "object",
+      "description": "One DCS sequence a pane's program wrote, for clients to write to their host terminal verbatim. Sent only while `[terminal] passthrough = true`; never retained for `since`.",
+      "properties": {
+        "seq": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "ts": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch"
+        },
+        "pane_id": {
+          "$ref": "common.json#/$defs/PaneId"
+        },
+        "data": {
+          "type": "string",
+          "description": "Base64 of the whole sequence, `ESC P` through `ESC \\`."
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "pane_id",
+        "data"
+      ]
     }
   },
   "x-messages": [
@@ -868,6 +894,10 @@
     {
       "kind": "pane.output",
       "body": "PaneOutput"
+    },
+    {
+      "kind": "pane.passthrough",
+      "body": "PanePassthrough"
     },
     {
       "kind": "view.attached",

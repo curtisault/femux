@@ -6,7 +6,7 @@ use femux_plugin::{Overlay as PluginOverlay, Span, Spans, Style};
 use femux_proto::msg as m;
 use termwiz::cell::{Blink, CellAttributes, Intensity, Underline};
 use termwiz::color::{ColorAttribute, SrgbaTuple};
-use termwiz::surface::{Change, CursorVisibility, Position, Surface};
+use termwiz::surface::{Change, CursorShape, CursorVisibility, Position, Surface};
 
 use crate::app::{App, Mode, Overlay};
 use crate::bindings::Table;
@@ -842,6 +842,14 @@ pub fn render(app: &mut App, theme: &Theme, s: &mut Surface) {
     }
 
     c.s.add_change(Change::AllAttributes(CellAttributes::default()));
+    // The host cursor takes the focused pane's shape while it sits in that pane; overlays
+    // and prompts get the host's default (REQ-VT-002).
+    let shape = if matches!(app.overlay, Overlay::None | Overlay::WhichKey) {
+        pane_cursor_shape(app, cursor)
+    } else {
+        CursorShape::Default
+    };
+    c.s.add_change(Change::CursorShape(shape));
     match cursor {
         Some((x, y)) if x < w && y < h => {
             c.s.add_change(Change::CursorPosition {
@@ -877,7 +885,8 @@ fn draw_pane(
         draw_copy(cm, c, theme, r, o, cursor);
         return;
     }
-    draw_screen(screen, c, o);
+    let sel = app.selection.as_ref().filter(|s| s.pane == id);
+    draw_screen(screen, c, o, sel, theme);
     if focused && matches!(app.overlay, Overlay::None | Overlay::WhichKey) && screen.cursor.visible
     {
         *cursor = Some((
@@ -887,9 +896,48 @@ fn draw_pane(
     }
 }
 
+/// The host cursor shape for the focused pane's cursor (REQ-VT-002): its shape and blink
+/// when `cursor` is where that pane put it, else the host's default.
+fn pane_cursor_shape(app: &App, cursor: Option<(usize, usize)>) -> CursorShape {
+    if app.mode == Mode::Copy {
+        return CursorShape::Default;
+    }
+    let Some(screen) = app
+        .model
+        .focused_id()
+        .and_then(|id| app.model.panes.get(&id))
+        .and_then(|p| p.screen.as_ref())
+    else {
+        return CursorShape::Default;
+    };
+    let area = app.layout().panes;
+    let at = (
+        area.x as usize + screen.rect.x as usize + screen.cursor.x as usize,
+        area.y as usize + screen.rect.y as usize + screen.cursor.y as usize,
+    );
+    if cursor != Some(at) {
+        return CursorShape::Default;
+    }
+    let blink = screen.cursor.blink.unwrap_or(false);
+    match (screen.cursor.shape, blink) {
+        (m::CursorShape::Bar, true) => CursorShape::BlinkingBar,
+        (m::CursorShape::Bar, false) => CursorShape::SteadyBar,
+        (m::CursorShape::Underline, true) => CursorShape::BlinkingUnderline,
+        (m::CursorShape::Underline, false) => CursorShape::SteadyUnderline,
+        (_, true) => CursorShape::BlinkingBlock,
+        (_, false) => CursorShape::SteadyBlock,
+    }
+}
+
 /// Draws a pane's rows as runs of equally styled cells: one cursor move, one attribute
 /// change and one text per run rather than per cell.
-fn draw_screen(screen: &PaneScreen, c: &mut Canvas, o: (usize, usize)) {
+fn draw_screen(
+    screen: &PaneScreen,
+    c: &mut Canvas,
+    o: (usize, usize),
+    sel: Option<&crate::app::Selection>,
+    theme: &Theme,
+) {
     let r = &screen.rect;
     let rx = o.0 + r.x as usize;
     for (y, row) in screen.rows.iter().enumerate().take(r.h as usize) {
@@ -912,6 +960,12 @@ fn draw_screen(screen: &PaneScreen, c: &mut Canvas, o: (usize, usize)) {
                 Some(cell) => (" ", attributes(cell), 1),
                 None => (" ", CellAttributes::default(), 1),
             };
+            // The mouse selection (REQ-UI-053), drawn like copy mode's.
+            let mut attr = attr;
+            if sel.is_some_and(|s| s.contains(x as u16, y as u16)) {
+                attr.set_background(theme.selection);
+                attr.set_foreground(theme.text);
+            }
             if run_attr.as_ref() != Some(&attr) {
                 if let Some(a) = run_attr.take() {
                     c.put(rx + run_x, sy, &run, &a);
@@ -1079,6 +1133,7 @@ mod tests {
                 ],
             }],
             cursor: m::Cursor::default(),
+            mouse: None,
             scroll_offset: 0,
         });
         let mut s = Surface::new(8, 1);
@@ -1087,7 +1142,7 @@ mod tests {
             w: 8,
             h: 1,
         };
-        draw_screen(&screen, &mut c, (0, 0));
+        draw_screen(&screen, &mut c, (0, 0), None, &Theme::dark());
         assert_eq!(s.screen_chars_to_string(), " abc    \n");
         assert_eq!(s.screen_cells()[0][2].attrs().intensity(), Intensity::Bold);
         assert_eq!(
