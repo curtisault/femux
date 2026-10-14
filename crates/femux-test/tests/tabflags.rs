@@ -52,6 +52,8 @@ async fn broadcast_types_into_every_pane_of_the_tab() {
     })
     .await
     .unwrap();
+    // The event can arrive before the reply, while `call` still waits; count it too.
+    let start = c.events.len();
     c.call(TabSet {
         tab_id: tab.clone(),
         broadcast: Some(true),
@@ -59,7 +61,7 @@ async fn broadcast_types_into_every_pane_of_the_tab() {
     })
     .await
     .unwrap();
-    let Event::TabFlags(f) = c.wait_event("tab.flags").await else {
+    let Event::TabFlags(f) = c.wait_event_from("tab.flags", start).await else {
         panic!()
     };
     assert!(f.broadcast && !f.floats_hidden);
@@ -166,6 +168,7 @@ async fn marks_can_be_cleared() {
         .is_err()
     );
     c.call(EventsSubscribe::default()).await.unwrap();
+    let start = c.events.len();
     c.call(PaneMark {
         pane_id: a.clone(),
         mark: "q".into(),
@@ -173,7 +176,7 @@ async fn marks_can_be_cleared() {
     })
     .await
     .unwrap();
-    let Event::PaneMarked(m) = c.wait_event("pane.marked").await else {
+    let Event::PaneMarked(m) = c.wait_event_from("pane.marked", start).await else {
         panic!()
     };
     assert_eq!((m.mark.as_str(), m.cleared), ("q", Some(true)));
