@@ -291,7 +291,7 @@ Default bindings (prefix table unless noted):
 | `:` | command palette |
 | `b` / `ctrl+b` | toggle the panel / focus it (0.10.0) |
 | `d` | detach |
-| `?` | help |
+| `?` | help (scrolls; `q` closes, 0.11.0) |
 | `space` | sticky normal mode |
 
 Copy mode: `hjkl`, `w b e`, `0 $`, `gg G`, `ctrl+u/d`, `/ ? n N` (regex), `v V ctrl+v` select, `y` yank (OSC 52 + clipboard.set), `[ ]` previous/next prompt mark, `q` exit.
@@ -353,6 +353,38 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
   Note: actions are listed by name (`femux keys list`) with their description and key; choosing a CLI subcommand types `femux <subcommand> ` into the focused pane. Matching is subsequence-based.
 - REQ-UI-044: Inbox overlay (agents plugin): list of panes in `blocked|done|error` with one-key jump and one-key respond.
   Note: `prefix i` (bound by the agents plugin to the client action `inbox`). Rows sort blocked, error, done, newest first, across every session; each shows what the pane's last screen line says. `1`-`9` and `enter` jump to the pane, `j/k` move, `y`/`n`/`a` type that letter plus Enter into a blocked pane, `x` dismisses (sets `agent.state=idle`, `source=hook`), `/` filters, `q`/`escape` close.
+  Note (0.11.0): "the pane's last screen line" skips an agent's status footer. Claude Code's bottom row (`auto mode on (shift+tab to cycle) · ? for shortcuts`) was what every Claude Code row showed, never what the agent said. The row takes the last non-blank line above the agent's input prompt (a row that is only `❯`, `>` or `$`, together with the rows under it) and above rows made only of box-drawing characters; when nothing is left, the last non-blank line as before. The `y  n` hint, `y`, `n` and `a` apply only to `blocked` rows, which §9.2 now gives only to an agent waiting on a question.
+- REQ-UI-045: Help (`?`): a scrolling overlay over the panes listing every bound key of every table, grouped like the which-key panel, with what the prefix does; it takes most of the terminal's height, never all of it, and `q`, `esc` or `?` close it.
+  Note (0.11.0): until 0.10.0 help was one flat list in a box the terminal's full height, cut off where it ran out of rows and closed by any key. The box is as wide as its longest row up to 80 columns and four fifths of the terminal's height (at least 8 rows), centered over the panes; the panel and the bar stay. The title row reads `help` and the prefix as typed (`prefix is ctrl+space`), the position (`12–38 of 94`) in the middle and the keys on the right (`j/k scroll · / filter · q close`); a `─` rule below it. The body, one column: a `how the prefix works` section of four rows (`prefix` then a key; `prefix prefix` sends the prefix; `prefix esc` cancels; `prefix space` keeps the table with no prefix until `esc`), then `prefix table` by group in which-key order (`panes`, `splits`, `tabs`, `session`, `ui`, plugin keys inside their group), then `copy mode`, then `root table` only when something is bound there. A row is the key in the key style padded to the widest key of its section, two spaces, the description; keys that differ only by direction or number fold into one row as `docs/prefixes.md` writes them (`h j k l  focus the pane in that direction`, `1-9  select that tab`). Section headers are bold with a blank row before them. `j`/`k`, `down`/`up` scroll a row, `ctrl+d`/`ctrl+u` half a box, `g`/`G` to either end, and the mouse wheel over the box scrolls; `/` filters rows by key, action name or description as the inbox does, `esc` clearing the filter before it closes. A click outside the box closes it. The same text generates `docs/prefixes.md`, so the two never drift.
+
+  ```
+  ╭─ help  prefix is ctrl+space              12–38 of 94      j/k scroll · / filter · q close ─╮
+  │                                                                                           │
+  │  prefix table                                                                             │
+  │                                                                                           │
+  │  panes                                                                                    │
+  │  h j k l              focus the pane in that direction                                    │
+  │  H J K L              grow the pane in that direction                                     │
+  │  ctrl+h/j/k/l         put the next split on that side                                     │
+  │  z                    zoom toggle                                                         │
+  │  …                                                                                        │
+  ╰───────────────────────────────────────────────────────────────────────────────────────────╯
+  ```
+- REQ-UI-046: Context menu: a right click on a pane opens a small menu of actions for that pane at the pointer; on a tab in the bar, for that tab. `enter` or a click runs the highlighted item, `esc` or a click elsewhere closes it.
+  Note (0.11.0): the menu is a box in the overlay background with a one-line border in the accent color, its top-left corner at the pointer, moved only as far as keeping it whole inside the terminal needs; the first item starts highlighted in the selection color, `j`/`k` and the arrows move, the mouse hovering over a row highlights it. A pane's items are `split right`, `split below`, `zoom` (`unzoom` while zoomed), `float` (`tile` while floating), `rename tab`, `mark pane` (asks for the letter), `send right-clicks to this pane` (`open the menu on right-click` while sending), `close pane` (confirming as `x` does); each runs the same action as its key, so the menu is the §5.1 table a mouse user can see. A tab's items are `new tab`, `rename tab`, `close tab` (confirming when a pane of it runs a program). A pane whose program tracks the mouse (frame `mouse`, ADR-023) gets the right click instead of a menu, as does a pane told to with `send right-clicks`; `shift` with the right click opens the menu in either case, the way `shift` forces a drag to select (REQ-UI-053). `send right-clicks` is this client's and lasts until it is turned off or the pane closes. `[input] mouse = false` disables the menu with the rest.
+
+  ```
+  ┌──────────────────────────────────┐
+  │ split right                      │   ← highlighted
+  │ split below                      │
+  │ zoom                             │
+  │ float                            │
+  │ rename tab                       │
+  │ mark pane                        │
+  │ send right-clicks to this pane   │
+  │ close pane                       │
+  └──────────────────────────────────┘
+  ```
 
 ### 5.6 Rendering
 
@@ -429,9 +461,11 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
 - REQ-AGT-001 (tier 1, authoritative): `femux pane set agent.state=<s>` from agent hooks, and OSC `9;4` progress (0 → idle, 1–3 → working) plus private `OSC 7777;state=<s>`.
 - REQ-AGT-002 (tier 2): from `pane.fg_changed` and process state. Linux: `/proc/<pid>/stat` state and `wchan`; a fg process sleeping in a tty read with no recent output ≥ `agents.blocked_after_ms` (default 1500) → `blocked`. Shell returning to foreground → `exited` then `idle`. macOS: `proc_pidinfo` thread states, best-effort, marked `source=process` with lower confidence.
   Note: macOS is hook-only: tier 2 is not implemented there (spike §16-3 could not be run; decided 2026-10-11). macOS panes get tier 1 and tier 3 only.
+  Note (0.11.0): an event-loop wait is not a tty read. A Node agent such as Claude Code parks its main thread in `do_epoll_wait` (`poll`, `select` for others) whether it waits for the user's next prompt, for a permission answer or for the network, so reading any such sleep plus `blocked_after_ms` of silence as `blocked` (what tier 2 did until 0.10.0) called every idle agent blocked: on 2026-10-14 the inbox listed two idle Claude Code panes as `blocked` with `waiting 41s`, the tab strip marked them, `[notify] agent_blocked` raised a desktop notification, and `y`/`n` would have typed into their prompts as a new message. From 0.11.0 only a sleep in a tty read (`wchan` containing `tty_read`: aider, a Python `input()`) reads as `blocked` on its own. An agent sleeping in an event-loop wait with no output for `blocked_after_ms` is waiting for input of some kind, and tier 2 reads the screen the way tier 3 does to say which: a prompt-like line (REQ-AGT-003's shapes, plus a numbered choice such as Claude Code's `1. Yes` / `2. No`) among the last eight non-blank rows gives `blocked`, otherwise `done`, both with `source=process` and evidence quoting the line. Output arriving makes it `working` again, and the evidence is rewritten whenever tier 2 confirms a state, so `femux agent explain` reports the current silence rather than the first (`no output for 1.5s` after a minute). `femux integration install claude-code` (REQ-AGT-005) is still what makes a Claude Code pane tier 1; without it every state comes from this tier.
 - REQ-AGT-003 (tier 3): output heuristics (silence after burst, prompt-like last line) only when tiers 1–2 give nothing; always `source=heuristic`.
   Note: the agents plugin watches panes whose foreground command is a known agent (`claude`, `codex`, `opencode`, `cursor-agent`, `aider`, `gemini`, `goose`, `amp`, `crush`, `qwen`) or that carry `agent.name`. Tier 3 runs only where tier 2 does not (macOS, or tier 2 off); silence means no output for `agents.blocked_after_ms`, and a last screen line ending in `?` or `:`, a lone `>`, or containing `(y/n)`, `[y/N]`, `(yes/no)` or `press enter` reads as `blocked`, any other as `done`. A bare `agent.state` written by someone else counts as tier 1 with `source=hook`; the plugin adds `agent.source` and `agent.since` and ignores values that are not states. Every state the plugin accepts also writes `agent.evidence`, the one-line reason `femux agent explain` prints. After `exited`, `idle` follows 1 s later.
 - REQ-AGT-004: Higher tiers override lower tiers; a lower tier MUST NOT override a higher-tier state younger than `agents.hold_ms` (default 5000).
+  Note (0.11.0): the hold protects a fresh higher-tier state for `hold_ms`; it does not let a lower tier win by repetition. Tier 2 re-reads the process every tick while a hook speaks only on events, so until 0.10.0 a hook's `done` turned back into tier 2's `blocked` 5 s later for every idle agent, and installing the hook only hid the REQ-AGT-002 misreading for five seconds. From 0.11.0 a lower tier overrides an older higher-tier state only on a new observation: output after a silence, a foreground change, or the process leaving the wait it was in when the higher tier spoke. The same quiet process re-read on the next tick is not new, so a hook's `done` or `idle` stands until the agent does something.
 - REQ-AGT-005: `femux integration install <claude-code|codex|opencode|cursor>` writes the agent's hook config to call tier-1 commands; `uninstall` reverts it.
   Note: shipped in 0.2.0 with the CLI. Hooks call `femux integration hook <agent> [state]`, which sets `agent.state|source|name|since`. Claude Code (`~/.claude/settings.json`) and Codex (`notify` in `~/.codex/config.toml`) follow their documented formats; the OpenCode plugin file and Cursor `hooks.json` are best effort until 0.5.0 tests them end to end.
   Note (0.5.0): the Claude Code hook is tested end to end against the daemon (`femux agent wait` returns on `Stop`). OpenCode and Cursor stay best effort: their hook formats are written as documented, but no test runs those agents.
@@ -612,6 +646,7 @@ Each minor version is one feature set and one GitButler branch named `v0.N.0`. P
 | 0.8.0 | SESS-004 marks UI, float UI, plugins `git`, `broadcast`, `recorder` | Worktree tabs, broadcast typing, asciinema recording |
 | 0.9.0 | SEC-002 (`read_allow`), SEC-004 (`passthrough`), UI-053 drag selection, VT-002 cursor shapes (ADR-023) | A pane in `read_allow` reads the clipboard back and one outside it gets nothing; `passthrough = true` lets a DCS reach the host; drag-and-release copies text; neovim's insert cursor is a bar |
 | 0.10.0 | UI-020, UI-030–033 one bar; UI-042 panel with `workspace` and `agents`; `[bar]` and `[panel]` config | One row carries session, mode, tabs and modules at top or bottom and degrades right side first; `prefix b` opens a left panel whose sections collapse, `ctrl+b` focuses it, its width follows config or a drag; mocks in `spec/design/` |
+| 0.11.0 | UI-045 help overlay, UI-046 context menu; AGT-002/004 idle agents are `done`, not `blocked`; UI-044 row text | `?` opens a grouped, scrolling, filterable help at four fifths of the height, closed by `q`, every default binding in it and `docs/prefixes.md` generated from the same text; a right click on a pane or a tab opens a menu whose items run the §5.1 actions; an idle Claude Code pane reads `done` in the inbox and the bar, `blocked` only with a question on screen and a hook's `done` stays put; an inbox row shows the agent's last real line, not its footer |
 | 1.0.0 | Scoped in a release spec (`spec/RELEASE.md`), written when a release is ready; the protocol is not frozen before then | Set by the release spec |
 
 ---
