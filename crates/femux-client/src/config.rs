@@ -49,6 +49,12 @@ pub struct ClientConfig {
     pub bar_modules: Vec<String>,
     /// `[bar] interval_ms`: modules sample at most this often.
     pub bar_interval: Duration,
+    /// `[panel] open`: a new client starts with the panel shown (REQ-UI-042).
+    pub panel_open: bool,
+    /// `[panel] width` in columns.
+    pub panel_width: u16,
+    /// `[panel] sections` in order.
+    pub panel_sections: Vec<String>,
     /// `[terminal] kitty_graphics` / `sixel`: show pane images on the host (REQ-GFX-*), when
     /// the host supports them.
     pub kitty_graphics: bool,
@@ -73,6 +79,9 @@ impl Default for ClientConfig {
                 .map(String::from)
                 .to_vec(),
             bar_interval: Duration::from_millis(1000),
+            panel_open: false,
+            panel_width: crate::panel::DEFAULT_WIDTH,
+            panel_sections: ["workspace", "agents"].map(String::from).to_vec(),
             kitty_graphics: true,
             sixel: true,
         }

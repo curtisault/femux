@@ -165,6 +165,8 @@ enum Pending {
     Preview(String),
     /// The last screen line of an inbox pane.
     InboxLine(String),
+    /// The last line of an agent's pane, for the panel's `agents` section.
+    PanelLine(String),
     /// A chunk of a pane's image (pane, image id).
     ImageRead(String, u32),
     /// The pane `prefix F` split off, to float.
@@ -267,8 +269,10 @@ struct Drag {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Hit {
     Tab(String),
-    /// A side nav entry (REQ-UI-042).
-    Nav(NavTarget),
+    /// A panel row, by its index in [`crate::panel::rows`] (REQ-UI-042).
+    Panel(usize),
+    /// The panel's right edge, which drags to resize it.
+    PanelEdge,
     Pane {
         id: String,
         x: u16,
@@ -322,8 +326,8 @@ pub struct App {
     /// Tab strip hit boxes from the last render: `(x0, x1, tab)`.
     pub tab_hits: Vec<(u16, u16, String)>,
     /// Side nav rows from the last render: `(y, target)` (REQ-UI-042).
-    pub sidenav_hits: Vec<(u16, NavTarget)>,
-    pub sidenav_open: bool,
+    /// The panel (REQ-UI-042).
+    pub panel: crate::panel::PanelState,
     /// Info bar modules by name (REQ-UI-031), with when each last sampled.
     pub modules: Vec<(Box<dyn femux_plugin::InfoModule>, Option<Instant>)>,
     /// `notify.posted` titles, newest first (REQ-UI-033).
@@ -352,6 +356,11 @@ impl App {
         }
         let prefixes = cfg.prefix.iter().filter_map(|p| Chord::parse(p)).collect();
         let (model, fx) = Model::from_attach(attach);
+        let panel = crate::panel::PanelState {
+            open: cfg.panel_open,
+            width: cfg.panel_width.max(crate::panel::MIN_WIDTH),
+            ..Default::default()
+        };
         let mut app = App {
             cfg,
             bindings,
@@ -380,8 +389,7 @@ impl App {
             selection: None,
             mouse_pane: None,
             tab_hits: Vec::new(),
-            sidenav_hits: Vec::new(),
-            sidenav_open: false,
+            panel,
             modules: Vec::new(),
             notifications: std::collections::VecDeque::new(),
             dir: crate::nav::Directory::default(),
@@ -475,7 +483,12 @@ impl App {
 
     /// Where everything goes on screen (REQ-UI-030, REQ-UI-042).
     pub fn layout(&self) -> crate::layout::Layout {
-        crate::layout::Layout::compute(self.cols, self.rows, &self.cfg, self.sidenav_open)
+        crate::layout::Layout::compute(
+            self.cols,
+            self.rows,
+            &self.cfg,
+            self.panel.open.then_some(self.panel.width),
+        )
     }
 
     /// The remote link dropped (`retry`: the last failed attempt, its error and the wait
@@ -1037,20 +1050,11 @@ impl App {
             }
             (Pending::InboxLine(pane), Response::ScrollbackRead(r)) => {
                 if let Overlay::Inbox(st) = &mut self.overlay {
-                    let last = r
-                        .lines
-                        .iter()
-                        .map(|l| {
-                            l.iter()
-                                .map(|c| if c.ch.is_empty() { " " } else { c.ch.as_str() })
-                                .collect::<String>()
-                                .trim()
-                                .to_owned()
-                        })
-                        .rfind(|l| !l.is_empty())
-                        .unwrap_or_default();
-                    st.lines.insert(pane, last);
+                    st.lines.insert(pane, last_line(&r.lines));
                 }
+            }
+            (Pending::PanelLine(pane), Response::ScrollbackRead(r)) => {
+                self.panel.lines.insert(pane, last_line(&r.lines));
             }
             (Pending::Switch { focus, then_kill }, Response::SessionAttach(a)) => {
                 self.attached(&a, focus, then_kill);
@@ -1212,6 +1216,10 @@ impl App {
                     self.prefix_since = Some(now);
                     self.which_key_due = false;
                     return;
+                }
+                // A focused panel takes the keys; the prefix still works (REQ-UI-042).
+                if self.panel.focused && self.panel.open {
+                    return self.panel_key(&chord);
                 }
                 match self.bindings.lookup(Table::Root, &chord) {
                     Some(a) => self.run(a),
@@ -1454,13 +1462,23 @@ impl App {
                     what: PromptKind::StartSession { root: cwd },
                 };
             }
-            Action::SideNav => {
-                self.sidenav_open = !self.sidenav_open;
+            Action::Panel => {
+                self.panel.open = !self.panel.open;
+                self.panel.focused = false;
                 let (cols, rows) = (self.cols, self.rows);
                 self.on_resize(cols, rows);
-                if self.sidenav_open {
+                if self.panel.open {
                     self.refresh_dir();
                 }
+            }
+            Action::PanelFocus => {
+                if !self.panel.open {
+                    self.panel.open = true;
+                    let (cols, rows) = (self.cols, self.rows);
+                    self.on_resize(cols, rows);
+                    self.refresh_dir();
+                }
+                self.panel.focused = true;
             }
             Action::Palette => self.open_palette(),
             Action::Marks => self.overlay = Overlay::Marks(0),
@@ -1629,6 +1647,145 @@ impl App {
         self.quiet(m::ClipboardSet { text });
     }
 
+    /// Answers a blocked agent: the letter, then enter (REQ-UI-044, REQ-UI-042).
+    fn answer_agent(&mut self, pane: &str, key: &str, name: &str, session: &str) {
+        let enter = m::InputEvent::KeyEvent(m::KeyEvent {
+            key: "enter".into(),
+            mods: vec![],
+            text: None,
+            event: m::KeyEventKind::Press,
+        });
+        let letter = m::InputEvent::KeyEvent(m::KeyEvent {
+            key: key.into(),
+            mods: vec![],
+            text: Some(key.into()),
+            event: m::KeyEventKind::Press,
+        });
+        self.quiet(m::PaneInput {
+            pane_id: pane.to_owned(),
+            events: vec![letter, enter],
+        });
+        self.message = Some(format!("answered {key} to {name} in {session}"));
+        self.refresh_dir();
+    }
+
+    // ------------------------------------------------------------------ panel
+
+    /// Keeps the panel's agent lines and branches fresh while it is open (REQ-UI-042).
+    fn tick_panel(&mut self, now: Instant) -> bool {
+        let mut changed = false;
+        if self
+            .panel
+            .lines_fetched
+            .is_none_or(|t| now.duration_since(t) >= std::time::Duration::from_secs(1))
+        {
+            self.panel.lines_fetched = Some(now);
+            if !self.panel.collapsed.contains("agents") {
+                for p in crate::panel::agent_panes(&self.dir) {
+                    self.send(
+                        m::ScrollbackRead {
+                            pane_id: p.clone(),
+                            from_line: 0,
+                            count: 500,
+                        },
+                        Pending::PanelLine(p),
+                    );
+                }
+            }
+            let mut cwds: Vec<String> = self.model.panes.values().map(|p| p.cwd.clone()).collect();
+            for s in &self.dir.sessions {
+                cwds.extend(s.panes.values().map(|p| p.cwd.clone()));
+            }
+            self.panel.git.refresh(cwds, now);
+            changed = true;
+        }
+        changed
+    }
+
+    /// A key while the panel has focus: `j`/`k` move, `tab` jumps to the next section,
+    /// `h`/`l` fold, `enter` acts, `y`/`n` answer a blocked agent, `esc`/`q` give the keys
+    /// back to the pane.
+    fn panel_key(&mut self, chord: &Chord) {
+        let rows = crate::panel::rows(self);
+        let last = rows.len().saturating_sub(1);
+        let sel = self.panel.selected.min(last);
+        let kind = rows.get(sel).map(|r| r.kind.clone());
+        match chord.key.as_str() {
+            "escape" | "q" => self.panel.focused = false,
+            "j" | "down" => self.panel.selected = (sel + 1).min(last),
+            "k" | "up" => self.panel.selected = sel.saturating_sub(1),
+            "tab" => {
+                let header =
+                    |r: &crate::panel::Row| matches!(r.kind, crate::panel::RowKind::Header(_));
+                self.panel.selected = rows
+                    .iter()
+                    .enumerate()
+                    .skip(sel + 1)
+                    .find(|(_, r)| header(r))
+                    .or_else(|| rows.iter().enumerate().find(|(_, r)| header(r)))
+                    .map_or(sel, |(i, _)| i);
+            }
+            "h" | "left" => self.panel_fold(kind, false),
+            "l" | "right" => self.panel_fold(kind, true),
+            "enter" => self.panel_act(sel),
+            key @ ("y" | "n") => {
+                if let Some(crate::panel::RowKind::Agent {
+                    blocked: true,
+                    pane,
+                    name,
+                    session,
+                    ..
+                }) = kind
+                {
+                    self.answer_agent(&pane, key, &name, &session);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Opens or closes a section, or a session of `workspace`.
+    fn panel_fold(&mut self, kind: Option<crate::panel::RowKind>, open: bool) {
+        use crate::panel::RowKind;
+        match kind {
+            Some(RowKind::Header(s)) => {
+                if open {
+                    self.panel.collapsed.remove(&s);
+                } else {
+                    self.panel.collapsed.insert(s);
+                }
+            }
+            Some(RowKind::Session(name)) => {
+                let attached = name == self.model.session;
+                let expanded = attached != self.panel.toggled.contains(&name);
+                if expanded != open && !self.panel.toggled.remove(&name) {
+                    self.panel.toggled.insert(name);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// `enter` on row `i`, or a click: a header folds, anything else goes where it points.
+    pub fn panel_act(&mut self, i: usize) {
+        use crate::panel::RowKind;
+        let rows = crate::panel::rows(self);
+        let Some(row) = rows.get(i) else { return };
+        self.panel.selected = i;
+        match &row.kind {
+            RowKind::Header(s) => {
+                let open = self.panel.collapsed.contains(s);
+                self.panel_fold(Some(row.kind.clone()), open);
+            }
+            kind => {
+                if let Some(t) = kind.target() {
+                    self.panel.focused = false;
+                    self.switch_to(t);
+                }
+            }
+        }
+    }
+
     // ------------------------------------------------------------------ navigators
 
     /// Asks for every session, its tabs and its panes (the answers fill `self.dir`).
@@ -1648,7 +1805,10 @@ impl App {
     fn tick_navigators(&mut self, now: Instant) -> bool {
         let nav_open = matches!(self.overlay, Overlay::Navigator(_) | Overlay::Inbox(_));
         let mut changed = false;
-        if (nav_open || self.sidenav_open)
+        if self.panel.open {
+            changed |= self.tick_panel(now);
+        }
+        if (nav_open || self.panel.open)
             && self
                 .dir_fetched
                 .is_none_or(|t| now.duration_since(t) >= std::time::Duration::from_secs(2))
@@ -1832,24 +1992,7 @@ impl App {
             }
             key @ ("y" | "n" | "a") => {
                 if let Some(e) = selected.filter(|e| e.state == "blocked") {
-                    let enter = m::InputEvent::KeyEvent(m::KeyEvent {
-                        key: "enter".into(),
-                        mods: vec![],
-                        text: None,
-                        event: m::KeyEventKind::Press,
-                    });
-                    let letter = m::InputEvent::KeyEvent(m::KeyEvent {
-                        key: key.into(),
-                        mods: vec![],
-                        text: Some(key.into()),
-                        event: m::KeyEventKind::Press,
-                    });
-                    self.quiet(m::PaneInput {
-                        pane_id: e.pane.clone(),
-                        events: vec![letter, enter],
-                    });
-                    self.message = Some(format!("answered {key} to {} in {}", e.name, e.session));
-                    self.refresh_dir();
+                    self.answer_agent(&e.pane, key, &e.name, &e.session);
                 }
             }
             "x" => {
@@ -2111,14 +2254,18 @@ impl App {
                 .map(|(_, _, t)| Hit::Tab(t.clone()))
                 .unwrap_or(Hit::Nothing);
         }
-        if let Some(nav) = layout.sidenav
-            && nav.contains(x, y)
+        if let Some(p) = layout.panel
+            && p.contains(x, y)
         {
+            if x == p.x + p.w - 1 {
+                return Hit::PanelEdge;
+            }
             return self
-                .sidenav_hits
+                .panel
+                .hits
                 .iter()
                 .find(|(row, _)| *row == y)
-                .map(|(_, target)| Hit::Nav(target.clone()))
+                .map(|(_, i)| Hit::Panel(*i))
                 .unwrap_or(Hit::Nothing);
         }
         let area = layout.panes;
@@ -2172,6 +2319,21 @@ impl App {
             return;
         }
         self.dirty = true;
+        if self.panel.dragging {
+            match kind {
+                MouseKind::Move | MouseKind::Press(_) => {
+                    let w = (x + 1).clamp(crate::panel::MIN_WIDTH, (self.cols / 2).max(1));
+                    if w != self.panel.width {
+                        self.panel.width = w;
+                        let (cols, rows) = (self.cols, self.rows);
+                        self.on_resize(cols, rows);
+                    }
+                }
+                MouseKind::Release => self.panel.dragging = false,
+                _ => {}
+            }
+            return;
+        }
         if let Some(d) = &mut self.drag {
             match kind {
                 MouseKind::Move | MouseKind::Press(_) => {
@@ -2223,7 +2385,8 @@ impl App {
             self.selection = None;
         }
         match (self.hit(x, y), kind) {
-            (Hit::Nav(target), MouseKind::Press(_)) => self.switch_to(target),
+            (Hit::PanelEdge, MouseKind::Press(m::MouseButton::Left)) => self.panel.dragging = true,
+            (Hit::Panel(i), MouseKind::Press(m::MouseButton::Left)) => self.panel_act(i),
             (Hit::Tab(t), MouseKind::Press(_)) => {
                 let view_id = self.model.view_id.clone();
                 self.quiet(m::TabSelect {
@@ -2376,6 +2539,21 @@ impl App {
             })],
         });
     }
+}
+
+/// The last non-blank line of `lines`, trimmed: what a pane last said.
+fn last_line(lines: &[Vec<m::Cell>]) -> String {
+    lines
+        .iter()
+        .map(|l| {
+            l.iter()
+                .map(|c| if c.ch.is_empty() { " " } else { c.ch.as_str() })
+                .collect::<String>()
+                .trim()
+                .to_owned()
+        })
+        .rfind(|l| !l.is_empty())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]

@@ -22,6 +22,11 @@ modules = ["agents", "git", "cpu", "mem", "net", "clock"]
 interval_ms = 1000
 running_indicator = "●"
 
+[panel]
+open = false                  # prefix b shows it, prefix ctrl+b focuses it
+width = 28
+sections = ["workspace", "agents"]
+
 [terminal]
 scrollback_lines = 10000
 kitty_graphics = true

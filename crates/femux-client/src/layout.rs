@@ -1,10 +1,7 @@
 //! Where the client's chrome goes (REQ-UI-030, REQ-UI-042): the one bar at the top or the
-//! bottom, the side nav, and the pane area the daemon sizes the view to.
+//! bottom, the panel on the left, and the pane area the daemon sizes the view to.
 
 use crate::config::{BarPosition, ClientConfig};
-
-/// Width of the side nav.
-pub const SIDENAV_WIDTH: u16 = 26;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Area {
@@ -27,11 +24,13 @@ pub struct Layout {
     /// The one bar: session chip, mode, tabs and modules in one row. Prompts, confirmations
     /// and messages use it too.
     pub bar: Area,
-    pub sidenav: Option<Area>,
+    /// The panel (REQ-UI-042), when open.
+    pub panel: Option<Area>,
 }
 
 impl Layout {
-    pub fn compute(cols: u16, rows: u16, cfg: &ClientConfig, sidenav: bool) -> Layout {
+    /// `panel`: the panel's width while it is open; never more than half the terminal.
+    pub fn compute(cols: u16, rows: u16, cfg: &ClientConfig, panel: Option<u16>) -> Layout {
         let (mut top, mut bottom) = (0u16, rows);
         let bar = match cfg.bar {
             BarPosition::Top => {
@@ -54,8 +53,8 @@ impl Layout {
             }
         };
         let mut left = 0u16;
-        let sidenav = sidenav.then(|| {
-            let w = SIDENAV_WIDTH.min(cols / 2);
+        let panel = panel.map(|w| {
+            let w = w.min(cols / 2);
             let a = Area {
                 x: 0,
                 y: top,
@@ -71,11 +70,7 @@ impl Layout {
             w: cols.saturating_sub(left).max(1),
             h: bottom.saturating_sub(top).max(1),
         };
-        Layout {
-            panes,
-            bar,
-            sidenav,
-        }
+        Layout { panes, bar, panel }
     }
 }
 
@@ -83,17 +78,17 @@ impl Layout {
 mod tests {
     use super::*;
 
-    fn at(bar: BarPosition, sidenav: bool) -> Layout {
+    fn at(bar: BarPosition, panel: Option<u16>) -> Layout {
         let cfg = ClientConfig {
             bar,
             ..Default::default()
         };
-        Layout::compute(100, 30, &cfg, sidenav)
+        Layout::compute(100, 30, &cfg, panel)
     }
 
     #[test]
     fn ui_030_one_bar_at_the_top_or_bottom_and_the_panes_the_rest() {
-        let l = at(BarPosition::Bottom, false);
+        let l = at(BarPosition::Bottom, None);
         assert_eq!(
             l.bar,
             Area {
@@ -112,22 +107,24 @@ mod tests {
                 h: 29
             }
         );
-        let l = at(BarPosition::Top, false);
+        let l = at(BarPosition::Top, None);
         assert_eq!((l.bar.y, l.panes.y, l.panes.h), (0, 1, 29));
-        // The side nav sits left of the panes, under or over the bar.
-        let l = at(BarPosition::Top, true);
+        // The panel sits left of the panes, beside the bar's row, at most half the width.
+        let l = at(BarPosition::Top, Some(28));
         assert_eq!(
-            l.sidenav.unwrap(),
+            l.panel.unwrap(),
             Area {
                 x: 0,
                 y: 1,
-                w: SIDENAV_WIDTH,
+                w: 28,
                 h: 29
             }
         );
-        assert_eq!(l.panes.x, SIDENAV_WIDTH);
+        assert_eq!((l.panes.x, l.panes.w), (28, 72));
+        assert_eq!(at(BarPosition::Top, Some(80)).panel.unwrap().w, 50);
+
         // Tiny terminals never underflow.
-        let tiny = Layout::compute(3, 1, &ClientConfig::default(), true);
+        let tiny = Layout::compute(3, 1, &ClientConfig::default(), Some(28));
         assert!(tiny.panes.w >= 1 && tiny.panes.h >= 1);
     }
 }

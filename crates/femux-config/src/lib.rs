@@ -174,6 +174,12 @@ section!(Bar {
     running_indicator: String = "●".into(),
 });
 
+section!(Panel {
+    open: bool = false,
+    width: u16 = 28,
+    sections: Vec<String> = strings(&["workspace", "agents"]),
+});
+
 section!(Terminal {
     scrollback_lines: usize = 10_000,
     kitty_graphics: bool = true,
@@ -247,6 +253,7 @@ pub struct Config {
     pub ui: Ui,
     pub layout: Layout,
     pub bar: Bar,
+    pub panel: Panel,
     pub terminal: Terminal,
     pub restore: Restore,
     pub env: Env,
@@ -276,6 +283,7 @@ impl Default for Config {
             ui: Ui::default(),
             layout: Layout::default(),
             bar: Bar::default(),
+            panel: Panel::default(),
             terminal: Terminal::default(),
             restore: Restore::default(),
             env: Env::default(),

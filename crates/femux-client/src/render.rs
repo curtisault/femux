@@ -326,6 +326,13 @@ fn transient(app: &App) -> Option<Transient> {
 }
 
 fn mode_label(app: &App, theme: &Theme) -> (&'static str, CellAttributes) {
+    if app.panel.focused
+        && app.panel.open
+        && matches!(app.overlay, Overlay::None | Overlay::WhichKey)
+        && !app.prefix_armed()
+    {
+        return ("PANEL", bold(attr(theme.accent_fg, theme.accent)));
+    }
     if let Overlay::Inbox(_) = &app.overlay {
         return ("INBOX", bold(attr(theme.accent_fg, theme.accent)));
     }
@@ -746,7 +753,7 @@ pub fn render(app: &mut App, theme: &Theme, s: &mut Surface) {
         }
     }
 
-    crate::nav::draw_sidenav(app, &mut c, theme, &l);
+    crate::panel::draw(app, &mut c, theme, &l);
     let tr = transient(app);
     draw_bar(app, &mut c, theme, &l, &tr);
     draw_status(app, &mut c, theme, &l, &tr, &mut cursor);

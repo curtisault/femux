@@ -40,7 +40,7 @@ async fn ui_030_one_bar_at_the_top_or_bottom() {
         let mut d = Drive::with(cfg.clone(), vec![infobar()], 100, 30).await;
         let pane = d.pane.clone();
         d.wait_pane_text(&pane, "$").await;
-        let l = Layout::compute(100, 30, &cfg, false);
+        let l = Layout::compute(100, 30, &cfg, None);
         // The daemon sizes the pane to everything but the bar's row.
         let rect = d.app.model.panes[&pane]
             .screen

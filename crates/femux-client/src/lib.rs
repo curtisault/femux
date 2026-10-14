@@ -13,6 +13,7 @@ pub mod keys;
 pub mod layout;
 pub mod model;
 pub mod nav;
+pub mod panel;
 pub mod probe;
 pub mod remote;
 pub mod render;
@@ -592,8 +593,12 @@ pub fn run(target: &Target, session: Option<&str>, host: Host) -> io::Result<()>
     let probe = probe::run(&mut term, Duration::from_millis(250));
     let mut early = term.parse(&probe.leftover, true);
     let (cols, rows) = term.size();
-    // The pane area before the app exists (no side nav yet).
-    let area = layout::Layout::compute(cols, rows, &host.cfg, false).panes;
+    // The pane area before the app exists: beside the panel when it starts open.
+    let panel = host
+        .cfg
+        .panel_open
+        .then_some(host.cfg.panel_width.max(panel::MIN_WIDTH));
+    let area = layout::Layout::compute(cols, rows, &host.cfg, panel).panes;
 
     let hello_msg = m::Hello {
         proto: femux_proto::PROTO_VERSION,

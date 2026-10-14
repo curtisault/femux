@@ -30,6 +30,9 @@ pub fn client(c: &Config) -> ClientConfig {
         },
         bar_modules: c.bar.modules.clone(),
         bar_interval: Duration::from_millis(c.bar.interval_ms),
+        panel_open: c.panel.open,
+        panel_width: c.panel.width,
+        panel_sections: c.panel.sections.clone(),
         kitty_graphics: c.terminal.kitty_graphics,
         sixel: c.terminal.sixel,
     }

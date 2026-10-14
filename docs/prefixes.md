@@ -114,7 +114,8 @@ Press the prefix, then the key.
 | `s` | `sessions` | session navigator |
 | `w` | `panes` | pane navigator |
 | `:` | `palette` | command palette |
-| `b` | `sidenav` | side nav |
+| `b` | `panel` | show or hide the panel |
+| `ctrl+b` | `panel focus` | focus the panel |
 | `?` | `help` | help |
 | `space` | `normal` | sticky normal mode |
 | `i` | `inbox` | agent inbox (`agents` plugin) |
