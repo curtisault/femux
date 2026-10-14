@@ -715,6 +715,7 @@ pub fn run(target: &Target, session: Option<&str>, host: Host) -> io::Result<()>
                 match fx {
                     Effect::Exit => return Ok(()),
                     Effect::Clipboard(text) => term.write(term::osc52(&text).as_bytes())?,
+                    Effect::Passthrough(bytes) => term.write(&bytes)?,
                     Effect::Bell => term.write(host::BELL.as_bytes())?,
                     Effect::Sound(file) => {
                         let path = std::env::var("PATH").unwrap_or_default();

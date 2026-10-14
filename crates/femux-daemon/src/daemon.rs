@@ -48,6 +48,8 @@ pub struct Config {
     /// `[clipboard] read_allow`: foreground commands whose clipboard reads are served
     /// (REQ-SEC-002).
     pub read_allow: Vec<String>,
+    /// `[terminal] passthrough`: forward DCS sequences to clients (REQ-SEC-004).
+    pub passthrough: bool,
     /// The config file `server.reload` re-reads (ADR-013, ADR-017 #3).
     pub config_path: Option<PathBuf>,
     /// `[layout] gaps` and `scheme`: new tabs start with them.
@@ -80,6 +82,7 @@ impl Config {
             restore: femux_config::Restore::default(),
             env_allow: pty::default_env_allow(),
             read_allow: Vec::new(),
+            passthrough: false,
             config_path: None,
             gaps: 0,
             scheme: m::Scheme::Bsp,
@@ -160,6 +163,8 @@ pub struct Daemon {
     /// The newest clipboard text seen (`clipboard.set` or a pane's write): what an allowed
     /// clipboard read from a pane gets (REQ-SEC-002).
     pub last_clipboard: Mutex<Option<String>>,
+    /// `[terminal] passthrough` as it stands; `femux reload` changes it (REQ-SEC-004).
+    pub passthrough: std::sync::atomic::AtomicBool,
 }
 
 /// Per-connection context passed to handlers.
@@ -249,6 +254,7 @@ fn osc7_path(url: &str) -> String {
 
 impl Daemon {
     pub fn new(cfg: Config) -> Arc<Daemon> {
+        let passthrough = cfg.passthrough;
         let bus = Bus::new(cfg.events_buffer, cfg.events_replay);
         let settings = Settings {
             keep_alive: cfg.keep_alive,
@@ -275,6 +281,7 @@ impl Daemon {
             started: Instant::now(),
             images: crate::images::Shared::default(),
             last_clipboard: Mutex::new(None),
+            passthrough: std::sync::atomic::AtomicBool::new(passthrough),
         })
     }
 
@@ -1956,6 +1963,7 @@ async fn reader(
             if let Some(source) = read {
                 vt.set_clipboard_read(source);
             }
+            vt.set_passthrough(d.passthrough.load(std::sync::atomic::Ordering::Relaxed));
             vt.write(&buf[..n]);
             let _ = vt.sync();
             (vt.take_pty_output(), vt.take_changes())
@@ -2158,6 +2166,17 @@ impl Daemon {
                 m::PaneReport {
                     pane_id: id.to_owned(),
                     data,
+                    ..Default::default()
+                },
+                scope.clone(),
+            );
+        }
+        for seq in c.passthrough {
+            use base64::Engine;
+            self.emit(
+                m::PanePassthrough {
+                    pane_id: id.to_owned(),
+                    data: base64::engine::general_purpose::STANDARD.encode(seq),
                     ..Default::default()
                 },
                 scope.clone(),

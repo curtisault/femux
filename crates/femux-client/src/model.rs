@@ -181,6 +181,8 @@ pub enum Effect {
     Exit,
     /// The server clipboard changed.
     Clipboard(String),
+    /// A pane this client shows passed a DCS sequence through (REQ-SEC-004).
+    Passthrough(Vec<u8>),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -467,6 +469,17 @@ impl Model {
             Event::SessionClosed(s) if s.name == self.session => fx.push(Effect::Exit),
             Event::ViewDetached(v) if v.view_id == self.view_id => fx.push(Effect::Exit),
             Event::ClipboardChanged(c) => fx.push(Effect::Clipboard(c.text.clone())),
+            // Only a pane this client shows writes to its terminal (REQ-SEC-004).
+            Event::PanePassthrough(p)
+                if self
+                    .current_tab()
+                    .is_some_and(|t| t.panes().contains(&p.pane_id)) =>
+            {
+                use base64::Engine;
+                if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(&p.data) {
+                    fx.push(Effect::Passthrough(bytes));
+                }
+            }
             _ => {}
         }
         fx

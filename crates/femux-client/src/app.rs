@@ -30,6 +30,8 @@ pub enum Effect {
     Exit,
     /// Put text on the host clipboard (OSC 52).
     Clipboard(String),
+    /// Write a pane's DCS sequence to the host terminal as is (REQ-SEC-004).
+    Passthrough(Vec<u8>),
     /// The daemon reloaded its config; re-read ours ([`App::apply_config`]).
     Reload,
     /// Notification actions (REQ-NOTIFY-001).
@@ -788,6 +790,7 @@ impl App {
                 }
                 ModelEffect::Exit => self.effects.push(Effect::Exit),
                 ModelEffect::Clipboard(t) => self.clipboard = Some(t),
+                ModelEffect::Passthrough(b) => self.effects.push(Effect::Passthrough(b)),
             }
         }
     }
@@ -2329,6 +2332,23 @@ mod tests {
         }));
         assert_eq!(a.take_effects(), [Effect::Clipboard("other".into())]);
         assert_eq!(a.clipboard.as_deref(), Some("other"));
+    }
+
+    /// REQ-SEC-004: a passed-through sequence reaches the host only from a pane this client
+    /// shows.
+    #[test]
+    fn passthrough_is_written_for_shown_panes_only() {
+        use base64::Engine;
+        let mut a = app(ClientConfig::default());
+        let seq = b"\x1bP1;2|x\x1b\\".to_vec();
+        for pane in ["Q", "P"] {
+            a.on_event(&Event::PanePassthrough(m::PanePassthrough {
+                pane_id: pane.into(),
+                data: base64::engine::general_purpose::STANDARD.encode(&seq),
+                ..Default::default()
+            }));
+        }
+        assert_eq!(a.take_effects(), [Effect::Passthrough(seq)]);
     }
 
     /// Two panes side by side, A (pid 10) restored and B (pid 20) not, with a full frame.

@@ -178,6 +178,9 @@ pub struct Changes {
     pub progress: Vec<(u8, Option<u8>)>,
     /// Payloads of the private OSC 7777 (what follows `7777;`).
     pub reports: Vec<String>,
+    /// Whole DCS sequences to pass through to the host terminal, while passthrough is on
+    /// (REQ-SEC-004).
+    pub passthrough: Vec<Vec<u8>>,
 }
 
 /// State shared with libghostty-vt callbacks through the terminal's userdata pointer.
@@ -214,6 +217,9 @@ pub struct Terminal {
     utf8: Vec<u8>,
     host_set: bool,
     osc: OscScan,
+    /// Spots DCS sequences for passthrough; `None` while passthrough is off.
+    dcs: Option<DcsScan>,
+    passthrough: Vec<Vec<u8>>,
     reports: Vec<String>,
     sixel: sixel::Scanner,
 }
@@ -318,6 +324,79 @@ impl OscScan {
         }
         self.buf.clear();
     }
+}
+
+/// Collects whole DCS sequences (`ESC P` … `ESC \\`) for passthrough (REQ-SEC-004). Queries
+/// femux answers itself stay out: DECRQSS (`$q`), XTGETTCAP (`+q`) and XTSETTCAP (`+p`).
+/// Sixels never get here: they are decoded into images first (REQ-GFX-002). Inside a
+/// sequence `ESC ESC` is data (tmux doubles escapes in its passthrough wrapper), so only
+/// `ESC \\` ends it.
+#[derive(Default)]
+pub(crate) struct DcsScan {
+    state: u8,
+    buf: Vec<u8>,
+}
+
+/// The largest sequence passed through; longer ones are dropped whole.
+const DCS_MAX: usize = 64 * 1024;
+
+impl DcsScan {
+    pub(crate) fn feed(&mut self, bytes: &[u8]) -> Vec<Vec<u8>> {
+        const GROUND: u8 = 0;
+        const ESC: u8 = 1;
+        const DCS: u8 = 2;
+        const DCS_ESC: u8 = 3;
+        const TOO_LONG: u8 = 4;
+        const TOO_LONG_ESC: u8 = 5;
+        let mut out = Vec::new();
+        for &b in bytes {
+            self.state = match (self.state, b) {
+                (ESC, b'P') => {
+                    self.buf.clear();
+                    self.buf.extend_from_slice(b"\x1bP");
+                    DCS
+                }
+                (DCS, 0x1b) => DCS_ESC,
+                (DCS, _) if self.buf.len() >= DCS_MAX => TOO_LONG,
+                (DCS, _) => {
+                    self.buf.push(b);
+                    DCS
+                }
+                (DCS_ESC, b'\\') => {
+                    self.buf.extend_from_slice(b"\x1b\\");
+                    if passes(&self.buf) {
+                        out.push(std::mem::take(&mut self.buf));
+                    }
+                    self.buf.clear();
+                    GROUND
+                }
+                (DCS_ESC, _) => {
+                    self.buf.extend_from_slice(&[0x1b, b]);
+                    DCS
+                }
+                (TOO_LONG, 0x1b) => TOO_LONG_ESC,
+                (TOO_LONG_ESC, b'\\') => {
+                    self.buf.clear();
+                    GROUND
+                }
+                (TOO_LONG | TOO_LONG_ESC, _) => TOO_LONG,
+                (_, 0x1b) => ESC,
+                _ => GROUND,
+            };
+        }
+        out
+    }
+}
+
+/// Whether a whole DCS sequence is passed through: not one of the queries femux answers.
+fn passes(seq: &[u8]) -> bool {
+    let body = &seq[2..];
+    let start = body
+        .iter()
+        .position(|b| !b.is_ascii_digit() && *b != b';')
+        .unwrap_or(body.len());
+    let head = &body[start..];
+    !(head.starts_with(b"$q") || head.starts_with(b"+q") || head.starts_with(b"+p"))
 }
 
 /// Clipboard writes from the pane program (OSC 52, OSC 5522, OSC 1337 Copy) are accepted and
@@ -425,6 +504,8 @@ impl Terminal {
             utf8: Vec::with_capacity(32),
             host_set: false,
             osc: OscScan::default(),
+            dcs: None,
+            passthrough: Vec::new(),
             reports: Vec::new(),
             sixel: sixel::Scanner::default(),
         };
@@ -519,6 +600,14 @@ impl Terminal {
         check(unsafe { ffi::ghostty_terminal_get(self.raw, key, out as *mut c_void) })
     }
 
+    /// Turns DCS passthrough on or off (REQ-SEC-004): while on, every DCS sequence the program
+    /// writes is also reported in [`Changes::passthrough`]; libghostty-vt still sees it.
+    pub fn set_passthrough(&mut self, on: bool) {
+        if on != self.dcs.is_some() {
+            self.dcs = on.then(DcsScan::default);
+        }
+    }
+
     /// What the next clipboard read requests from the pane program get: `Some(text)` serves
     /// it, `None` denies (REQ-SEC-002). The daemon sets this from `[clipboard] read_allow`
     /// before feeding bytes that carry a read.
@@ -536,6 +625,9 @@ impl Terminal {
             replaced = self.sixel.feed(bytes, sixel::as_kitty);
             &replaced[..]
         };
+        if let Some(dcs) = &mut self.dcs {
+            self.passthrough.extend(dcs.feed(bytes));
+        }
         let found = self.osc.feed(bytes);
         self.reports.extend(found);
         // SAFETY: `raw` is a live terminal and `bytes` is a valid slice.
@@ -579,6 +671,7 @@ impl Terminal {
             clipboard_reads,
             progress,
             reports: std::mem::take(&mut self.reports),
+            passthrough: std::mem::take(&mut self.passthrough),
         }
     }
 
@@ -840,6 +933,28 @@ mod tests {
             out.starts_with(b"\x1b]52;c;") && !out.windows(8).any(|w| w == b"aGVsbG8="),
             "{out:?}"
         );
+    }
+
+    /// REQ-SEC-004: DCS sequences are reported only while passthrough is on, whole, split
+    /// across writes, with tmux's doubled escapes, and never the queries femux answers.
+    #[test]
+    fn dcs_sequences_pass_through_only_when_on() {
+        let mut t = Terminal::new(20, 3, 100).unwrap();
+        t.write(b"\x1bPtmux;\x1b\x1b]0;hi\x07\x1b\\");
+        assert!(t.take_changes().passthrough.is_empty(), "off by default");
+        t.set_passthrough(true);
+        t.write(b"a\x1bPtmux;\x1b\x1b]0;");
+        t.write(b"hi\x07\x1b\\b\x1bP$qm\x1b\\\x1bP+q544e\x1b\\\x1bP1;2|x\x1b\\");
+        assert_eq!(
+            t.take_changes().passthrough,
+            [
+                b"\x1bPtmux;\x1b\x1b]0;hi\x07\x1b\\".to_vec(),
+                b"\x1bP1;2|x\x1b\\".to_vec()
+            ]
+        );
+        t.set_passthrough(false);
+        t.write(b"\x1bP1;2|x\x1b\\");
+        assert!(t.take_changes().passthrough.is_empty());
     }
 
     /// REQ-SEC-002: a read is served only from the text the daemon hands the terminal.

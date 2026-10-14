@@ -204,3 +204,4 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | --- | --- | --- |
 | REQ-PROTO-010 (ADR-023 cursor blink, frame mouse mode, pane.passthrough) | femux-test `adr023::frames_carry_cursor_blink_and_mouse_mode`; femux-proto `schema::*` | pass |
 | REQ-SEC-002 (clipboard reads need `read_allow`) | femux-vt `tests::clipboard_writes_are_reported`, `tests::clipboard_reads_are_served_from_the_given_text_only`; femux-test `security::sec_002_clipboard_reads_need_read_allow` | pass |
+| REQ-SEC-004 (DCS passthrough is opt-in) | femux-vt `tests::dcs_sequences_pass_through_only_when_on`; femux-test `security::sec_004_dcs_passthrough_is_opt_in`; femux-client `app::tests::passthrough_is_written_for_shown_panes_only` | pass |
