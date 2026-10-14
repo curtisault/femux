@@ -161,10 +161,13 @@ mode_keys = "vi"
 scheme = "bsp"            # bsp | master-stack | scrolling
 gaps = 0
 
-[infobar]
-position = "bottom"       # top | bottom | left | right
-left = ["session", "tabs"]
-right = ["agents", "git", "cpu", "mem", "net", "clock"]
+[bar]                      # one row: session, tabs, modules (0.10.0)
+position = "bottom"       # top | bottom
+modules = ["agents", "git", "cpu", "mem", "net", "clock"]
+
+[panel]                    # the left column (0.10.0)
+open = false
+sections = ["workspace", "agents"]
 
 [restore]
 enabled = true

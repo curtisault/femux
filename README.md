@@ -7,13 +7,14 @@ from the `femux` CLI. Agent tracking and the other extras are built-in plugins o
 
 ## Status
 
-femux is pre-1.0 and at version 0.9: a client and CLI meant for daily use, locally and over SSH,
+femux is pre-1.0 and at version 0.10: a client and CLI meant for daily use, locally and over SSH,
 with sessions that can survive a daemon restart and tracking of the coding agents running in them.
 
 Working now: tabs, BSP splits with preselection, master and scroll layouts, floating panes, zoom,
-marks, copy mode with regex search, a command palette, which-key hints, mouse support, an info
-bar on any side with cpu, memory, network, battery, git, agent and notification modules, session
-and pane navigators, a side nav, themes, the `femux` CLI with `--json` output, session files
+marks, copy mode with regex search, a command palette, which-key hints, mouse support, one bar
+at the top or bottom with the session, the tabs and cpu, memory, network, battery, git, agent and
+notification modules, a panel on the left (`prefix b`, focused with `prefix ctrl+b`) listing
+sessions, tabs, panes and every agent, session and pane navigators, themes, the `femux` CLI with `--json` output, session files
 with `femux launch`, opt-in restore of sessions after the daemon restarts
 (`[restore] enabled = true`), agent state tracking with an inbox, notifications, attaching
 to a remote femux over SSH, and images: Kitty graphics and sixel from programs such as
