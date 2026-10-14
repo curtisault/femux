@@ -3,9 +3,28 @@
 use femux_proto::msg as m;
 use femux_test::{Client, Harness};
 
-/// The shell asks for the clipboard (OSC 52 `?`) and prints the reply's bytes with `od`, so
-/// the pane shows what the program would have received.
-async fn ask_for_clipboard(h: &Harness, bytes: usize) -> (Client, String) {
+/// The shell asks for the clipboard (OSC 52 `?`) and prints the reply's first `bytes` bytes
+/// with `od`, so the pane shows what the program received.
+async fn ask_for_clipboard(c: &mut Client, pane: &str, bytes: usize, marker: &str) -> String {
+    c.type_text(
+        pane,
+        &format!(
+            "clear; stty raw -echo; printf '\\033]52;c;?\\a'; head -c {bytes} | od -An -c; stty sane; echo {marker}-$((6*7))\n"
+        ),
+    )
+    .await;
+    c.wait_text(pane, &format!("{marker}-42")).await;
+    c.screen_text(pane)
+}
+
+/// REQ-SEC-002: by default a pane's clipboard read gets an empty clipboard, never the text;
+/// once `femux reload` puts its command in `read_allow`, the newest clipboard text.
+#[tokio::test(flavor = "multi_thread")]
+async fn sec_002_clipboard_reads_need_read_allow() {
+    let dir = tempfile::tempdir().unwrap();
+    let conf = dir.path().join("config.toml");
+    std::fs::write(&conf, "").unwrap();
+    let h = Harness::start_with(|c| c.config_path = Some(conf.clone()));
     let mut c = h.client().await;
     let (_, pane) = c.new_session("s").await;
     c.attach("s", 100, 24).await;
@@ -15,38 +34,29 @@ async fn ask_for_clipboard(h: &Harness, bytes: usize) -> (Client, String) {
     })
     .await
     .unwrap();
-    c.type_text(
-        &pane,
-        &format!(
-            "stty raw -echo; printf '\\033]52;c;?\\a'; head -c {bytes} | od -An -c; stty sane; echo done-$((6*7))\n"
-        ),
-    )
-    .await;
-    c.wait_text(&pane, "done-42").await;
-    (c, pane)
-}
-
-/// REQ-SEC-002: by default a pane's clipboard read gets an empty clipboard, never the text;
-/// a command in `read_allow` gets the newest clipboard text.
-#[tokio::test(flavor = "multi_thread")]
-async fn sec_002_clipboard_reads_need_read_allow() {
-    let h = Harness::start();
     // The denied reply is `ESC ] 52 ; c ; ESC \`: eight bytes.
-    let (c, pane) = ask_for_clipboard(&h, 8).await;
-    let text = c.screen_text(&pane);
+    let text = ask_for_clipboard(&mut c, &pane, 8, "denied").await;
     assert!(text.contains("5   2   ;   c   ;"), "{text}");
     assert!(
         !text.contains("a   G   V   s"),
         "denied reads carry no text:\n{text}"
     );
-    drop(c);
-    drop(h);
-
-    // With the shell allowed (and `head`, which may already be in the foreground when the
-    // daemon reads the request), the read gets base64 "hello".
-    let h = Harness::start_with(|cfg| cfg.read_allow = vec!["sh".into(), "head".into()]);
-    let (c, pane) = ask_for_clipboard(&h, 16).await;
-    let text = c.screen_text(&pane);
+    // Allow the shell under whatever name the system gives it (`/bin/sh` is bash or dash),
+    // and `head`, which may already be in the foreground when the request is read.
+    let shell = c
+        .call(m::PaneInfo {
+            pane_id: pane.clone(),
+        })
+        .await
+        .unwrap()
+        .fg_cmd;
+    std::fs::write(
+        &conf,
+        format!("[clipboard]\nread_allow = [\"{shell}\", \"head\"]\n"),
+    )
+    .unwrap();
+    c.call(m::ServerReload {}).await.unwrap();
+    let text = ask_for_clipboard(&mut c, &pane, 16, "allowed").await;
     assert!(text.contains("a   G   V   s   b   G   8   ="), "{text}");
 }
 
