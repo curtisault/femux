@@ -141,6 +141,38 @@ Layer rules:
   Note: when a request closes the last session (or is `server.stop`), its reply is written before the daemon begins to exit.
 - REQ-LIFE-003: (Deferred, post-1.0) Live handoff of PTY fds to a new daemon via `SCM_RIGHTS`. Fd ownership MUST remain in the PTY manager so this stays possible.
 
+### 3.9 Logging, telemetry and debug mode (0.11.1)
+
+Every femux process that talks to a server (its daemon, each client, each CLI command, the plugins inside them) writes to one log for that server. Debug mode raises the detail and adds telemetry, so a person, or an agent watching the file, can see what femux did and why. Telemetry is local: nothing is sent off the machine, at any level, ever.
+
+- REQ-LOG-001: One log per server at `<state dir>/logs/<server>.jsonl`, JSON Lines, file mode 0600 in a 0700 directory, appended by every femux process that talks to that server. `femux debug path` prints it.
+  Note (0.11.1): until 0.11.0 femux logged nothing and the daemon's stderr went to `/dev/null`. Each record is one line written with a single `write(2)` on an `O_APPEND` descriptor, so processes interleave whole lines; a record over 16 KiB has its `fields` cut and `"truncated": true` set. At `[debug] max_mb` (default 64) the writing process renames the file to `<server>.1.jsonl`, replacing the previous one, and starts a new file; other processes reopen when the path's inode no longer matches their descriptor, checked once a second. A CLI command that never reaches a server logs to the server it would have used. A daemon on a remote host logs on that host; fetching its log is outside 0.11.1.
+- REQ-LOG-002: A record is `{ts, level, proc, pid, run, target, event, msg, fields}` with `session`, `tab`, `pane` and `view` added at the top level whenever the record concerns one.
+  Note (0.11.1): `ts` is RFC 3339 UTC with milliseconds; `level` is `error|warn|info|debug|trace`; `proc` is `daemon|client|cli`; `run` is a ULID the process picks at start, so one process's lines can be followed through interleaving; `target` is the component (`daemon.pty`, `daemon.bus`, `daemon.store`, `proto`, `client.render`, `client.input`, `plugin.agents`, …); `event` is a stable name from the catalog (REQ-LOG-005); `msg` is one human sentence; `fields` holds the event's data. Out-of-process plugins write through the same crate (§12) and so the same file.
+- REQ-LOG-003: Outside debug mode only `warn` and `error` records are written. Debug mode writes `debug` and above plus telemetry (REQ-LOG-006); trace mode adds `trace`. `femux --debug <command>` (or `FEMUX_DEBUG=1`) starts in debug mode, `--debug=trace` (`FEMUX_DEBUG=trace`) in trace mode, and `femux debug on [--trace] | off | status` switch a running server without a restart.
+  Note (0.11.1): `--debug` is a global flag, so `femux --debug` attaches in debug mode and `femux --debug agent list` logs that one command in detail. A daemon started by a process in debug mode starts in it. A daemon already running is switched by `server.debug` (ADR-024), which a client in debug mode sends when it attaches; the mode then stays until `femux debug off` or the daemon exits, and `server.debug_changed` brings every attached client to the same level. `[debug] level` sets the level a daemon starts at (`warn` by default) and `femux reload` applies it. `femux debug status` prints the level, the log's path and size, and since when the mode is on. While debug mode is on the bar shows `DEBUG` beside the mode label, in the warning color, so it is never left on unnoticed.
+- REQ-LOG-004: No record, at any level, holds pane output, text typed or pasted into a pane, clipboard contents, image data, environment values or the full command line of a pane; they are logged as sizes, kinds, names and counts.
+  Note (0.11.1): a pane's command is logged by its program name (`argv[0]`'s file name) and cwd; the environment by variable names; a key by its chord and action only when it matches a binding, keys sent to a pane only as a count per second; a `[notify] webhook` by its host. `agent.evidence` may quote a screen line, since it is already pane metadata, and is logged as it is. Protocol bodies at `trace` follow the same rule: `pane.input`, `clipboard.set`, `image.read` and frame cell runs are logged by size only.
+- REQ-LOG-005: Debug mode records the events below; `warn` and `error` events are written in every mode. An event name, once listed here, is stable.
+  Note (0.11.1): the catalog, level in brackets.
+  - **Processes:** `proc.start` [info] with version, git revision, OS, the host terminal (`hello.term`, `$TERM_PROGRAM`), config path and hash, enabled plugins and level; `proc.stop` [info] with the reason and exit code; `proc.panic` [error] with message, location and backtrace, from a panic hook in every process (the client restores the host terminal first); `proc.stderr` [warn], each line the daemon's own stderr receives (it is a pipe read into the log from 0.11.1).
+  - **Protocol:** `proto.request` and `proto.response` [debug] with kind, id, view, bytes and latency; an `error` response [warn] with its code and message; bodies at [trace] under REQ-LOG-004.
+  - **Clients:** `client.attach` and `client.detach` [info] with view, size, terminal and reason; `client.lagging` [warn] when frames were coalesced for a view (REQ-VT-004).
+  - **Panes:** `pane.spawn` [info] with program name, cwd and size; `pane.exit` [info] with status or signal; `pane.fg` [debug] with pid and program name; `pane.resize` [debug].
+  - **Bus and store:** `bus.event` [debug] with kind and seq; `bus.lost` [warn] when a subscriber got `events_lost`; `store.snapshot` [debug] with duration and rows; `store.error` [error]; `store.backup` [warn] (REQ-STORE-007).
+  - **Config:** `config.reload` [info] with the tables that changed; `config.error` [warn] with line and message.
+  - **Plugins:** `plugin.start` [info]; `plugin.error` [error]; `plugin.slow` [warn] when a handler or tick takes over 50 ms. Agents: `agent.propose` [debug] for every state a tier offers, with state, source, evidence and whether it was taken or why not (`held by hook, 2.1 s old`); `agent.state` [info] for every change, from and to. Notify: `notify.post` [info] with the event and each action's result, a failed action [warn]. Hosts: `remote.connect` [info], `remote.drop` [warn], `remote.reconnect` [info].
+  - **Client UI:** `ui.action` [debug] with the action and where it came from (`key`, `mouse`, `palette`, `menu`); `ui.overlay` [debug] open and close; `ui.mode` [debug]; `render.slow` [warn] when a frame takes over 16 ms to draw, with pane count and cells drawn.
+  - **Graphics:** `gfx.transmit` [debug] with image id, bytes and medium; `gfx.error` [warn].
+
+  A new event is added to this list in the same commit as the code that writes it.
+- REQ-LOG-006: In debug mode each process writes a `metrics` record [info] every `[debug] metrics_interval_ms` (default 10000) with counters and timings since the previous one.
+  Note (0.11.1): the daemon reports RSS, open fds, threads, panes, sessions and views; bytes read from each of the five busiest panes; frames sent and coalesced per view; request count and p50, p99 and max latency per kind; bus events published and the deepest subscriber queue; store snapshot time; time spent in each plugin. A client reports frames received, draw time p50, p99 and max, input latency (a key sent to a pane until the next frame for it arrives) p50, p99 and max, and bytes written to the host. There is no telemetry outside debug mode and no identifier beyond those in REQ-LOG-002.
+- REQ-LOG-007: `femux debug snapshot` writes one `debug.snapshot` record [info] holding the server's whole state: sessions, tabs and layout trees, every pane (size, program name, cwd, foreground program, metadata including `agent.*`), the views attached, enabled plugins, the config hash and the debug level.
+  Note (0.11.1): it is built from existing read requests (`server.info`, `session.list`, `session.tabs`, `layout.get`, `pane.info`) and works outside debug mode too. The palette offers it as the action `debug snapshot`, with no default key, and confirms with the log's path. A snapshot taken when something looks wrong puts the state beside the events that led to it.
+- REQ-LOG-008: `femux debug tail [--level L] [--event glob] [--pane id] [--since dur] [--follow] [--json]` prints the log, the rotated file first, filtered, one record per line.
+  Note (0.11.1): the human form is `15:16:58.123 warn  daemon plugin.agents agent.state pane 01M4Y0T7 blocked → done (process): …`, levels colored when stdout is a terminal. `--json` passes the matching lines through unchanged, which is the form for an agent watching for problems: `femux debug tail --follow --level warn --json`. `--level` means that level and above; `--since` takes `30s`, `5m`, `1h`. Reading the file directly is supported; the format is REQ-LOG-002.
+
 ---
 
 ## 4. Protocol
@@ -220,6 +252,7 @@ daemon → hello_ok {proto: 1, server: "name", version: "0.2.0", features: [...]
 | `store.snapshot` | c→d | – | `{ts}` |
 | `server.info` | c→d | – | `{version, uptime, sessions, panes, clients}` |
 | `server.stop` | c→d | `{kill_panes: bool}` | – |
+| `server.debug` | c→d | `{level?: "warn"\|"debug"\|"trace"}` (0.11.1, ADR-024) | `{level, path, since}` |
 
 Input event shapes:
 
@@ -246,6 +279,7 @@ frame {view_id, frame_seq, full: bool, panes: [{pane_id, rect, cells: [ {x,y,run
 
 `session.created|renamed|closed`, `tab.created|selected|closed|moved|renamed`, `layout.changed{tab_id, tree}`, `pane.spawned|exited{code}|fg_changed{pid, cmd}|cwd_changed|title_changed|meta_changed{set,unset}|bell`, `view.attached|detached|resized`, `store.snapshot`, `events_lost{from,to}`.
   Note (0.9.0): `pane.passthrough{pane_id, data}` carries one DCS sequence a pane program emitted, base64, only while `[terminal] passthrough = true` (REQ-SEC-004); like `pane.output` it is never retained for `since`.
+  Note (0.11.1): `server.debug_changed{level}` follows every `server.debug` that changes the level, so attached clients log at the daemon's level (REQ-LOG-003).
 
 ### 4.7 Errors
 
@@ -554,6 +588,11 @@ hold_ms = 5000
 [notify]
 agent_done = { sound = "bell", desktop = true, only_when_hidden = true }
 
+[debug]                       # 0.11.1, REQ-LOG-*
+level = "warn"                # warn | debug | trace: what a daemon starts at
+max_mb = 64                   # rotate the log past this size
+metrics_interval_ms = 10000   # debug mode only
+
 [plugins]
 enabled = ["agents", "infobar", "notify", "clipboard", "shell-integration", "which-key", "launcher"]
 
@@ -591,7 +630,7 @@ cwd = "~/writing/notes"
 
 ## 11. CLI
 
-`femux` (attach or start), `femux daemon [--foreground]`, `femux attach [session] [--host h] [--stdio]`, `femux ls`, `femux new <name>`, `femux kill <name>`, `femux launch <name|file>`, `femux tab new|close|rename|select`, `femux pane split|close|focus|resize|info|set|cat|signal|respawn`, `femux layout save|load|list|export`, `femux agent …`, `femux integration install|uninstall`, `femux keys list|explain`, `femux config check|edit`, `femux reload`, `femux reload`, `femux update [--check]`, `femux hosts add|list|rm`, `femux notify test`, `femux graphics list [pane]`, `femux git tab|tabs|rm`, `femux broadcast on|off`, `femux record`.
+`femux` (attach or start), `femux daemon [--foreground]`, `femux attach [session] [--host h] [--stdio]`, `femux ls`, `femux new <name>`, `femux kill <name>`, `femux launch <name|file>`, `femux tab new|close|rename|select`, `femux pane split|close|focus|resize|info|set|cat|signal|respawn`, `femux layout save|load|list|export`, `femux agent …`, `femux integration install|uninstall`, `femux keys list|explain`, `femux config check|edit`, `femux reload`, `femux reload`, `femux update [--check]`, `femux hosts add|list|rm`, `femux notify test`, `femux graphics list [pane]`, `femux git tab|tabs|rm`, `femux broadcast on|off`, `femux record`, `femux debug on|off|status|path|snapshot|tail` (0.11.1).
 
 - REQ-CLI-001: Every subcommand has `--json` output.
 - REQ-CLI-002: Inside a pane, commands default to that pane (`$FEMUX_PANE`).
@@ -600,6 +639,8 @@ cwd = "~/writing/notes"
   Note: `femux completions <shell>`, including the subcommands plugins add.
 
 Note (0.6.0): `hosts` is enabled by default. `femux daemon --ensure` starts a daemon only if none runs and prints its socket (what `--forward` hosts ask the remote for).
+
+Note (0.11.1): `--debug[=trace]` is a global flag accepted before any subcommand (REQ-LOG-003); `femux debug` is core, not a plugin, so it works with every plugin disabled.
 
 Note (§11): `launch`, `config check|edit` and `reload` arrive in 0.3.0; `agent`, `update`, `hosts` and `notify` with their milestones (0.5.0, 1.0, 0.6.0, 0.5.0). `integration install` ships early (0.2.0) because its hook target, `femux pane set`, exists.
 
@@ -619,6 +660,7 @@ femux/
     femux-cli/              the `femux` binary; embeds client and daemon
     femux-plugin/           plugin traits and the daemon-plugin runner (REQ-PLUG-002)
     femux-config/           config.toml and session-file parsing (SPEC §10)
+    femux-log/              the JSON Lines log, levels, rotation and metrics (§3.9, 0.11.1)
     femux-test/             headless harness
     plugins/
       agents/ infobar/ notify/ git/ clipboard/ graphics/ shell-integration/ broadcast/ which-key/ recorder/ hosts/ theme/ launcher/
@@ -634,6 +676,8 @@ femux/
 
 Each minor version is one feature set and one GitButler branch named `v0.N.0`. Patch branches `v0.N.1`, `v0.N.2`, … stack on it and hold only review fixes and hotfixes. A branch is done when every requirement it lists has a passing test in `spec/conformance.md`.
 
+Note (0.11.1): 0.11.1 is a feature patch at the user's request, as 0.8.1–0.8.3 were: it stacks on `v0.11.0` and adds the debug tooling needed to diagnose 0.11.0's agent-state fixes in daily use.
+
 | Version | Requirements | Acceptance |
 | --- | --- | --- |
 | 0.1.0 | ARCH-*, PTY-*, VT-001–005, QRY-*, SESS-*, VIEW-*, EVT-*, LIFE-001–002, PROTO-*, BUILD-*, plus a bare viewer client (attach to one session, show one pane, type into it, `prefix d` to detach) | Harness can create a session, split, run `ls`, assert on the cell grid, detach and reattach with identical screen |
@@ -647,6 +691,7 @@ Each minor version is one feature set and one GitButler branch named `v0.N.0`. P
 | 0.9.0 | SEC-002 (`read_allow`), SEC-004 (`passthrough`), UI-053 drag selection, VT-002 cursor shapes (ADR-023) | A pane in `read_allow` reads the clipboard back and one outside it gets nothing; `passthrough = true` lets a DCS reach the host; drag-and-release copies text; neovim's insert cursor is a bar |
 | 0.10.0 | UI-020, UI-030–033 one bar; UI-042 panel with `workspace` and `agents`; `[bar]` and `[panel]` config | One row carries session, mode, tabs and modules at top or bottom and degrades right side first; `prefix b` opens a left panel whose sections collapse, `ctrl+b` focuses it, its width follows config or a drag; mocks in `spec/design/` |
 | 0.11.0 | UI-045 help overlay, UI-046 context menu; AGT-002/004 idle agents are `done`, not `blocked`; UI-044 row text | `?` opens a grouped, scrolling, filterable help at four fifths of the height, closed by `q`, every default binding in it and `docs/prefixes.md` generated from the same text; a right click on a pane or a tab opens a menu whose items run the §5.1 actions; an idle Claude Code pane reads `done` in the inbox and the bar, `blocked` only with a question on screen and a hook's `done` stays put; an inbox row shows the agent's last real line, not its footer |
+| 0.11.1 | LOG-001–008 logging, telemetry and debug mode (ADR-024 `server.debug`); `[debug]` config | `femux --debug` attaches with the daemon, client and CLI all writing one `<state dir>/logs/<server>.jsonl`; `femux debug on` switches a running server and the bar says `DEBUG`; a forced panic in daemon or client leaves a `proc.panic` record and a restored terminal; an agent state change shows as `agent.propose` and `agent.state` with its evidence; `metrics` arrive every 10 s; `femux debug tail --follow --level warn --json` streams problems as they happen; no record holds typed text, pane output or clipboard contents |
 | 1.0.0 | Scoped in a release spec (`spec/RELEASE.md`), written when a release is ready; the protocol is not frozen before then | Set by the release spec |
 
 ---
