@@ -6,7 +6,7 @@ use femux_plugin::{Overlay as PluginOverlay, Span, Spans, Style};
 use femux_proto::msg as m;
 use termwiz::cell::{Blink, CellAttributes, Intensity, Underline};
 use termwiz::color::{ColorAttribute, SrgbaTuple};
-use termwiz::surface::{Change, CursorVisibility, Position, Surface};
+use termwiz::surface::{Change, CursorShape, CursorVisibility, Position, Surface};
 
 use crate::app::{App, Mode, Overlay};
 use crate::bindings::Table;
@@ -842,6 +842,14 @@ pub fn render(app: &mut App, theme: &Theme, s: &mut Surface) {
     }
 
     c.s.add_change(Change::AllAttributes(CellAttributes::default()));
+    // The host cursor takes the focused pane's shape while it sits in that pane; overlays
+    // and prompts get the host's default (REQ-VT-002).
+    let shape = if matches!(app.overlay, Overlay::None | Overlay::WhichKey) {
+        pane_cursor_shape(app, cursor)
+    } else {
+        CursorShape::Default
+    };
+    c.s.add_change(Change::CursorShape(shape));
     match cursor {
         Some((x, y)) if x < w && y < h => {
             c.s.add_change(Change::CursorPosition {
@@ -884,6 +892,39 @@ fn draw_pane(
             o.0 + r.x as usize + screen.cursor.x as usize,
             o.1 + r.y as usize + screen.cursor.y as usize,
         ));
+    }
+}
+
+/// The host cursor shape for the focused pane's cursor (REQ-VT-002): its shape and blink
+/// when `cursor` is where that pane put it, else the host's default.
+fn pane_cursor_shape(app: &App, cursor: Option<(usize, usize)>) -> CursorShape {
+    if app.mode == Mode::Copy {
+        return CursorShape::Default;
+    }
+    let Some(screen) = app
+        .model
+        .focused_id()
+        .and_then(|id| app.model.panes.get(&id))
+        .and_then(|p| p.screen.as_ref())
+    else {
+        return CursorShape::Default;
+    };
+    let area = app.layout().panes;
+    let at = (
+        area.x as usize + screen.rect.x as usize + screen.cursor.x as usize,
+        area.y as usize + screen.rect.y as usize + screen.cursor.y as usize,
+    );
+    if cursor != Some(at) {
+        return CursorShape::Default;
+    }
+    let blink = screen.cursor.blink.unwrap_or(false);
+    match (screen.cursor.shape, blink) {
+        (m::CursorShape::Bar, true) => CursorShape::BlinkingBar,
+        (m::CursorShape::Bar, false) => CursorShape::SteadyBar,
+        (m::CursorShape::Underline, true) => CursorShape::BlinkingUnderline,
+        (m::CursorShape::Underline, false) => CursorShape::SteadyUnderline,
+        (_, true) => CursorShape::BlinkingBlock,
+        (_, false) => CursorShape::SteadyBlock,
     }
 }
 

@@ -398,6 +398,21 @@ impl termwiz::render::RenderTty for Out {
     }
 }
 
+/// DECSCUSR for `shape`; `Default` asks for the terminal's own (0).
+pub fn decscusr(shape: termwiz::surface::CursorShape) -> String {
+    use termwiz::surface::CursorShape as S;
+    let n = match shape {
+        S::Default => 0,
+        S::BlinkingBlock => 1,
+        S::SteadyBlock => 2,
+        S::BlinkingUnderline => 3,
+        S::SteadyUnderline => 4,
+        S::BlinkingBar => 5,
+        S::SteadyBar => 6,
+    };
+    format!("\x1b[{n} q")
+}
+
 /// The bytes that turn the terminal showing `prev` into `next`: only the changed cells
 /// (REQ-UI-050), wrapped in synchronized output (mode 2026) when the host supports it.
 pub fn paint(
@@ -419,6 +434,12 @@ pub fn paint(
         out.0.extend_from_slice(b"\x1b[?2026h");
     }
     renderer.render_to(&changes, &mut out).map_err(other)?;
+    // DECSCUSR when the shape changes (REQ-VT-002), written directly: many terminfo entries
+    // (xterm-256color among them) lack `Ss`, so termwiz would write nothing.
+    let shape = next.cursor_shape().unwrap_or_default();
+    if shape != prev.cursor_shape().unwrap_or_default() {
+        out.0.extend_from_slice(decscusr(shape).as_bytes());
+    }
     if sync {
         out.0.extend_from_slice(b"\x1b[?2026l");
     }
@@ -828,6 +849,25 @@ pub fn run(target: &Target, session: Option<&str>, host: Host) -> io::Result<()>
 mod tests {
     use super::*;
     use termwiz::caps::ProbeHints;
+
+    /// REQ-VT-002: the host cursor's shape is written when it changes, and only then.
+    #[test]
+    fn paint_sets_the_cursor_shape_when_it_changes() {
+        use termwiz::surface::CursorShape;
+        let caps =
+            Capabilities::new_with_hints(ProbeHints::default().term(Some("xterm-256color".into())))
+                .unwrap();
+        let mut r = TerminfoRenderer::new(caps);
+        let a = Surface::new(20, 3);
+        let mut b = Surface::new(20, 3);
+        b.add_change(Change::CursorShape(CursorShape::BlinkingBar));
+        let s = String::from_utf8_lossy(&paint(&mut r, &a, &b, false).unwrap()).into_owned();
+        assert!(s.contains("\x1b[5 q"), "{s:?}");
+        let s = String::from_utf8_lossy(&paint(&mut r, &b, &b, false).unwrap()).into_owned();
+        assert!(!s.contains(" q"), "unchanged: {s:?}");
+        let s = String::from_utf8_lossy(&paint(&mut r, &b, &a, false).unwrap()).into_owned();
+        assert!(s.contains("\x1b[0 q"), "back to the default: {s:?}");
+    }
 
     #[test]
     fn paint_writes_only_the_diff_inside_synchronized_output() {
