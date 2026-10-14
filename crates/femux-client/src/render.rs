@@ -885,7 +885,8 @@ fn draw_pane(
         draw_copy(cm, c, theme, r, o, cursor);
         return;
     }
-    draw_screen(screen, c, o);
+    let sel = app.selection.as_ref().filter(|s| s.pane == id);
+    draw_screen(screen, c, o, sel, theme);
     if focused && matches!(app.overlay, Overlay::None | Overlay::WhichKey) && screen.cursor.visible
     {
         *cursor = Some((
@@ -930,7 +931,13 @@ fn pane_cursor_shape(app: &App, cursor: Option<(usize, usize)>) -> CursorShape {
 
 /// Draws a pane's rows as runs of equally styled cells: one cursor move, one attribute
 /// change and one text per run rather than per cell.
-fn draw_screen(screen: &PaneScreen, c: &mut Canvas, o: (usize, usize)) {
+fn draw_screen(
+    screen: &PaneScreen,
+    c: &mut Canvas,
+    o: (usize, usize),
+    sel: Option<&crate::app::Selection>,
+    theme: &Theme,
+) {
     let r = &screen.rect;
     let rx = o.0 + r.x as usize;
     for (y, row) in screen.rows.iter().enumerate().take(r.h as usize) {
@@ -953,6 +960,12 @@ fn draw_screen(screen: &PaneScreen, c: &mut Canvas, o: (usize, usize)) {
                 Some(cell) => (" ", attributes(cell), 1),
                 None => (" ", CellAttributes::default(), 1),
             };
+            // The mouse selection (REQ-UI-053), drawn like copy mode's.
+            let mut attr = attr;
+            if sel.is_some_and(|s| s.contains(x as u16, y as u16)) {
+                attr.set_background(theme.selection);
+                attr.set_foreground(theme.text);
+            }
             if run_attr.as_ref() != Some(&attr) {
                 if let Some(a) = run_attr.take() {
                     c.put(rx + run_x, sy, &run, &a);
@@ -1129,7 +1142,7 @@ mod tests {
             w: 8,
             h: 1,
         };
-        draw_screen(&screen, &mut c, (0, 0));
+        draw_screen(&screen, &mut c, (0, 0), None, &Theme::dark());
         assert_eq!(s.screen_chars_to_string(), " abc    \n");
         assert_eq!(s.screen_cells()[0][2].attrs().intensity(), Intensity::Bold);
         assert_eq!(

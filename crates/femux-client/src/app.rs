@@ -196,6 +196,64 @@ pub enum MouseKind {
     WheelDown,
 }
 
+/// A mouse selection in one pane's screen (REQ-UI-053), in that pane's cells.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Selection {
+    pub pane: String,
+    /// Where the button went down and where the pointer is (or was at release).
+    pub anchor: (u16, u16),
+    pub head: (u16, u16),
+    /// Released: copied and kept highlighted until the next key or click.
+    pub done: bool,
+}
+
+impl Selection {
+    /// Start and end in reading order.
+    fn span(&self) -> ((u16, u16), (u16, u16)) {
+        let key = |p: (u16, u16)| (p.1, p.0);
+        if key(self.anchor) <= key(self.head) {
+            (self.anchor, self.head)
+        } else {
+            (self.head, self.anchor)
+        }
+    }
+
+    /// Whether cell (`x`, `y`) of the pane is selected: linear from start to end inclusive.
+    pub fn contains(&self, x: u16, y: u16) -> bool {
+        let (a, b) = self.span();
+        (y > a.1 || (y == a.1 && x >= a.0)) && (y < b.1 || (y == b.1 && x <= b.0))
+    }
+
+    /// The selected text of `screen`: trailing blanks trimmed per line, lines joined with
+    /// newlines.
+    pub fn text(&self, screen: &crate::model::PaneScreen) -> String {
+        let (a, b) = self.span();
+        let mut lines = Vec::new();
+        for y in a.1..=b.1 {
+            let Some(row) = screen.rows.get(y as usize) else {
+                break;
+            };
+            let from = if y == a.1 { a.0 as usize } else { 0 };
+            let to = if y == b.1 {
+                b.0 as usize + 1
+            } else {
+                row.len()
+            };
+            let mut line = String::new();
+            for cell in row.iter().take(to.min(row.len())).skip(from) {
+                match cell {
+                    Some(c) if !c.ch.is_empty() => line.push_str(&c.ch),
+                    // The second half of a wide character.
+                    None => {}
+                    Some(_) => line.push(' '),
+                }
+            }
+            lines.push(line.trim_end().to_owned());
+        }
+        lines.join("\n")
+    }
+}
+
 #[derive(Debug, Clone)]
 struct Drag {
     pane: String,
@@ -258,6 +316,8 @@ pub struct App {
     pub dirty: bool,
     effects: Vec<Effect>,
     drag: Option<Drag>,
+    /// The mouse selection, while dragging and after (REQ-UI-053).
+    pub selection: Option<Selection>,
     mouse_pane: Option<String>,
     /// Tab strip hit boxes from the last render: `(x0, x1, tab)`.
     pub tab_hits: Vec<(u16, u16, String)>,
@@ -317,6 +377,7 @@ impl App {
             dirty: true,
             effects: Vec::new(),
             drag: None,
+            selection: None,
             mouse_pane: None,
             tab_hits: Vec::new(),
             sidenav_hits: Vec::new(),
@@ -994,6 +1055,7 @@ impl App {
     pub fn on_key(&mut self, k: m::KeyEvent, now: Instant) {
         self.dirty = true;
         self.message = None;
+        self.selection = None;
         let chord = Chord::of(&k);
 
         match std::mem::replace(&mut self.overlay, Overlay::None) {
@@ -1544,16 +1606,18 @@ impl App {
                         Pending::Marks,
                     );
                 }
-                Need::Yank(text) => {
-                    // OSC 52 on the host plus clipboard.set for everyone else (§5.1).
-                    self.effects.push(Effect::Clipboard(text.clone()));
-                    self.yanks_in_flight.push_back(text.clone());
-                    self.clipboard = Some(text.clone());
-                    self.quiet(m::ClipboardSet { text });
-                }
+                Need::Yank(text) => self.yank(text),
                 Need::Exit => self.leave_copy(),
             }
         }
+    }
+
+    /// Copies `text`: OSC 52 on the host plus `clipboard.set` for everyone else (§5.1).
+    fn yank(&mut self, text: String) {
+        self.effects.push(Effect::Clipboard(text.clone()));
+        self.yanks_in_flight.push_back(text.clone());
+        self.clipboard = Some(text.clone());
+        self.quiet(m::ClipboardSet { text });
     }
 
     // ------------------------------------------------------------------ navigators
@@ -2147,6 +2211,12 @@ impl App {
             }
             return;
         }
+        if self.selection.as_ref().is_some_and(|s| !s.done) {
+            return self.extend_selection(x, y, kind);
+        }
+        if matches!(kind, MouseKind::Press(_)) {
+            self.selection = None;
+        }
         match (self.hit(x, y), kind) {
             (Hit::Nav(target), MouseKind::Press(_)) => self.switch_to(target),
             (Hit::Tab(t), MouseKind::Press(_)) => {
@@ -2183,6 +2253,23 @@ impl App {
                         pane_id: Some(id.clone()),
                         dir: None,
                     });
+                }
+                // A drag selects text unless the program tracks the mouse; shift always
+                // selects (REQ-UI-053).
+                let tracks = self
+                    .model
+                    .panes
+                    .get(&id)
+                    .and_then(|p| p.screen.as_ref())
+                    .is_some_and(|s| s.mouse);
+                if button == m::MouseButton::Left && (!tracks || mods.contains(&m::Mod::Shift)) {
+                    self.selection = Some(Selection {
+                        pane: id,
+                        anchor: (px, py),
+                        head: (px, py),
+                        done: false,
+                    });
+                    return;
                 }
                 self.mouse_pane = Some(id.clone());
                 self.forward_mouse(&id, px, py, Some(button), m::MouseEventKind::Press, mods);
@@ -2226,6 +2313,41 @@ impl App {
                 self.forward_mouse(&id, px, py, None, ev, mods);
             }
             _ => {}
+        }
+    }
+
+    /// Moves the selection's head to (`x`, `y`), clamped to its pane; on release copies what
+    /// it covers. A click that never moved selects nothing (REQ-UI-053).
+    fn extend_selection(&mut self, x: u16, y: u16, kind: MouseKind) {
+        let area = self.layout().panes;
+        let Some(sel) = &mut self.selection else {
+            return;
+        };
+        let Some(screen) = self
+            .model
+            .panes
+            .get(&sel.pane)
+            .and_then(|p| p.screen.as_ref())
+        else {
+            self.selection = None;
+            return;
+        };
+        let r = &screen.rect;
+        sel.head = (
+            x.saturating_sub(area.x + r.x).min(r.w.saturating_sub(1)),
+            y.saturating_sub(area.y + r.y).min(r.h.saturating_sub(1)),
+        );
+        if kind != MouseKind::Release {
+            return;
+        }
+        if sel.head == sel.anchor {
+            self.selection = None;
+            return;
+        }
+        sel.done = true;
+        let text = sel.text(screen);
+        if !text.trim().is_empty() {
+            self.yank(text);
         }
     }
 
