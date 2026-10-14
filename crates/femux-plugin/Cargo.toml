@@ -6,6 +6,7 @@ license.workspace = true
 
 # REQ-PLUG-003: plugins reach the core only through femux-proto.
 [dependencies]
+femux-log = { path = "../femux-log" }
 femux-proto = { path = "../femux-proto" }
 serde_json = "1"
 tokio.workspace = true

@@ -116,6 +116,27 @@ pub enum BarPosition {
     Bottom,
 }
 
+/// The level a daemon starts at (`[debug] level`, REQ-LOG-003): `warn` writes only warnings
+/// and errors, `debug` is debug mode, `trace` adds protocol bodies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LogLevel {
+    #[default]
+    Warn,
+    Debug,
+    Trace,
+}
+
+impl LogLevel {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            LogLevel::Warn => "warn",
+            LogLevel::Debug => "debug",
+            LogLevel::Trace => "trace",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ModeKeys {
@@ -212,6 +233,12 @@ section!(Agents {
     hold_ms: u64 = 5000,
 });
 
+section!(Debug {
+    level: LogLevel = LogLevel::Warn,
+    max_mb: u64 = 64,
+    metrics_interval_ms: u64 = 10_000,
+});
+
 section!(Plugins {
     enabled: Vec<String> = strings(&[
         "agents",
@@ -260,6 +287,7 @@ pub struct Config {
     pub clipboard: Clipboard,
     pub theme: Theme,
     pub agents: Agents,
+    pub debug: Debug,
     pub notify: BTreeMap<String, NotifyAction>,
     pub plugins: Plugins,
     pub keys: Keys,
@@ -290,6 +318,7 @@ impl Default for Config {
             clipboard: Clipboard::default(),
             theme: Theme::default(),
             agents: Agents::default(),
+            debug: Debug::default(),
             notify,
             plugins: Plugins::default(),
             keys: Keys::default(),

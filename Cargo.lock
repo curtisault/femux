@@ -603,6 +603,7 @@ dependencies = [
  "femux-client",
  "femux-config",
  "femux-daemon",
+ "femux-log",
  "femux-plugin",
  "femux-plugin-agents",
  "femux-plugin-broadcast",
@@ -632,6 +633,7 @@ name = "femux-client"
 version = "0.10.0"
 dependencies = [
  "base64 0.22.1",
+ "femux-log",
  "femux-plugin",
  "femux-plugin-agents",
  "femux-plugin-clipboard",
@@ -662,6 +664,7 @@ version = "0.10.0"
 dependencies = [
  "base64 0.22.1",
  "femux-config",
+ "femux-log",
  "femux-proto",
  "femux-vt",
  "flate2",
@@ -669,6 +672,7 @@ dependencies = [
  "libc",
  "nix 0.31.3",
  "regex",
+ "rmpv",
  "rusqlite",
  "serde_json",
  "tempfile",
@@ -678,9 +682,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "femux-log"
+version = "0.10.0"
+dependencies = [
+ "femux-config",
+ "libc",
+ "serde_json",
+ "tempfile",
+ "ulid",
+]
+
+[[package]]
 name = "femux-plugin"
 version = "0.10.0"
 dependencies = [
+ "femux-log",
  "femux-proto",
  "femux-test",
  "serde_json",

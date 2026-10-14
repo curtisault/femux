@@ -3,6 +3,10 @@
 //! (subcommands). A plugin implements any subset and talks to the core only through
 //! `femux-proto` (REQ-PLUG-003), so it can also run out of process.
 
+/// The femux log (SPEC §3.9), for plugins: REQ-PLUG-003 keeps them to this crate and the
+/// protocol, so the log reaches them through here.
+pub use femux_log as log;
+
 use std::path::Path;
 use std::time::Duration;
 

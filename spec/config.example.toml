@@ -56,6 +56,11 @@ hold_ms = 5000
 [notify]
 agent_done = { sound = "bell", desktop = true, only_when_hidden = true }
 
+[debug]
+level = "warn"                # warn | debug | trace: what a daemon starts at
+max_mb = 64                   # the log rotates past this size
+metrics_interval_ms = 10000   # debug mode's metrics records
+
 [plugins]
 enabled = ["agents", "infobar", "notify", "clipboard", "shell-integration", "which-key", "launcher", "hosts", "graphics", "git", "broadcast", "recorder"]
 
