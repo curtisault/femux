@@ -9,7 +9,7 @@ async fn ask_for_clipboard(c: &mut Client, pane: &str, bytes: usize, marker: &st
     c.type_text(
         pane,
         &format!(
-            "clear; stty raw -echo; printf '\\033]52;c;?\\a'; head -c {bytes} | od -An -c; stty sane; echo {marker}-$((6*7))\n"
+            "stty raw -echo; printf '\\033]52;c;?\\a'; head -c {bytes} | od -An -c; stty sane; echo {marker}-$((6*7))\n"
         ),
     )
     .await;
@@ -43,19 +43,31 @@ async fn sec_002_clipboard_reads_need_read_allow() {
     );
     // Allow the shell under whatever name the system gives it (`/bin/sh` is bash or dash),
     // and `head`, which may already be in the foreground when the request is read.
-    let shell = c
-        .call(m::PaneInfo {
-            pane_id: pane.clone(),
-        })
-        .await
-        .unwrap()
-        .fg_cmd;
+    // The daemon polls the foreground every 250 ms: wait until it has the shell itself
+    // there again, not the last command, before taking the name.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let shell = loop {
+        let info = c
+            .call(m::PaneInfo {
+                pane_id: pane.clone(),
+            })
+            .await
+            .unwrap();
+        if info.pid != 0 && info.fg_pid == info.pid {
+            break info.fg_cmd;
+        }
+        assert!(std::time::Instant::now() < deadline, "{info:?}");
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    };
     std::fs::write(
         &conf,
         format!("[clipboard]\nread_allow = [\"{shell}\", \"head\"]\n"),
     )
     .unwrap();
     c.call(m::ServerReload {}).await.unwrap();
+    // On the screen too, so a failure's dump says what was allowed.
+    c.type_text(&pane, &format!("echo allowing {shell}\n"))
+        .await;
     let text = ask_for_clipboard(&mut c, &pane, 16, "allowed").await;
     assert!(text.contains("a   G   V   s   b   G   8   ="), "{text}");
 }
