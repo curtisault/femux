@@ -47,9 +47,8 @@ femux keys list       # every key binding and the action it runs
 Inside femux, press `ctrl+space` to reach the prefix table. Wait a moment and a panel lists
 every chord; `ctrl+space d` detaches and leaves everything running. `ctrl+space :` opens the
 command palette, `ctrl+space s` and `ctrl+space w` the session and pane navigators, and
-`ctrl+space b` the side nav. Lowercase letters act or open the list they name; shift on a letter
-means the same thing the other way, its overview or a new one (`n`/`N` tabs, `o`/`O` floats,
-`m`/`M` marks, `s`/`S` sessions). Splits are `-` and `|`; `p` is the previous tab and `]` pastes.
+`ctrl+space -` and `ctrl+space |` split the pane. [docs/prefixes.md](docs/prefixes.md) lists
+every key, explains how the table is laid out and shows how to change it.
 
 To jump between prompts in copy mode and keep each pane's directory accurate, load the shell
 integration from your shell's rc file:
@@ -118,6 +117,8 @@ the remote socket with `ssh -L` instead of running the protocol over the SSH cha
 
 ## Documentation
 
+- [docs/prefixes.md](docs/prefixes.md) lists every key binding by table, generated from the
+  defaults and checked by a test.
 - [spec/SPEC.md](spec/SPEC.md) is the single source of truth: requirements, protocol,
   bindings and milestones.
 - [spec/ARCHITECTURE.md](spec/ARCHITECTURE.md) explains the design and why it is shaped this way.
