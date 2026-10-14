@@ -31,6 +31,8 @@ struct Sent {
     shape: u64,
     rows: Vec<u64>,
     cursor: u64,
+    /// Whether the pane's program tracked the mouse (ADR-023).
+    mouse: bool,
     /// The pane's visible image placements as last sent (REQ-GFX-001).
     images: Vec<m::ImagePlacement>,
 }
@@ -72,6 +74,7 @@ fn cursor(c: femux_vt::Cursor) -> m::Cursor {
         x: c.x,
         y: c.y,
         visible: c.visible,
+        blink: Some(c.blink),
         shape: match c.shape {
             femux_vt::CursorShape::Block => m::CursorShape::Block,
             femux_vt::CursorShape::Bar => m::CursorShape::Bar,
@@ -166,12 +169,15 @@ pub fn build(state: &std::sync::Mutex<State>, view_id: &str) -> Option<m::Frame>
             }
         }
         let cursor_changed = prev.is_none_or(|p| grid.cursor_generation > p.cursor);
-        if prev.is_none() || !runs.is_empty() || cursor_changed {
+        let mouse = vt.mouse_tracking();
+        let mouse_changed = prev.is_none_or(|p| p.mouse != mouse);
+        if prev.is_none() || !runs.is_empty() || cursor_changed || mouse_changed {
             panes.push(m::PaneFrame {
                 pane_id: pane_id.clone(),
                 rect: (*rect).into(),
                 cells: runs,
                 cursor: cursor(grid.cursor),
+                mouse: Some(mouse),
                 scroll_offset: 0,
             });
         }
@@ -182,6 +188,7 @@ pub fn build(state: &std::sync::Mutex<State>, view_id: &str) -> Option<m::Frame>
                 shape: grid.shape_generation,
                 rows,
                 cursor: grid.cursor_generation,
+                mouse,
                 images: placed,
             },
         ));

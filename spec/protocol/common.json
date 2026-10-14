@@ -178,6 +178,10 @@
         },
         "visible": {
           "type": "boolean"
+        },
+        "blink": {
+          "type": "boolean",
+          "description": "The program asked for a blinking cursor (DECSCUSR); absent means steady."
         }
       },
       "required": [

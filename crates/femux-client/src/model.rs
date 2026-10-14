@@ -13,12 +13,15 @@ pub struct PaneScreen {
     pub rect: m::Rect,
     pub rows: Vec<Vec<Option<m::Cell>>>,
     pub cursor: m::Cursor,
+    /// The pane's program tracks the mouse (ADR-023): drags go to it, not to a selection.
+    pub mouse: bool,
 }
 
 impl PaneScreen {
     pub fn apply(&mut self, pf: &m::PaneFrame) {
         self.rect = pf.rect.clone();
         self.cursor = pf.cursor.clone();
+        self.mouse = pf.mouse.unwrap_or(false);
         let (w, h) = (pf.rect.w as usize, pf.rect.h as usize);
         self.rows.resize_with(h, Vec::new);
         for r in &mut self.rows {

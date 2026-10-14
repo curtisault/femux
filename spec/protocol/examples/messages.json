@@ -1297,8 +1297,10 @@
        "x": 2,
        "y": 0,
        "shape": "bar",
-       "visible": true
+       "visible": true,
+       "blink": true
       },
+      "mouse": false,
       "scroll_offset": 0
      }
     ],
@@ -1568,6 +1570,16 @@
     "ts": 1760140802002,
     "pane_id": "01J9Z3K8M2N4P6Q8R0S2T4V6W8",
     "data": "aGVsbG8NCg=="
+   }
+  },
+  {
+   "dir": "event",
+   "kind": "pane.passthrough",
+   "body": {
+    "seq": 66,
+    "ts": 1760140802003,
+    "pane_id": "01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+    "data": "G1B0bXV4OxsbXTA7aGkHG1w="
    }
   }
  ]

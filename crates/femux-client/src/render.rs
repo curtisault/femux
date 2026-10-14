@@ -1079,6 +1079,7 @@ mod tests {
                 ],
             }],
             cursor: m::Cursor::default(),
+            mouse: None,
             scroll_offset: 0,
         });
         let mut s = Surface::new(8, 1);

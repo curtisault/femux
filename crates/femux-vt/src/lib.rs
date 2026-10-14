@@ -128,6 +128,8 @@ pub struct Cursor {
     pub y: u16,
     pub visible: bool,
     pub shape: CursorShape,
+    /// The program asked for a blinking cursor (DECSCUSR 1, 3, 5).
+    pub blink: bool,
 }
 
 /// Mirror of the visible viewport.
@@ -604,6 +606,21 @@ impl Terminal {
         self.string(ffi::GhosttyTerminalData::GHOSTTY_TERMINAL_DATA_PWD)
     }
 
+    /// Whether the program tracks the mouse (any of the X10, normal, button or any-event
+    /// modes), so a client should forward drags rather than select (REQ-UI-053).
+    pub fn mouse_tracking(&self) -> bool {
+        let mut on = false;
+        // SAFETY: the key's output type is bool.
+        unsafe {
+            self.get(
+                ffi::GhosttyTerminalData::GHOSTTY_TERMINAL_DATA_MOUSE_TRACKING,
+                &mut on,
+            )
+            .is_ok()
+                && on
+        }
+    }
+
     /// Whether DEC private mode `mode` is set.
     pub fn dec_mode(&self, mode: u16) -> bool {
         let mut m = ffi::GhosttyTerminalModeConfig {
@@ -687,6 +704,7 @@ impl Terminal {
                 x: cur.viewport_x,
                 y: cur.viewport_y,
                 visible: cur.visible && cur.viewport_has_value,
+                blink: cur.blinking,
                 shape: match cur.visual_style {
                     S::GHOSTTY_RENDER_STATE_CURSOR_VISUAL_STYLE_BAR => CursorShape::Bar,
                     S::GHOSTTY_RENDER_STATE_CURSOR_VISUAL_STYLE_UNDERLINE => CursorShape::Underline,
