@@ -352,9 +352,11 @@ impl App {
         }
         self.bindings = bindings;
         self.prefixes = cfg.prefix.iter().filter_map(|p| Chord::parse(p)).collect();
-        let chrome_changed = cfg.tabs != self.cfg.tabs;
+        // The tab strip or the bar moving can change the pane area's size, which the
+        // daemon must hear about; a bar moving between top and bottom only moves it.
+        let before = self.view_size();
         self.cfg = cfg;
-        if chrome_changed {
+        if self.view_size() != before {
             let (cols, rows) = (self.cols, self.rows);
             self.on_resize(cols, rows);
         }
@@ -2461,6 +2463,35 @@ mod tests {
                 .any(|(_, r)| matches!(r, Request::LayoutZoom(_))),
             "the new bindings apply"
         );
+    }
+
+    #[test]
+    fn a_reload_that_moves_the_bar_aside_resizes_the_view() {
+        let mut a = app(ClientConfig::default());
+        a.on_resize(100, 30);
+        a.take_out();
+        let resizes = |a: &mut App| -> Vec<(u16, u16)> {
+            a.take_out()
+                .into_iter()
+                .filter_map(|(_, r)| match r {
+                    Request::ViewResize(v) => Some((v.cols, v.rows)),
+                    _ => None,
+                })
+                .collect()
+        };
+        // Bottom to top: the same pane area, so the daemon has nothing to hear.
+        a.apply_config(ClientConfig {
+            bar: crate::config::BarPosition::Top,
+            ..Default::default()
+        });
+        assert!(resizes(&mut a).is_empty());
+        // Top to left: the panes lose the bar's columns and gain its row.
+        a.apply_config(ClientConfig {
+            bar: crate::config::BarPosition::Left,
+            ..Default::default()
+        });
+        assert_eq!(resizes(&mut a), [a.view_size()]);
+        assert!(a.view_size().0 < 100, "{:?}", a.view_size());
     }
 
     /// A client plugin that forwards clipboard events like the real `clipboard` plugin.
