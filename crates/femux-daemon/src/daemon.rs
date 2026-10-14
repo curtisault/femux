@@ -1957,7 +1957,8 @@ async fn reader(
         output.store(now, std::sync::atomic::Ordering::Relaxed);
         // A clipboard read is answered while the bytes are parsed, so the policy is decided
         // first, from the process in the foreground right now (REQ-SEC-002).
-        let read = carries_clipboard_read(&buf[..n]).then(|| d.clipboard_read_source(&*master));
+        let read =
+            carries_clipboard_read(&buf[..n]).then(|| d.clipboard_read_source(&id, &*master));
         let (replies, changes) = {
             let mut vt = vt.lock().unwrap();
             if let Some(source) = read {
@@ -2025,15 +2026,27 @@ fn carries_clipboard_read(bytes: &[u8]) -> bool {
 }
 
 impl Daemon {
-    /// What a clipboard read from the pane on `master` gets: the newest clipboard text when
+    /// What a clipboard read from pane `id` on `master` gets: the newest clipboard text when
     /// its foreground command is in `[clipboard] read_allow`, else nothing (REQ-SEC-002).
-    fn clipboard_read_source(&self, master: &impl std::os::fd::AsFd) -> Option<String> {
+    /// The command is looked up live; when that fails (macOS now and then: `tcgetpgrp` on
+    /// the master or `proc_name` with nothing to say), the poller's last answer stands in.
+    fn clipboard_read_source(&self, id: &str, master: &impl std::os::fd::AsFd) -> Option<String> {
         let allow = self.settings.lock().unwrap().read_allow.clone();
         if allow.is_empty() {
             return None;
         }
-        let fg = pty::foreground(master)?;
-        let cmd = pty::proc_name(fg).unwrap_or_default();
+        let live = pty::foreground(master).and_then(pty::proc_name);
+        let cmd = match live {
+            Some(c) => c,
+            None => self
+                .state
+                .lock()
+                .unwrap()
+                .panes
+                .get(id)
+                .map(|p| p.fg_cmd.clone())
+                .unwrap_or_default(),
+        };
         if !allow.contains(&cmd) {
             return None;
         }
