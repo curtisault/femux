@@ -453,7 +453,7 @@ pane_exited   = { desktop = false }
 
 `~/.config/femux/config.toml`, validated on load with line-numbered errors. Reload with `femux reload`.
 
-Note: `femux reload` validates the file, then the daemon applies `keep_alive`, `[terminal] scrollback_lines` (for new panes), `[restore]` and `[env] allow`, and attached clients re-read their keys, prefix, mouse, borders, tab strip, info bar, which-key delay and theme, resizing their view when the tab strip or bar moving changes the pane area. `[daemon] name` and `[plugins] enabled` take effect on the next start. An invalid file changes nothing (ADR-017 #3).
+Note: `femux reload` validates the file, then the daemon applies `keep_alive`, `[terminal] scrollback_lines` (for new panes), `[restore]`, `[env] allow` and `[notify]` (both sides of the notify plugin re-read it), and attached clients re-read their keys, prefix, mouse, borders, tab strip, info bar, which-key delay and theme, resizing their view when the tab strip or bar moving changes the pane area. `[daemon] name` and `[plugins] enabled` take effect on the next start. An invalid file changes nothing (ADR-017 #3).
 
 ```toml
 [daemon]
