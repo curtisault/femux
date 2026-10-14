@@ -81,6 +81,7 @@ Layer rules:
 
 - REQ-VT-001: Each pane has one libghostty-vt instance holding screen grid, scrollback, modes and cursor.
 - REQ-VT-002: The daemon MUST emit cell diffs per frame (changed cells, cursor, scroll regions) and MUST NOT send raw escape bytes to clients.
+  Note (0.9.0): the frame cursor carries `blink` beside `shape` (ADR-023), both as the pane program set them (DECSCUSR). The client sets the host cursor's shape and blink (DECSCUSR) to the focused pane's whenever they change, so neovim's insert-mode bar shows; prompts and overlays use the host's default cursor, and the client restores it on detach.
 - REQ-VT-003: Default scrollback is 10,000 lines per pane, configurable.
   Note: the limit is passed to libghostty-vt, which prunes whole pages, so retained history stays within one page of it (measured: up to ~2,300 lines under at 20 columns, ~600 at 80).
 - REQ-VT-004: Frames MUST be coalesced per client: if a client cannot keep up, it receives the newest full state, never a backlog.
@@ -235,7 +236,7 @@ Color      "default" | u8 | [r,g,b]
 ### 4.5 Frames (d→c)
 
 ```
-frame {view_id, frame_seq, full: bool, panes: [{pane_id, rect, cells: [ {x,y,run:[Cell]} ], cursor: {x,y,shape,visible}, scroll_offset}], tab: {id, title, index, count}, images: [{id, pane_id, placement}]}
+frame {view_id, frame_seq, full: bool, panes: [{pane_id, rect, cells: [ {x,y,run:[Cell]} ], cursor: {x,y,shape,visible,blink}, mouse, scroll_offset}], tab: {id, title, index, count}, images: [{id, pane_id, placement}]}
 ```
 
 - REQ-PROTO-040: A client acks frames with `frame.ack`; the daemon keeps at most one unacked frame per view and coalesces newer state into it.
@@ -244,6 +245,7 @@ frame {view_id, frame_seq, full: bool, panes: [{pane_id, rect, cells: [ {x,y,run
 ### 4.6 Events (d→c, `id = 0`)
 
 `session.created|renamed|closed`, `tab.created|selected|closed|moved|renamed`, `layout.changed{tab_id, tree}`, `pane.spawned|exited{code}|fg_changed{pid, cmd}|cwd_changed|title_changed|meta_changed{set,unset}|bell`, `view.attached|detached|resized`, `store.snapshot`, `events_lost{from,to}`.
+  Note (0.9.0): `pane.passthrough{pane_id, data}` carries one DCS sequence a pane program emitted, base64, only while `[terminal] passthrough = true` (REQ-SEC-004); like `pane.output` it is never retained for `since`.
 
 ### 4.7 Errors
 
@@ -358,6 +360,7 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
   Note: 0.2.0 implements the geometry and the `a=p` re-emission for `frame.images`; the daemon sends placements from 0.7.0 (GFX-*).
 - REQ-UI-053: Mouse support is on by default and fully disableable.
   Note: `[input] mouse = false` disables reporting entirely. A click focuses the pane under it and is forwarded; wheel events are forwarded to the pane (in copy mode they scroll the view); clicking the tab strip selects a tab.
+  Note (0.9.0): dragging with the left button selects text in the pane under it and releasing copies the selection the way `y` does in copy mode (OSC 52 on the host plus `clipboard.set`). The selection is linear from the press to the release in reading order, trailing blanks trimmed per line, lines joined with newlines, and stays highlighted until the next key or click. A pane whose program tracks the mouse (frame `mouse`, ADR-023) gets the drag instead, unless `shift` is held, which always selects. With `mouse = false` nothing is selected.
 
 ---
 
@@ -386,8 +389,10 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
 
 - REQ-SEC-001: No authentication code in femux. Local trust = same UID. Remote trust = OpenSSH.
 - REQ-SEC-002: `clipboard.set` is allowed from any pane; clipboard read requests from panes are denied unless the fg command is in `[clipboard] read_allow`.
+  Note (0.9.0): a read (OSC 52 `?`, OSC 5522) is decided when its bytes arrive, from the process in the pane's foreground at that moment, by command name (`read_allow = ["nvim"]`). An allowed read gets the newest clipboard text the daemon has seen (a `clipboard.set` or any pane's write; the daemon holds no clipboard of its own); a denied one gets an empty clipboard (EPERM for OSC 5522). `femux reload` applies the list.
 - REQ-SEC-003: Metadata and titles are sanitized for control characters before rendering.
 - REQ-SEC-004: DCS passthrough to the host terminal is off by default (`terminal.passthrough = false`).
+  Note (0.9.0): off, DCS sequences a pane program emits are dropped inside the VT (sixel is decoded into an image regardless, REQ-GFX-002). On, the daemon forwards each one as `pane.passthrough` and a client showing the pane writes it to its host terminal verbatim, so programs can reach the outer terminal (`DCS tmux; … ST` style wrappers included). `femux reload` applies the setting. OSC 52 writes, Kitty graphics and synchronized output are not passthrough: they are handled by their own requirements.
 - REQ-SEC-005: Environment persisted to the store is limited to `[env] allow` (default: `PATH HOME SHELL LANG LC_* TERM EDITOR`).
 - REQ-SEC-006: `femux update` verifies a signed checksum before replacing the binary and never restarts a running daemon.
 - REQ-SEC-007: Over SSH, notifications are forwarded as events; sound files are never transferred, only names resolved on the client.
@@ -599,7 +604,8 @@ Each minor version is one feature set and one GitButler branch named `v0.N.0`. P
 | 0.6.0 | SEC-007, plugin `hosts`, `attach --stdio`, socket forwarding | Attach over SSH; detach survives link drop; remote notifications play locally |
 | 0.7.0 | GFX-*, plugin `graphics` | `kitten icat` and `mpv --vo=kitty` work inside a pane; images survive reattach |
 | 0.8.0 | SESS-004 marks UI, float UI, plugins `git`, `broadcast`, `recorder` | Worktree tabs, broadcast typing, asciinema recording |
-| 1.0.0 | Protocol frozen, `spec/conformance.md` complete, docs site | Third-party client built from the schema alone |
+| 0.9.0 | SEC-002 (`read_allow`), SEC-004 (`passthrough`), UI-053 drag selection, VT-002 cursor shapes (ADR-023) | A pane in `read_allow` reads the clipboard back and one outside it gets nothing; `passthrough = true` lets a DCS reach the host; drag-and-release copies text; neovim's insert cursor is a bar |
+| 1.0.0 | Scoped in a release spec (`spec/RELEASE.md`), written when a release is ready; the protocol is not frozen before then | Set by the release spec |
 
 ---
 
