@@ -357,7 +357,7 @@ impl Conn {
 
 /// The message families the client uses (REQ-PROTO-020): the daemon refuses requests of
 /// families a connection did not ask for.
-pub const FEATURES: [&str; 12] = [
+pub const FEATURES: [&str; 13] = [
     "session",
     "tab",
     "layout",
@@ -370,6 +370,7 @@ pub const FEATURES: [&str; 12] = [
     "notify",
     "plugin",
     "image",
+    "server",
 ];
 
 /// What the `femux` binary hands the client.
@@ -380,6 +381,8 @@ pub struct Host {
     pub cli_commands: Vec<String>,
     /// Re-reads the client's config after `config.reloaded` (ADR-013).
     pub reload: Option<Box<dyn Fn() -> Result<ClientConfig, String> + Send>>,
+    /// `femux --debug`: put the daemon in this level on attach (REQ-LOG-003).
+    pub debug: Option<m::LogLevel>,
 }
 
 /// Collects output for the terminfo renderer.
@@ -585,6 +588,7 @@ fn relink(target: Target, hello_msg: m::Hello) -> std_mpsc::Receiver<Relink> {
 /// and runs the client until detach or until the session goes away. A remote link that drops
 /// is reconnected; the remote daemon keeps the session meanwhile.
 pub fn run(target: &Target, session: Option<&str>, host: Host) -> io::Result<()> {
+    term::restore_on_panic();
     let caps = Capabilities::new_from_env().map_err(other)?;
     // Before raw mode: ssh may need to ask about host keys or passwords.
     if let Some(r) = target.remote() {
@@ -631,6 +635,26 @@ pub fn run(target: &Target, session: Option<&str>, host: Host) -> io::Result<()>
     let mut conn = Conn::connect(target, false)?;
     let mut aside = hello(&mut conn, &hello_msg, first_wait)?;
     let attach = attach_session(&mut conn, session, area.w, area.h, &mut aside)?;
+    // REQ-LOG-003: a debug client switches the daemon; any client learns its level. A daemon
+    // from before 0.11.1 answers with an error, which leaves the level alone.
+    let debug = conn
+        .call(m::ServerDebug { level: host.debug }, &mut aside)
+        .ok()
+        .and_then(|r| match r {
+            Response::ServerDebug(d) => Some(d.level),
+            _ => None,
+        });
+    femux_log::info("client", "client.attach")
+        .session(&attach.snapshot.session)
+        .view(&attach.view_id)
+        .msg(format!("attached to {}", attach.snapshot.session))
+        .field("cols", area.w)
+        .field("rows", area.h)
+        .field("remote", target.remote().map(|r| r.label.clone()))
+        .field("kitty_graphics", probe.kitty_graphics)
+        .field("kitty_keyboard", probe.kitty_keyboard)
+        .field("sync_output", probe.sync_output)
+        .emit();
     let host_colors = theme::HostColors {
         dark_mode: probe.dark,
         fg: probe.fg,
@@ -650,6 +674,9 @@ pub fn run(target: &Target, session: Option<&str>, host: Host) -> io::Result<()>
         app.message = Some(e);
     }
     app.remote = target.remote().map(|r| r.label.clone());
+    if let Some(l) = debug {
+        app.set_debug(l);
+    }
     app.graphics.enabled = probe.kitty_graphics && app.cfg.kitty_graphics;
     app.graphics.sync = probe.sync_output;
     // ADR-021 #4: shared memory when the daemon is on this machine and the host reads it,

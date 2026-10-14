@@ -324,6 +324,9 @@ fn transient(app: &App) -> Option<Transient> {
     (!spans.is_empty()).then_some(Transient::Text(spans, cursor))
 }
 
+/// Beside the mode while the daemon is in debug mode (REQ-LOG-003).
+const DEBUG_LABEL: &str = " DEBUG ";
+
 fn mode_label(app: &App, theme: &Theme) -> (&'static str, CellAttributes) {
     if app.panel.focused
         && app.panel.open
@@ -366,8 +369,9 @@ fn mode_label(app: &App, theme: &Theme) -> (&'static str, CellAttributes) {
 fn after_chip(app: &App, theme: &Theme, x0: usize) -> usize {
     let (mode, _) = mode_label(app, theme);
     let mode_w = if mode.is_empty() { 0 } else { mode.len() + 2 };
-    // One cell of padding, the chip with its own spaces, the mode, one space.
-    x0 + 1 + app.session_chip().chars().count() + 2 + mode_w + 1
+    let debug_w = if app.debug { DEBUG_LABEL.len() } else { 0 };
+    // One cell of padding, the chip with its own spaces, the mode, `DEBUG`, one space.
+    x0 + 1 + app.session_chip().chars().count() + 2 + mode_w + debug_w + 1
 }
 
 /// The first `max` columns of `spans`: modules may ignore their width, the bar may not.
@@ -461,6 +465,9 @@ fn draw_bar(app: &mut App, c: &mut Canvas, theme: &Theme, l: &Layout, tr: &Optio
     let mut x = c.put(x0 + 1, y, &chip, &bold(attr(theme.accent_fg, theme.accent)));
     if !mode.is_empty() {
         x = c.put(x, y, &format!(" {mode} "), &mode_attr);
+    }
+    if app.debug {
+        x = c.put(x, y, DEBUG_LABEL, &bold(attr(theme.accent_fg, theme.warn)));
     }
     let start = (x + 1).min(end);
     let room = end - start;

@@ -30,6 +30,7 @@ launcher = ["dep:femux-plugin-launcher"]
 femux-proto = { path = "../femux-proto" }
 femux-plugin = { path = "../femux-plugin" }
 femux-config = { path = "../femux-config" }
+femux-log = { path = "../femux-log" }
 femux-client = { path = "../femux-client" }
 femux-daemon = { path = "../femux-daemon" }
 femux-plugin-agents = { path = "../plugins/agents", optional = true }

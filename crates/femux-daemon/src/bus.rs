@@ -131,6 +131,7 @@ impl Bus {
         let mut event = event.into();
         self.seq += 1;
         event.stamp(self.seq, now_ms());
+        crate::logging::published(&event);
         for sub in self.subs.values_mut() {
             if sub.filter.matches(&event, &scope) {
                 push(sub, &event, self.buffer_cap);
@@ -222,6 +223,13 @@ fn push(sub: &mut Sub, e: &Event, cap: usize) {
     } else if sub.queue.len() >= cap {
         sub.overflowing = true;
         sub.lost.push((s, s));
+        femux_log::warn("daemon.bus", "bus.lost")
+            .msg(format!(
+                "a subscriber's queue is full at {cap}: events from {s} are lost"
+            ))
+            .field("from", s)
+            .field("cap", cap)
+            .emit();
     } else {
         sub.queue.push_back(e.clone());
     }

@@ -945,6 +945,27 @@
    "body": {}
   },
   {
+   "dir": "request",
+   "kind": "server.debug",
+   "body": {
+    "level": "debug"
+   }
+  },
+  {
+   "dir": "request",
+   "kind": "server.debug",
+   "body": {}
+  },
+  {
+   "dir": "response",
+   "kind": "server.debug",
+   "body": {
+    "level": "debug",
+    "path": "/home/u/.local/state/femux/logs/default.jsonl",
+    "since": 1760140800000
+   }
+  },
+  {
    "dir": "event",
    "kind": "session.created",
    "body": {
@@ -1243,6 +1264,15 @@
    "body": {
     "seq": 60,
     "ts": 1760140800000
+   }
+  },
+  {
+   "dir": "event",
+   "kind": "server.debug_changed",
+   "body": {
+    "seq": 61,
+    "ts": 1760140800000,
+    "level": "trace"
    }
   },
   {

@@ -305,6 +305,8 @@ pub struct App {
     pub remote: Option<String>,
     /// Shown while a remote link is down (it outlives key presses, unlike `message`).
     pub link_status: Option<String>,
+    /// The daemon is in debug mode (REQ-LOG-003): the bar says `DEBUG`.
+    pub debug: bool,
     /// The daemon host's values from the `hosts` plugin (`plugin.data`), for `remote:` modules.
     pub remote_data: std::collections::BTreeMap<String, String>,
     /// Images on the host (REQ-GFX-001); enabled by the run loop when the host supports them.
@@ -406,6 +408,7 @@ impl App {
             inbox_fetched: None,
             remote: None,
             link_status: None,
+            debug: false,
             remote_data: std::collections::BTreeMap::new(),
             graphics: crate::graphics::Graphics::new(false),
             frame_images: Vec::new(),
@@ -884,6 +887,23 @@ impl App {
 
     /// What info modules may read (REQ-UI-031).
     /// What info modules may read (REQ-UI-031); `short` asks for their short form.
+    /// Follows the daemon's log level (REQ-LOG-003): this client logs at it too.
+    pub fn set_debug(&mut self, level: m::LogLevel) {
+        let l = match level {
+            m::LogLevel::Warn => femux_log::Level::Warn,
+            m::LogLevel::Debug => femux_log::Level::Debug,
+            m::LogLevel::Trace => femux_log::Level::Trace,
+        };
+        if femux_log::level().is_some() {
+            femux_log::set_level(l);
+        }
+        let on = l.is_debug();
+        if on != self.debug {
+            self.debug = on;
+            self.dirty = true;
+        }
+    }
+
     pub fn bar_ctx(&self, short: bool) -> femux_plugin::BarCtx {
         let tabs = self
             .model
@@ -1002,6 +1022,9 @@ impl App {
     fn on_event(&mut self, e: &Event) {
         if let Event::ConfigReloaded(_) = e {
             self.effects.push(Effect::Reload);
+        }
+        if let Event::ServerDebugChanged(d) = e {
+            self.set_debug(d.level);
         }
         if let Event::PluginData(d) = e
             && d.plugin == "hosts"

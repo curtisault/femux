@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 femux-proto = { path = "../femux-proto" }
 femux-plugin = { path = "../femux-plugin" }
+femux-log = { path = "../femux-log" }
 termwiz.workspace = true
 tokio.workspace = true
 libc = "0.2"
