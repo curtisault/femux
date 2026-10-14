@@ -1,5 +1,5 @@
 //! Actions and the default key tables (SPEC §5.1): the prefix table, the root table
-//! (`ctrl+p`, optional `alt+h/j/k/l`) and copy mode. `[keys.*]` in the config overrides by
+//! (empty by default, optional `alt+h/j/k/l`) and copy mode. `[keys.*]` in the config overrides by
 //! action name, which is also what `femux keys list|explain` and the palette show.
 
 use std::collections::BTreeMap;
@@ -32,11 +32,22 @@ pub enum Action {
     CopyMode,
     Paste,
     SessionNav,
-    WindowNav,
+    NewSession,
+    PaneNav,
     Palette,
     SideNav,
     /// The agent inbox (REQ-UI-044); bound by the agents plugin.
     Inbox,
+    /// The marks overlay (REQ-SESS-004).
+    Marks,
+    /// A scratch float, or show/hide the tab's floats (REQ-UI-011).
+    FloatScratch,
+    FloatNext,
+    FloatPrev,
+    /// Typing into every pane of the tab (broadcast plugin, ADR-022).
+    Broadcast,
+    /// Record the focused pane (recorder plugin).
+    Record,
     Detach,
     Help,
     NormalMode,
@@ -133,10 +144,17 @@ pub const ALL: &[Action] = &[
     Action::CopyMode,
     Action::Paste,
     Action::SessionNav,
-    Action::WindowNav,
+    Action::NewSession,
+    Action::PaneNav,
     Action::Palette,
     Action::SideNav,
     Action::Inbox,
+    Action::Marks,
+    Action::FloatScratch,
+    Action::FloatNext,
+    Action::FloatPrev,
+    Action::Broadcast,
+    Action::Record,
     Action::Detach,
     Action::Help,
     Action::NormalMode,
@@ -209,10 +227,17 @@ impl Action {
             CopyMode => "copy",
             Paste => "paste",
             SessionNav => "sessions",
-            WindowNav => "windows",
+            NewSession => "new session",
+            PaneNav => "panes",
             Palette => "palette",
             SideNav => "sidenav",
             Inbox => "inbox",
+            Marks => "marks",
+            FloatScratch => "float scratch",
+            FloatNext => "float next",
+            FloatPrev => "float prev",
+            Broadcast => "broadcast",
+            Record => "record",
             Detach => "detach",
             Help => "help",
             NormalMode => "normal",
@@ -289,15 +314,46 @@ impl Action {
             CopyMode => "copy mode".into(),
             Paste => "paste".into(),
             SessionNav => "session navigator".into(),
-            WindowNav => "window navigator".into(),
+            NewSession => "new session (asks for a name)".into(),
+            PaneNav => "pane navigator".into(),
             Palette => "command palette".into(),
             SideNav => "side nav".into(),
             Inbox => "agent inbox".into(),
+            Marks => "list marks".into(),
+            FloatScratch => "scratch float / hide floats".into(),
+            FloatNext => "next float".into(),
+            FloatPrev => "previous float".into(),
+            Broadcast => "type into every pane of the tab".into(),
+            Record => "record the pane".into(),
             Detach => "detach".into(),
             Help => "help".into(),
             NormalMode => "sticky normal mode".into(),
             SendPrefix => "send the prefix to the pane".into(),
-            _ => self.name().trim_start_matches("copy ").to_owned(),
+            CopyLeft => "cursor left".into(),
+            CopyDown => "cursor down".into(),
+            CopyUp => "cursor up".into(),
+            CopyRight => "cursor right".into(),
+            CopyWordNext => "next word".into(),
+            CopyWordPrev => "previous word".into(),
+            CopyWordEnd => "end of word".into(),
+            CopyLineStart => "start of line".into(),
+            CopyLineEnd => "end of line".into(),
+            CopyTop => "oldest line (press twice)".into(),
+            CopyBottom => "newest line".into(),
+            CopyHalfUp => "half a page up".into(),
+            CopyHalfDown => "half a page down".into(),
+            CopySearchDown => "search forward (regex)".into(),
+            CopySearchUp => "search backward (regex)".into(),
+            CopyNext => "next match".into(),
+            CopyPrev => "previous match".into(),
+            CopySelectChar => "select characters".into(),
+            CopySelectLine => "select lines".into(),
+            CopySelectBlock => "select a block".into(),
+            CopyYank => "copy the selection and leave".into(),
+            CopyPromptPrev => "previous shell prompt".into(),
+            CopyPromptNext => "next shell prompt".into(),
+            CopyExit => "leave copy mode".into(),
+            CopyClear => "clear the selection or search, else leave".into(),
         }
     }
 
@@ -305,11 +361,12 @@ impl Action {
     pub fn group(self) -> &'static str {
         use Action::*;
         match self {
-            Focus(_) | Resize(_) | Zoom | FloatToggle | Rotate | Preselect(_) => "panes",
+            Focus(_) | Resize(_) | Zoom | FloatToggle | Rotate | Preselect(_) | FloatScratch
+            | FloatNext | FloatPrev | Broadcast | Record => "panes",
             SplitDown | SplitRight | ClosePane | Equalize | SwapNext | Scheme(_) => "splits",
             NewTab | RenameTab | NextTab | PrevTab | Tab(_) => "tabs",
-            SetMark | JumpMark | CopyMode | Paste | Detach => "session",
-            SessionNav | WindowNav | Palette | SideNav | Inbox | Help | NormalMode | SendPrefix => {
+            SetMark | JumpMark | Marks | CopyMode | Paste | NewSession | Detach => "session",
+            SessionNav | PaneNav | Palette | SideNav | Inbox | Help | NormalMode | SendPrefix => {
                 "ui"
             }
             _ => "copy",
@@ -344,18 +401,20 @@ const PREFIX: &[(&str, Action)] = &[
     ("ctrl+j", Action::Preselect(Direction::J)),
     ("ctrl+k", Action::Preselect(Direction::K)),
     ("ctrl+l", Action::Preselect(Direction::L)),
-    ("s", Action::SplitDown),
-    ("v", Action::SplitRight),
+    ("-", Action::SplitDown),
+    ("|", Action::SplitRight),
+    ("\\", Action::SplitRight),
     ("x", Action::ClosePane),
     ("z", Action::Zoom),
     ("f", Action::FloatToggle),
     ("=", Action::Equalize),
     ("r", Action::Rotate),
-    ("w", Action::SwapNext),
+    ("e", Action::SwapNext),
     ("t", Action::NewTab),
     ("T", Action::RenameTab),
     ("n", Action::NextTab),
     ("p", Action::PrevTab),
+    ("N", Action::PrevTab),
     ("1", Action::Tab(1)),
     ("2", Action::Tab(2)),
     ("3", Action::Tab(3)),
@@ -367,18 +426,23 @@ const PREFIX: &[(&str, Action)] = &[
     ("9", Action::Tab(9)),
     ("m", Action::SetMark),
     ("'", Action::JumpMark),
+    ("M", Action::Marks),
+    ("F", Action::FloatScratch),
+    ("o", Action::FloatNext),
+    ("O", Action::FloatPrev),
     ("[", Action::CopyMode),
     ("]", Action::Paste),
-    ("S", Action::SessionNav),
-    ("W", Action::WindowNav),
+    ("s", Action::SessionNav),
+    ("S", Action::NewSession),
+    ("w", Action::PaneNav),
     (":", Action::Palette),
     ("b", Action::SideNav),
     ("d", Action::Detach),
     ("?", Action::Help),
-    ("escape", Action::NormalMode),
+    ("space", Action::NormalMode),
 ];
 
-const ROOT: &[(&str, Action)] = &[("ctrl+p", Action::Palette)];
+const ROOT: &[(&str, Action)] = &[];
 
 const PREFIXLESS: &[(&str, Action)] = &[
     ("alt+h", Action::Focus(Direction::H)),
@@ -520,6 +584,8 @@ impl Bindings {
                 }
                 continue;
             }
+            // The panel has room for the gist; asides like "(confirms if ...)" stay in help.
+            let desc = desc.split(" (").next().unwrap_or_default().to_owned();
             out.push(BoundKey {
                 key,
                 action: desc,
@@ -581,33 +647,42 @@ mod tests {
         let p = |k: &str| b.lookup(Table::Prefix, &Chord::parse(k).unwrap());
         assert_eq!(p("h"), Some(Action::Focus(Direction::H)));
         assert_eq!(p("L"), Some(Action::Resize(Direction::L)));
-        assert_eq!(p("s"), Some(Action::SplitDown));
-        assert_eq!(p("v"), Some(Action::SplitRight));
+        assert_eq!(p("-"), Some(Action::SplitDown));
+        assert_eq!(p("|"), Some(Action::SplitRight));
+        assert_eq!(p("\\"), Some(Action::SplitRight));
         assert_eq!(p("x"), Some(Action::ClosePane));
         assert_eq!(p("z"), Some(Action::Zoom));
         assert_eq!(p("f"), Some(Action::FloatToggle));
         assert_eq!(p("="), Some(Action::Equalize));
         assert_eq!(p("r"), Some(Action::Rotate));
-        assert_eq!(p("w"), Some(Action::SwapNext));
+        assert_eq!(p("e"), Some(Action::SwapNext));
         assert_eq!(p("t"), Some(Action::NewTab));
         assert_eq!(p("T"), Some(Action::RenameTab));
         assert_eq!(p("n"), Some(Action::NextTab));
         assert_eq!(p("p"), Some(Action::PrevTab));
+        assert_eq!(p("N"), Some(Action::PrevTab));
         assert_eq!(p("9"), Some(Action::Tab(9)));
         assert_eq!(p("m"), Some(Action::SetMark));
         assert_eq!(p("'"), Some(Action::JumpMark));
         assert_eq!(p("["), Some(Action::CopyMode));
         assert_eq!(p("]"), Some(Action::Paste));
-        assert_eq!(p("S"), Some(Action::SessionNav));
-        assert_eq!(p("W"), Some(Action::WindowNav));
+        assert_eq!(p("s"), Some(Action::SessionNav));
+        assert_eq!(p("S"), Some(Action::NewSession));
+        assert_eq!(p("w"), Some(Action::PaneNav));
+        assert_eq!(p("o"), Some(Action::FloatNext));
+        assert_eq!(p("O"), Some(Action::FloatPrev));
+        assert_eq!(p("v"), None, "split right left `v` for `|`");
+        assert_eq!(p("W"), None, "navigators are lowercase");
         assert_eq!(p(":"), Some(Action::Palette));
         assert_eq!(p("b"), Some(Action::SideNav));
         assert_eq!(p("d"), Some(Action::Detach));
         assert_eq!(p("?"), Some(Action::Help));
-        assert_eq!(p("esc"), Some(Action::NormalMode));
+        assert_eq!(p("space"), Some(Action::NormalMode));
+        assert_eq!(p("esc"), None, "esc cancels the prefix");
+        // REQ-UI-043: the palette has no root key until the user adds one.
         assert_eq!(
             b.lookup(Table::Root, &Chord::parse("ctrl+p").unwrap()),
-            Some(Action::Palette)
+            None
         );
         // REQ-UI-004: alt+h/j/k/l exist but are off by default.
         assert_eq!(b.lookup(Table::Root, &Chord::parse("alt+h").unwrap()), None);

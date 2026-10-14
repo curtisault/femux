@@ -461,6 +461,14 @@
         },
         "scheme": {
           "$ref": "#/$defs/Scheme"
+        },
+        "broadcast": {
+          "type": "boolean",
+          "description": "Input to any pane of the tab goes to all of them (ADR-022)."
+        },
+        "floats_hidden": {
+          "type": "boolean",
+          "description": "The floats are hidden: still running, not shown (ADR-022)."
         }
       },
       "required": [

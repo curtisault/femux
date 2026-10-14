@@ -69,7 +69,7 @@ The TUI client is the only client in v1. It attaches to a daemon, receives frame
 - **Layout engine:** BSP tiling with preselection, equalize, swap, rotate, zoom, and floating panes; master-stack and scrolling layouts as alternative schemes. Layouts are serializable so templates and restore reuse the same type
 - **Tabs:** a tab strip with a running-process indicator (fg process is not the shell), an urgency hint on bell or agent state change, and a title taken from OSC 2 or the fg command
 - **Info bar:** one bar, placed top, bottom, left or right, built from modules declared in config with an ordered list and a format string. Modules are plugins: clock, cpu, memory, network, battery, git branch, agent states, notification queue. A module reads the machine the client runs on; a module prefixed remote: reads the daemon's machine, so an SSH session can show both. A vertical bar stacks modules; the client reserves the space and the daemon never knows
-- **Navigators:** fullscreen session navigator and window navigator (tree view with previews), a command palette (`ctrl+p`) over every bound action, and an optional side nav listing sessions for mouse users
+- **Navigators:** fullscreen session navigator and window navigator (tree view with previews), a command palette (`prefix :`) over every bound action, and an optional side nav listing sessions for mouse users
 - **Mouse:** click focus, drag resize, wheel scrollback, drag select, all optional
 - **Rendering:** diff-based output with synchronized updates (mode 2026); Kitty graphics re-placed with pane offsets; theme from the host terminal's palette query with a light/dark override
 

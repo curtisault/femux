@@ -1,4 +1,4 @@
-//! The session navigator (REQ-UI-040), the window navigator (REQ-UI-041) and the side nav
+//! The session navigator (REQ-UI-040), the pane navigator (REQ-UI-041) and the side nav
 //! (REQ-UI-042). All three read a [`Directory`] of every session the daemon holds, refreshed
 //! through the protocol while one of them is open.
 
@@ -28,6 +28,19 @@ impl DirSession {
         tree_panes(&t.tree, &mut out);
         out.extend(t.floats.iter().map(|f| f.id.clone()));
         out
+    }
+
+    /// The tab strip's title for `t` (REQ-UI-021), so the navigators agree with it.
+    pub fn tab_title(&self, t: &m::TabSnapshot) -> String {
+        if let Some(c) = &t.custom_title {
+            return c.clone();
+        }
+        match self.panes.get(&t.focus) {
+            Some(p) if p.pid != 0 && p.fg_pid == p.pid => {
+                crate::model::pane_title(&p.cwd, true, &p.fg_cmd, &p.title)
+            }
+            _ => t.title.clone(),
+        }
     }
 
     /// `agent.state` -> count over the session's panes.
@@ -85,10 +98,10 @@ impl Directory {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NavKind {
-    /// `S`: sessions, expandable to their tabs (REQ-UI-040).
+    /// `prefix s`: sessions, expandable to their tabs (REQ-UI-040).
     Sessions,
-    /// `W`: sessions → tabs → panes (REQ-UI-041).
-    Windows,
+    /// `prefix w`: every pane, under its tab and session (REQ-UI-041).
+    Panes,
 }
 
 /// An open navigator.
@@ -99,20 +112,21 @@ pub struct NavState {
     /// `/` is taking the filter text.
     pub filtering: bool,
     pub selected: usize,
-    /// Sessions shown expanded (the session navigator; the window navigator shows all).
+    /// Sessions shown expanded to their tabs (the session navigator; the pane navigator shows
+    /// all). Nothing starts expanded: a list of sessions shows sessions.
     pub expanded: BTreeSet<String>,
     /// The pane shown in the preview and its screen lines (REQ-UI-041: a live preview).
     pub preview: Option<(String, Vec<Vec<m::Cell>>)>,
 }
 
 impl NavState {
-    pub fn new(kind: NavKind, current: &str) -> NavState {
+    pub fn new(kind: NavKind, _current: &str) -> NavState {
         NavState {
             kind,
             filter: String::new(),
             filtering: false,
             selected: 0,
-            expanded: [current.to_owned()].into(),
+            expanded: BTreeSet::new(),
             preview: None,
         }
     }
@@ -164,19 +178,42 @@ fn matches(filter: &str, text: &str) -> bool {
 }
 
 /// What a navigator lists, filtered and expanded as `nav` says.
+/// A pane's name as the tab strip would show it (REQ-UI-021): `<shell> <dir>` while its shell
+/// is at the prompt, else the program's title, its command, or its directory.
+fn pane_label(i: &m::PaneInfoOk, shell_fg: bool) -> String {
+    let dir = crate::model::short_dir(&i.cwd);
+    if shell_fg && !i.fg_cmd.is_empty() {
+        return if dir.is_empty() {
+            i.fg_cmd.clone()
+        } else {
+            format!("{} {dir}", i.fg_cmd)
+        };
+    }
+    if !i.title.is_empty() {
+        return i.title.clone();
+    }
+    if !i.fg_cmd.is_empty() {
+        return i.fg_cmd.clone();
+    }
+    dir
+}
+
 pub fn rows(nav: &NavState, dir: &Directory, current: &str) -> Vec<Row> {
     let mut out = Vec::new();
     for s in &dir.sessions {
         let name = &s.summary.name;
-        let tab_hit =
-            |t: &m::TabSnapshot| matches(&nav.filter, &t.title) || matches(&nav.filter, name);
+        let tab_hit = |t: &m::TabSnapshot| {
+            matches(&nav.filter, &s.tab_title(t)) || matches(&nav.filter, name)
+        };
         if !matches(&nav.filter, name) && !s.tabs.iter().any(tab_hit) {
             continue;
         }
         let expanded =
-            nav.kind == NavKind::Windows || nav.expanded.contains(name) || !nav.filter.is_empty();
+            nav.kind == NavKind::Panes || nav.expanded.contains(name) || !nav.filter.is_empty();
+        // Every row says what it is: a session, a tab or a pane.
         let mut label = vec![
             Span::new(if expanded { "▾ " } else { "▸ " }, Style::Muted),
+            Span::new("session ", Style::Muted),
             Span::new(
                 name.clone(),
                 if name == current {
@@ -188,11 +225,10 @@ pub fn rows(nav: &NavState, dir: &Directory, current: &str) -> Vec<Row> {
             Span::new(format!(" {}", short_path(&s.summary.root)), Style::Muted),
         ];
         label.extend(agent_spans(&s.agents()));
-        let right = if name == current {
-            "attached".to_owned()
-        } else {
-            plural(s.summary.tabs as usize, "tab")
-        };
+        let mut right = plural(s.summary.tabs as usize, "tab");
+        if name == current {
+            right.push_str(" · attached");
+        }
         out.push(Row {
             depth: 0,
             target: NavTarget::Session(name.clone()),
@@ -204,7 +240,7 @@ pub fn rows(nav: &NavState, dir: &Directory, current: &str) -> Vec<Row> {
         }
         for t in s.tabs.iter().filter(|t| tab_hit(t)) {
             let panes = DirSession::tab_panes(t);
-            let mut label = vec![Span::text(format!("{} {}", t.index + 1, t.title))];
+            let mut label = vec![Span::text(format!("{} {}", t.index + 1, s.tab_title(t)))];
             if t.zoomed {
                 label.push(Span::new(" Z", Style::Muted));
             }
@@ -229,6 +265,7 @@ pub fn rows(nav: &NavState, dir: &Directory, current: &str) -> Vec<Row> {
                 label.push(Span::new(format!("  {glyph} "), style));
                 label.push(Span::text(who));
             }
+            label.insert(0, Span::new("tab ", Style::Muted));
             out.push(Row {
                 depth: 1,
                 target: NavTarget::Tab {
@@ -238,21 +275,25 @@ pub fn rows(nav: &NavState, dir: &Directory, current: &str) -> Vec<Row> {
                 label,
                 right: plural(panes.len(), "pane"),
             });
-            if nav.kind != NavKind::Windows {
+            if nav.kind != NavKind::Panes {
                 continue;
             }
             for p in panes {
                 let info = s.panes.get(&p);
-                let what = info
+                // Titled like the tab strip (REQ-UI-021): `fish ~` for a shell at its prompt,
+                // else the program, with its directory after it.
+                let (what, cwd) = info
                     .map(|i| {
-                        if !i.title.is_empty() {
-                            i.title.clone()
+                        let shell_fg = i.pid != 0 && i.fg_pid == i.pid;
+                        let what = pane_label(i, shell_fg);
+                        let cwd = if shell_fg || i.cwd.is_empty() {
+                            String::new()
                         } else {
-                            i.fg_cmd.clone()
-                        }
+                            format!(" {}", short_path(&i.cwd))
+                        };
+                        (what, cwd)
                     })
                     .unwrap_or_default();
-                let cwd = info.map(|i| short_path(&i.cwd)).unwrap_or_default();
                 let focus = if p == t.focus { "● " } else { "  " };
                 out.push(Row {
                     depth: 2,
@@ -264,7 +305,7 @@ pub fn rows(nav: &NavState, dir: &Directory, current: &str) -> Vec<Row> {
                     label: vec![
                         Span::new(focus, Style::Accent),
                         Span::text(what),
-                        Span::new(format!(" {cwd}"), Style::Muted),
+                        Span::new(cwd, Style::Muted),
                     ],
                     right: String::new(),
                 });
@@ -427,7 +468,7 @@ pub(crate) fn draw_navigator(
     }
     let title = match nav.kind {
         NavKind::Sessions => "Sessions",
-        NavKind::Windows => "Windows",
+        NavKind::Panes => "Panes",
     };
     let x = c.put(1, 0, title, &bold(attr(theme.text, bg)));
     let mut count = plural(app.dir.sessions.len(), "session");
@@ -439,7 +480,7 @@ pub(crate) fn draw_navigator(
         NavKind::Sessions => {
             "j/k move · enter attach · n new · r rename · x kill · tab expand · / filter · q close"
         }
-        NavKind::Windows => "j/k move · enter go · / filter · q close",
+        NavKind::Panes => "j/k move · enter go · / filter · q close",
     };
     c.put(
         w.saturating_sub(hints.chars().count() + 1),
@@ -633,39 +674,104 @@ mod tests {
     fn ui_040_sessions_expand_to_tabs_and_filter() {
         let d = dir();
         let mut nav = NavState::new(NavKind::Sessions, "api");
+        // A list of sessions shows sessions: nothing is expanded until `tab` asks.
+        let r = rows(&nav, &d, "api");
+        assert_eq!(
+            texts(&r),
+            ["▸ session api /code/api  ■ 1", "▸ session writing /w"]
+        );
+        assert_eq!(
+            (r[0].right.as_str(), r[1].right.as_str()),
+            ("2 tabs · attached", "1 tab")
+        );
+        nav.expanded.insert("api".into());
         let r = rows(&nav, &d, "api");
         assert_eq!(
             texts(&r),
             [
-                "▾ api /code/api  ■ 1",
-                "  1 shell",
-                "  2 agents  ■ claude",
-                "▸ writing /w"
+                "▾ session api /code/api  ■ 1",
+                "  tab 1 shell",
+                "  tab 2 agents  ■ claude",
+                "▸ session writing /w"
             ]
         );
-        assert_eq!(
-            (r[0].right.as_str(), r[3].right.as_str()),
-            ("attached", "1 tab")
-        );
         assert_eq!(r[2].right, "2 panes");
-        nav.expanded.clear();
-        assert_eq!(rows(&nav, &d, "api").len(), 2);
         // A filter matches session names and tab titles, and opens what it matches.
         nav.filter = "NOT".into();
-        assert_eq!(texts(&rows(&nav, &d, "api")), ["▾ writing /w", "  1 notes"]);
+        assert_eq!(
+            texts(&rows(&nav, &d, "api")),
+            ["▾ session writing /w", "  tab 1 notes"]
+        );
         nav.filter = "zzz".into();
         assert!(rows(&nav, &d, "api").is_empty());
     }
 
     #[test]
-    fn ui_041_windows_list_every_pane_and_preview_the_selection() {
-        let d = dir();
-        let nav = NavState::new(NavKind::Windows, "api");
+    fn ui_021_navigator_tab_titles_match_the_tab_strip() {
+        let mut d = dir();
+        // The shell in the foreground: `<shell> <dir>`, not its OSC 2 `~ - fish`.
+        d.on_pane(
+            "writing",
+            m::PaneInfoOk {
+                id: "D".into(),
+                pid: 7,
+                fg_pid: 7,
+                fg_cmd: "fish".into(),
+                title: "~ - fish".into(),
+                cwd: "/w/notes".into(),
+                ..Default::default()
+            },
+        );
+        let mut nav = NavState::new(NavKind::Sessions, "writing");
+        nav.expanded.insert("writing".into());
+        let t = texts(&rows(&nav, &d, "writing"));
+        assert!(t.contains(&"  tab 1 fish notes".to_owned()), "{t:#?}");
+        // A program in the foreground keeps the daemon's title; a rename beats both.
+        let s = d.sessions.iter().find(|s| s.summary.name == "api").unwrap();
+        assert_eq!(s.tab_title(&s.tabs[1]), "agents");
+        let mut renamed = s.tabs[1].clone();
+        renamed.custom_title = Some("mine".into());
+        assert_eq!(s.tab_title(&renamed), "mine");
+    }
+
+    #[test]
+    fn ui_041_panes_list_every_pane_and_preview_the_selection() {
+        let mut d = dir();
+        // A shell at its prompt: `<shell> <dir>`, not its OSC 2 `~ - fish`, and no directory
+        // repeated after it; a program keeps its title and shows its directory.
+        d.on_pane(
+            "writing",
+            m::PaneInfoOk {
+                id: "D".into(),
+                pid: 7,
+                fg_pid: 7,
+                fg_cmd: "fish".into(),
+                title: "~ - fish".into(),
+                cwd: "/w/notes".into(),
+                ..Default::default()
+            },
+        );
+        d.on_pane(
+            "api",
+            m::PaneInfoOk {
+                id: "C".into(),
+                pid: 7,
+                fg_pid: 9,
+                fg_cmd: "nvim".into(),
+                title: "main.rs".into(),
+                cwd: "/code/api/src".into(),
+                ..Default::default()
+            },
+        );
+        let nav = NavState::new(NavKind::Panes, "api");
         let r = rows(&nav, &d, "api");
         let t = texts(&r);
         // Two sessions, three tabs, four panes.
         assert_eq!(t.len(), 2 + 3 + 4, "{t:#?}");
         assert!(t[4].starts_with("    ● claude"), "{t:#?}");
+        assert_eq!(t[5], "      main.rs /code/api/src", "{t:#?}");
+        assert_eq!(t[8], "    ● fish notes", "{t:#?}");
+        assert!(t[1].starts_with("  tab 1 "), "{t:#?}");
         assert_eq!(
             r[4].target,
             NavTarget::Pane {

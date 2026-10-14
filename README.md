@@ -7,18 +7,20 @@ from the `femux` CLI. Agent tracking and the other extras are built-in plugins o
 
 ## Status
 
-femux is pre-1.0 and at version 0.7: a client and CLI meant for daily use, locally and over SSH,
+femux is pre-1.0 and at version 0.8: a client and CLI meant for daily use, locally and over SSH,
 with sessions that can survive a daemon restart and tracking of the coding agents running in them.
 
 Working now: tabs, BSP splits with preselection, master and scroll layouts, floating panes, zoom,
 marks, copy mode with regex search, a command palette, which-key hints, mouse support, an info
 bar on any side with cpu, memory, network, battery, git, agent and notification modules, session
-and window navigators, a side nav, themes, the `femux` CLI with `--json` output, session files
+and pane navigators, a side nav, themes, the `femux` CLI with `--json` output, session files
 with `femux launch`, opt-in restore of sessions after the daemon restarts
 (`[restore] enabled = true`), agent state tracking with an inbox, notifications, attaching
 to a remote femux over SSH, and images: Kitty graphics and sixel from programs such as
 `kitten icat` and `mpv --vo=kitty`, drawn when your terminal speaks the Kitty graphics
-protocol (`femux graphics list` shows what each pane holds). The order
+protocol (`femux graphics list` shows what each pane holds), git worktree tabs (`femux git tab
+<branch>`), typing into every pane of a tab at once (`prefix B`) and asciinema recording of a
+pane (`prefix R`, `femux record`). The order
 they arrive in is the milestone table in [SPEC §13](spec/SPEC.md#13-milestones-and-branches).
 
 ## Build
@@ -43,9 +45,10 @@ femux keys list       # every key binding and the action it runs
 ```
 
 Inside femux, press `ctrl+space` to reach the prefix table. Wait a moment and a panel lists
-every chord; `ctrl+space d` detaches and leaves everything running. `ctrl+p` opens the command
-palette, `ctrl+space S` and `ctrl+space W` the session and window navigators, and
-`ctrl+space b` the side nav.
+every chord; `ctrl+space d` detaches and leaves everything running. `ctrl+space :` opens the
+command palette, `ctrl+space s` and `ctrl+space w` the session and pane navigators, and
+`ctrl+space -` and `ctrl+space |` split the pane. [docs/prefixes.md](docs/prefixes.md) lists
+every key, explains how the table is laid out and shows how to change it.
 
 To jump between prompts in copy mode and keep each pane's directory accurate, load the shell
 integration from your shell's rc file:
@@ -114,6 +117,8 @@ the remote socket with `ssh -L` instead of running the protocol over the SSH cha
 
 ## Documentation
 
+- [docs/prefixes.md](docs/prefixes.md) lists every key binding by table, generated from the
+  defaults and checked by a test.
 - [spec/SPEC.md](spec/SPEC.md) is the single source of truth: requirements, protocol,
   bindings and milestones.
 - [spec/ARCHITECTURE.md](spec/ARCHITECTURE.md) explains the design and why it is shaped this way.

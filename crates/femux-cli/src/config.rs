@@ -54,7 +54,7 @@ mod tests {
         assert_eq!(cc.which_key_delay, Duration::from_millis(400));
         assert!(cc.mouse);
         assert_eq!(
-            cc.keys_prefix.get("s").map(String::as_str),
+            cc.keys_prefix.get("-").map(String::as_str),
             Some("split down")
         );
     }

@@ -100,10 +100,10 @@ async fn all_default_bindings_work() {
     let a = d.pane.clone();
     d.wait_pane_text(&a, "$").await;
     // s / v: split below / right; focus follows the new pane.
-    d.press_all(&["ctrl+space", "v"]).await;
+    d.press_all(&["ctrl+space", "|"]).await;
     d.until("2 panes", |x| x.model.panes.len() == 2).await;
     let b = d.app.model.focused_id().unwrap();
-    d.press_all(&["ctrl+space", "s"]).await;
+    d.press_all(&["ctrl+space", "-"]).await;
     d.until("3 panes", |x| x.model.panes.len() == 3).await;
     let c = d.app.model.focused_id().unwrap();
     // h j k l: focus.
@@ -139,7 +139,7 @@ async fn all_default_bindings_work() {
     d.settle().await;
     let rot = d.layout().await;
     assert_ne!(rot.tree, eq.tree, "rotate flipped the split");
-    d.press_all(&["ctrl+space", "w"]).await;
+    d.press_all(&["ctrl+space", "e"]).await;
     d.settle().await;
     let sw = d.layout().await;
     assert_ne!(sw.tree, rot.tree, "swap reordered panes");
@@ -211,7 +211,7 @@ async fn all_default_bindings_work() {
     assert!(d.screen().contains("prefix table"));
     d.press("escape").await;
     // S / W: the navigators (0.4.0), q closes them; b toggles the side nav.
-    for k in ["S", "W"] {
+    for k in ["s", "w"] {
         d.press_all(&["ctrl+space", k]).await;
         assert!(matches!(d.app.overlay, Overlay::Navigator(_)), "{k}");
         d.press("q").await;
@@ -231,8 +231,8 @@ async fn all_default_bindings_work() {
     d.press_all(&["ctrl+space", "x"]).await;
     d.press("y").await;
     d.until("closed", |x| !x.model.panes.contains_key(&c)).await;
-    // prefix esc: sticky normal; esc back. prefix prefix passes through. d detaches.
-    d.press_all(&["ctrl+space", "escape"]).await;
+    // prefix space: sticky normal; esc back. prefix prefix passes through. d detaches.
+    d.press_all(&["ctrl+space", "space"]).await;
     assert_eq!(d.app.mode, Mode::Normal);
     d.press("escape").await;
     assert_eq!(d.app.mode, Mode::Terminal);

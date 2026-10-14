@@ -67,7 +67,7 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | --- | --- | --- |
 | REQ-UI-001 | femux-client `ui_modes::ui_001_three_modes` | pass |
 | REQ-UI-002 | femux-client `ui_modes::ui_002_prefix_is_one_shot_and_configurable`, `keys::tests::*`, `bindings::tests::every_default_binding_of_spec_5_1_exists`, `app::tests::a_bound_prefix_action_sends_the_prefix_itself` | pass |
-| REQ-UI-003 | femux-client `ui_overlays::ui_003_which_key_shows_after_the_delay`; femux-plugin-which-key `tests::groups_stay_together_in_columns`, `tests::only_in_prefix_mode` | pass |
+| REQ-UI-003 | femux-client `ui_overlays::ui_003_which_key_shows_after_the_delay`; femux-plugin-which-key `tests::groups_stay_together_in_columns`, `tests::long_lines_are_clipped_to_their_column`, `tests::groups_are_cut_into_even_columns_in_order`, `tests::only_in_prefix_mode` | pass |
 | REQ-UI-004 | femux-client `ui_modes::ui_004_prefixless_nav_is_off_by_default` | pass |
 | REQ-UI-010 | femux-daemon `layout::tests::master_and_scroll_schemes_follow_pane_order`; femux-test `scheme::ui_010_schemes_change_the_geometry`; femux-client `ui_layout::ui_010_preselection_places_the_next_split` | pass |
 | REQ-UI-011 | femux-client `ui_floats::ui_011_floats_render_above_tiles_and_follow_the_mouse`; femux-test `session::sess_002_layout_tree_nodes` (floats beside the tree) | pass |
@@ -103,7 +103,7 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-STORE-006 | femux-test `store::store_006_scrollback_is_opt_in`; femux-daemon `persist::tests::history_bytes_redraw_text_and_styles`, `store::tests::store_001_002_snapshot_roundtrip_wal_and_mode` (compressed) | pass |
 | REQ-STORE-007 | femux-daemon `store::tests::store_007_unloadable_files_are_backed_up_never_overwritten`; femux-test `store::store_007_a_bad_store_is_backed_up_and_the_daemon_starts` | pass |
 | REQ-STORE-008 | femux-client `app::tests::store_008_restored_panes_have_a_dashed_border_until_a_command_runs`; femux-test `store::store_004_sessions_come_back_with_their_ids_layout_and_marks` (daemon mark) | pass |
-| `femux reload` (ADR-013) | femux-test `store::server_reload_applies_the_config_or_changes_nothing`; femux-cli `cli::reload_applies_the_config_to_the_running_daemon`; femux-client `app::tests::config_reloaded_asks_for_the_config_and_applies_it` | pass |
+| `femux reload` (ADR-013) | femux-test `store::server_reload_applies_the_config_or_changes_nothing`; femux-cli `cli::reload_applies_the_config_to_the_running_daemon`; femux-client `app::tests::config_reloaded_asks_for_the_config_and_applies_it`, `app::tests::a_reload_that_moves_the_bar_aside_resizes_the_view`; femux-plugin-notify `reload::notify_actions_follow_a_reload` | pass |
 | REQ-CFG-001 | femux-config `tests::session_files_list_tabs_then_plain_shells`; femux-cli `cli::cfg_001_002_launch_from_a_file_and_from_flags`; femux-plugin-launcher `tests::cfg_002_flags_build_the_same_session_as_a_file` | pass |
 | REQ-CFG-002 | femux-cli `cli::cfg_001_002_launch_from_a_file_and_from_flags`; femux-plugin-launcher `tests::*` | pass |
 | Plugin `launcher` | femux-cli `cli::cfg_001_002_launch_from_a_file_and_from_flags`; femux-test `repo::plug_003_plugins_depend_on_the_protocol_crates_only` | pass |
@@ -159,7 +159,7 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | --- | --- | --- |
 | REQ-UI-010 (`[layout] scheme`, `gaps`) | femux-daemon `layout::tests::gaps_widen_every_separator_and_give_way_when_space_is_short`; femux-test `scheme::layout_config_sets_the_scheme_and_gaps`; femux-client `render::tests::borders_run_down_the_middle_of_gaps` | pass |
 | REQ-UI-051 (background before mode 2031, colors from the terminal) | femux-client `theme::tests::picks_by_name_then_background_then_mode`, `theme::tests::terminal_theme_takes_the_hosts_colors` | pass |
-| REQ-UI-021 (shell titles) | femux-client `ui_tabs::ui_021_title_precedence`, `ui_tabs::ui_020_tab_strip_shows_running_urgent_and_zoom` | pass |
+| REQ-UI-021 (shell titles) | femux-client `ui_tabs::ui_021_title_precedence`, `ui_tabs::ui_020_tab_strip_shows_running_urgent_and_zoom`, `nav::tests::ui_021_navigator_tab_titles_match_the_tab_strip` | pass |
 | REQ-UI-030 (padding, no TERMINAL label or prefix hint) | femux-client `ui_bar::ui_030_the_bar_sits_on_any_side_and_the_panes_move_over` | pass |
 
 ## 0.7.0
@@ -173,3 +173,27 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-GFX-004 | femux-vt `graphics::tests::gfx_004_image_memory_is_capped_and_old_images_go_first` | pass |
 | Plugin `graphics` (`femux graphics list`) | femux-cli `graphics::graphics_list_shows_the_images_a_pane_holds`, `cli::cli_001_every_subcommand_has_json`; femux-plugin-graphics `tests::*` | pass |
 | 0.7.0 acceptance | femux-test `graphics::acceptance_mpv_plays_into_a_pane` (`mpv --vo=kitty`, where mpv is installed), femux-vt `graphics::tests::icat_style_query_and_temp_file_transfer_work` (icat's query and temp-file transfer), femux-test `graphics::gfx_001_003_placements_reach_clients_and_survive_reattach` (images survive reattach) | pass |
+
+## 0.8.0
+
+| Requirement | Tests | Status |
+| --- | --- | --- |
+| REQ-PROTO-010 (ADR-022 tab flags, mark removal, pane.output) | femux-test `tabflags::*`; femux-proto `schema::*` | pass |
+| REQ-SESS-004 (marks overlay) | femux-client `ui_marks_floats::sess_004_marks_overlay_lists_jumps_and_deletes`; femux-test `tabflags::marks_can_be_cleared` | pass |
+| REQ-UI-011 (scratch, hidden and cycled floats) | femux-client `ui_marks_floats::ui_011_scratch_float_hides_shows_and_cycles`; femux-test `tabflags::hidden_floats_leave_the_frame_and_the_focus` | pass |
+| REQ-PLUG-004 `git` 0.8 (worktree tabs) | femux-cli `plugins08::git_worktree_tabs_open_list_and_go`; `cli::cli_001_every_subcommand_has_json` | pass |
+| REQ-PLUG-004 `broadcast` 0.8 | femux-cli `plugins08::broadcast_on_types_into_every_pane`; femux-client `ui_marks_floats::broadcast_and_record_toggles`; femux-test `tabflags::*` | pass |
+| REQ-PLUG-004 `recorder` 0.8 | femux-cli `plugins08::recordings_are_asciinema_casts`; femux-plugin-recorder `casts_are_asciinema_v2_and_keep_utf8_whole` | pass |
+| 0.8.0 acceptance: worktree tabs, broadcast typing, asciinema recording | femux-cli `plugins08::*` | pass |
+
+## 0.8.1
+
+| Requirement | Tests | Status |
+| --- | --- | --- |
+| REQ-UI-030 (`session <name>` chip, `tab 2/5` module, `main` default) | femux-client `ui_bar::ui_030_the_bar_sits_on_any_side_and_the_panes_move_over`, `ui_bar::acceptance_0_4_bar_on_all_four_sides_with_every_built_in_module`, `ui_bar::ui_032_remote_modules_show_the_daemon_hosts_values`; femux-cli `remote::*` | pass |
+| REQ-UI-040 (sessions listed as sessions, rows named by kind) | femux-client `nav::tests::ui_040_sessions_expand_to_tabs_and_filter`, `ui_nav::ui_040_session_navigator_lists_attaches_renames_creates_and_kills` | pass |
+| REQ-UI-041 (pane navigator) | femux-client `nav::tests::ui_041_panes_list_every_pane_and_preview_the_selection`, `ui_nav::ui_041_pane_navigator_previews_panes_live_and_goes_to_them` | pass |
+| REQ-UI-002 (re-keyed prefix table: `s`/`w` navigators, `S` new session, `-`/`|` splits, `e` swap, `p`/`N` previous tab, `o`/`O` floats, `space` sticky normal, `esc` cancels) | femux-client `bindings::tests::every_default_binding_of_spec_5_1_exists`, `ui_modes::ui_002_prefix_is_one_shot_and_configurable`, `acceptance::*`, `ui_nav::*`, `ui_marks_floats::ui_011_scratch_float_hides_shows_and_cycles`; femux-cli `cli::cli_001_every_subcommand_has_json`, `config::tests::example_config_feeds_the_client`; femux-config `tests::example_config_is_exactly_the_defaults` | pass |
+| REQ-UI-043 (no root key by default; `[keys.root]` restores `ctrl+p`) | femux-client `ui_overlays::ui_043_palette_fuzzy_searches_actions_and_cli_commands`, `bindings::tests::every_default_binding_of_spec_5_1_exists` | pass |
+| REQ-UI-040 (`prefix S` names and starts a session) | femux-client `ui_nav::ui_040_prefix_shift_s_names_and_starts_a_session` | pass |
+| REQ-UI-002 (`docs/prefixes.md` matches the default bindings) | femux-cli `plugins::tests::prefixes_doc_matches_the_default_bindings` | pass |

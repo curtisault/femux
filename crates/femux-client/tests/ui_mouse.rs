@@ -13,7 +13,7 @@ async fn ui_053_mouse_focuses_forwards_and_can_be_disabled() {
     let mut d = Drive::new(ClientConfig::default()).await;
     let pane = d.pane.clone();
     d.wait_pane_text(&pane, "$").await;
-    d.press_all(&["ctrl+space", "v"]).await;
+    d.press_all(&["ctrl+space", "|"]).await;
     d.until("two panes", |a| a.model.panes.len() == 2).await;
     let right = d.app.model.focused_id().unwrap();
     assert_ne!(right, pane);

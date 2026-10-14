@@ -7,7 +7,7 @@ pixel-exact output: fonts, colors and glyphs follow the user's terminal and them
 | Image | Shows | Requirements |
 | --- | --- | --- |
 | `main.png` | Tab strip with running/urgency/zoom markers, BSP layout (one wide pane, two stacked), per-pane header with agent name, cwd, state, source, bottom info bar with session, mode, agent counts, git, cpu, mem, net, clock | UI-020, UI-021, UI-030, UI-032, AGT-001–004, SESS-002 |
-| `which-key.png` | Overlay after `ctrl+space`: every prefix-table chord grouped by purpose, info bar showing PREFIX mode | UI-002, UI-003, §5.1 default bindings |
+| `which-key.png` | Overlay after `ctrl+space`: every prefix-table chord grouped by purpose, info bar showing PREFIX mode. The keys predate the 0.8.3 re-key; §5.1 is authoritative (`s`/`w` navigators, `S` new session, `-`/`\|` splits, `e` swap, `space` sticky normal) | UI-002, UI-003, §5.1 default bindings |
 | `inbox.png` | Agent inbox overlay: rows for blocked, error and done panes across sessions and machines, one-key answer for approvals, source shown per row, state counts in footer | UI-044, AGT-001–004, NOTIFY-002 |
 | `session-nav.png` | Full-screen session navigator: tree of sessions and tabs with agent summaries, remote and restored sessions marked, live preview of the selected pane | UI-040, UI-041, STORE-008, §6 restore |
 | `sidebar.png` | Info bar on the left (vertical stacking, `remote:` module, notification queue), side nav open, zoomed pane with Z marker | UI-030, UI-032, UI-033, UI-042, SESS-005 |

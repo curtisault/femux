@@ -101,6 +101,26 @@
         "tab_id",
         "title"
       ]
+    },
+    "TabSet": {
+      "type": "object",
+      "description": "Changes a tab's flags; absent ones stay as they are.",
+      "properties": {
+        "tab_id": {
+          "$ref": "common.json#/$defs/TabId"
+        },
+        "broadcast": {
+          "type": "boolean",
+          "description": "Input to any pane of the tab goes to all of its panes."
+        },
+        "floats_hidden": {
+          "type": "boolean",
+          "description": "Hide the tab's floats (they keep running); focus leaves a hidden float."
+        }
+      },
+      "required": [
+        "tab_id"
+      ]
     }
   },
   "x-messages": [
@@ -127,6 +147,11 @@
     {
       "kind": "tab.rename",
       "request": "TabRename",
+      "response": "Empty"
+    },
+    {
+      "kind": "tab.set",
+      "request": "TabSet",
       "response": "Empty"
     }
   ]

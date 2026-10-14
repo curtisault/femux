@@ -58,6 +58,26 @@ impl PaneScreen {
     }
 }
 
+/// A tab's title from its focused pane (REQ-UI-021), for the attached session and the
+/// navigators alike. `shell_fg`: the pane's own shell is in the foreground.
+pub fn pane_title(cwd: &str, shell_fg: bool, fg_cmd: &str, title: &str) -> String {
+    let dir = short_dir(cwd);
+    if shell_fg && !fg_cmd.is_empty() {
+        return if dir.is_empty() {
+            fg_cmd.to_owned()
+        } else {
+            format!("{fg_cmd} {dir}")
+        };
+    }
+    if !title.is_empty() {
+        return title.to_owned();
+    }
+    if !fg_cmd.is_empty() {
+        return fg_cmd.to_owned();
+    }
+    dir
+}
+
 /// `~` for the home directory, else the last path component (`/` for the root).
 pub fn short_dir(cwd: &str) -> String {
     if cwd.is_empty() {
@@ -111,6 +131,10 @@ pub struct Tab {
     pub focus: String,
     /// Bell or agent state change while not the current tab (REQ-UI-020).
     pub urgent: bool,
+    /// Typing goes to every pane (ADR-022).
+    pub broadcast: bool,
+    /// The floats are hidden (ADR-022).
+    pub floats_hidden: bool,
 }
 
 /// Panes of a layout tree in order.
@@ -186,6 +210,8 @@ impl Model {
                 scheme: t.scheme,
                 focus: t.focus.clone(),
                 urgent: false,
+                broadcast: t.broadcast.unwrap_or(false),
+                floats_hidden: t.floats_hidden.unwrap_or(false),
             };
             for p in tab.panes() {
                 model.panes.insert(
@@ -236,21 +262,7 @@ impl Model {
         let Some(p) = self.panes.get(&tab.focus) else {
             return String::new();
         };
-        let dir = short_dir(&p.cwd);
-        if p.known && !p.running() && !p.fg_cmd.is_empty() {
-            return if dir.is_empty() {
-                p.fg_cmd.clone()
-            } else {
-                format!("{} {dir}", p.fg_cmd)
-            };
-        }
-        if !p.title.is_empty() {
-            return p.title.clone();
-        }
-        if !p.fg_cmd.is_empty() {
-            return p.fg_cmd.clone();
-        }
-        dir
+        pane_title(&p.cwd, p.known && !p.running(), &p.fg_cmd, &p.title)
     }
 
     /// Whether any pane of `tab` is a restored shell (REQ-STORE-008).
@@ -348,6 +360,12 @@ impl Model {
                     self.tabs.insert(at, tab);
                 }
             }
+            Event::TabFlags(f) => {
+                if let Some(tab) = self.tab_mut(&f.tab_id) {
+                    tab.broadcast = f.broadcast;
+                    tab.floats_hidden = f.floats_hidden;
+                }
+            }
             Event::TabRenamed(t) => {
                 if let Some(tab) = self.tab_mut(&t.tab_id) {
                     tab.custom_title = Some(t.title.clone());
@@ -430,6 +448,11 @@ impl Model {
             Event::PaneBell(p) => {
                 if let Some(tab) = self.panes.get(&p.pane_id).map(|p| p.tab.clone()) {
                     self.mark_urgent(&tab);
+                }
+            }
+            Event::PaneMarked(p) if p.cleared == Some(true) => {
+                if self.marks.get(&p.mark) == Some(&p.pane_id) {
+                    self.marks.remove(&p.mark);
                 }
             }
             Event::PaneMarked(p) => {

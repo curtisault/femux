@@ -381,6 +381,7 @@ async fn sess_003_one_event_per_mutation() {
         PaneMark {
             pane_id: a.clone(),
             mark: "q".into(),
+            clear: None,
         },
     )
     .await;
@@ -501,6 +502,7 @@ async fn sess_004_marks() {
         c.call(PaneMark {
             pane_id: p.clone(),
             mark: ch.to_string(),
+            clear: None,
         })
         .await
         .unwrap();
@@ -509,7 +511,8 @@ async fn sess_004_marks() {
         assert!(
             c.call(PaneMark {
                 pane_id: a.clone(),
-                mark: bad.into()
+                mark: bad.into(),
+                clear: None,
             })
             .await
             .is_err(),
@@ -520,6 +523,7 @@ async fn sess_004_marks() {
     c.call(PaneMark {
         pane_id: b.clone(),
         mark: "a".into(),
+        clear: None,
     })
     .await
     .unwrap();

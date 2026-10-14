@@ -103,6 +103,7 @@ Layer rules:
 - REQ-SESS-003: Every mutation MUST emit exactly one event (§4.6) after the mutation is applied.
   Note: a request that performs several mutations emits one event per mutation (e.g. `layout.split` emits `pane.spawned`, `layout.changed`, `layout.focused`).
 - REQ-SESS-004: Marks: a pane may carry up to 26 single-letter marks per session (`a`–`z`), used by `jump_to_mark`.
+  Note (0.8.0): `prefix M` opens the marks overlay: each mark of the session with its tab number and what its pane shows. A mark's letter or `enter` jumps there, `j`/`k` move, `x` deletes the selected mark (`pane.mark` with `clear`), `q` closes. A tiled pane shows its marks on the border above it (`'a 'b`).
 - REQ-SESS-005: Zoom is a per-tab flag; a zoomed tab renders only its focused pane and the tab strip.
 
 ### 3.5 Client views
@@ -255,10 +256,12 @@ frame {view_id, frame_seq, full: bool, panes: [{pane_id, rect, cells: [ {x,y,run
 ### 5.1 Modes
 
 - REQ-UI-001: Three modes: `terminal` (default; keys go to the focused pane), `normal` (vim motions act on layout), `copy` (scrollback).
-- REQ-UI-002: Prefix (default `ctrl+space`, list allowed) enters a one-shot `prefix` table; `prefix prefix` sends the prefix to the pane; `prefix esc` enters sticky `normal`.
-  Note: sticky `normal` uses the prefix table directly; `esc` (or the prefix key) returns to `terminal`. An unbound key after the prefix is swallowed and named in the status line.
+- REQ-UI-002: Prefix (default `ctrl+space`, list allowed) enters a one-shot `prefix` table; `prefix prefix` sends the prefix to the pane; `prefix space` enters sticky `normal`; `prefix esc` cancels.
+  Note: sticky `normal` uses the prefix table directly; `esc`, `space` or the prefix key returns to `terminal`. An unbound key after the prefix is swallowed and named in the status line; `esc` is swallowed silently.
+  Note (0.8.3): `prefix esc` used to enter sticky `normal`. It now cancels, since `esc` is the reflex after an accidental prefix, and `space` is the easy key to reach after `ctrl+space`.
 - REQ-UI-003: A which-key overlay lists available chords after `ui.which_key_delay_ms` (default 400).
   Note: the panel is the `which-key` plugin's; with the plugin disabled the delay passes silently and the table still works.
+  Note: the panel splits the pane area's width into up to four even columns (at least 30 cells each). Groups stay whole and in order, cut so the tallest column is shortest; text is clipped to its column with `…`, and descriptions drop parenthetical asides (help keeps them).
 - REQ-UI-004: Prefix-less bindings (`alt+h/j/k/l`) exist but are off by default.
 
 Default bindings (prefix table unless noted):
@@ -267,29 +270,34 @@ Default bindings (prefix table unless noted):
 | --- | --- |
 | `h j k l` | focus left/down/up/right |
 | `H J K L` | resize in direction |
-| `s` / `v` | split below / right |
+| `-` / `\|` (also `\`) | split below / right |
 | `x` | close pane (confirm if fg process ≠ shell) |
 | `z` | zoom toggle |
 | `f` | float/tile toggle |
 | `=` | equalize |
 | `r` | rotate split |
-| `w` | swap with next |
+| `e` | swap (exchange) with next |
 | `t` / `T` | new tab / rename tab |
-| `n` / `p` / `1-9` | next / previous / nth tab |
+| `n` / `p` (also `N`) / `1-9` | next / previous / nth tab |
 | `m<a-z>` / `'<a-z>` | set / jump to mark |
+| `o` / `O` | next / previous float |
 | `[` | copy mode |
 | `]` | paste |
-| `S` | session navigator |
-| `W` | window navigator |
+| `s` | session navigator |
+| `S` | new session (asks for a name) |
+| `w` | pane navigator |
 | `:` | command palette |
 | `b` | toggle side nav |
 | `d` | detach |
 | `?` | help |
-| `ctrl+p` (root) | command palette |
+| `space` | sticky normal mode |
 
 Copy mode: `hjkl`, `w b e`, `0 $`, `gg G`, `ctrl+u/d`, `/ ? n N` (regex), `v V ctrl+v` select, `y` yank (OSC 52 + clipboard.set), `[ ]` previous/next prompt mark, `q` exit.
 
-Note: `]` pastes the newest server clipboard text the client has seen (its own yank or any `clipboard.changed`). `S`, `W` and `b` open the navigators and the side nav from 0.4.0 (they were inert in 0.2.0). `x` confirms when the pane's foreground process is not its shell (`pane.info.pid`). Action names for `[keys.*]` are listed by `femux keys list`.
+Note (0.8.3): the table was re-keyed so that one rule covers it: a lowercase letter acts or opens the list it names (`s` sessions, `w` panes, `b` side nav, `i` inbox), and shift on a letter means the same object the other way, its overview or a new one (`n`/`N` tabs, `o`/`O` floats, `m`/`M` marks, `t`/`T` tabs, `f`/`F` floats, `s`/`S` sessions, `h`/`H` focus and resize). `p` stays previous tab beside `N`, and `]` stays paste beside `[` copy mode, as in tmux. Splits moved to `-` and `|` (with `\` for those who would rather not hold shift), swap to `e` for exchange, and float cycling to `o`/`O`; `W`, `v`, `g` and `G` are unbound. Until 0.8.1 the table had `s`/`v` splits, `w` swap, `g`/`G` floats and `S`/`W` navigators.
+Note (0.8.3): `S` opens a `new session` prompt holding the focused pane's directory name (empty in the home directory). `enter` creates the session rooted in that directory and switches to it; `esc` cancels; a name already taken is refused and named in the status line.
+Note (0.8.3): `docs/prefixes.md` is the user-facing key reference. Its tables are generated from the default bindings and every built-in plugin's keys; femux-cli `plugins::tests::prefixes_doc_matches_the_default_bindings` fails when they drift, and `UPDATE_DOCS=1` rewrites them.
+Note: `]` pastes the newest server clipboard text the client has seen (its own yank or any `clipboard.changed`). `s`, `w` and `b` open the navigators and the side nav from 0.4.0 (they were inert in 0.2.0). `x` confirms when the pane's foreground process is not its shell (`pane.info.pid`). Action names for `[keys.*]` are listed by `femux keys list`.
 
 ### 5.2 Layout
 
@@ -298,6 +306,7 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
   Note (0.6.1): `[layout] scheme` is the scheme new tabs start in. `[layout] gaps = n` widens every separator between tiled panes to `1 + 2n` cells with the border down the middle, falling back to one cell where a split is too small for it; the outer edge gets no margin. `femux reload` re-applies gaps to open tabs; the scheme applies to tabs created afterwards.
 - REQ-UI-011: Floating panes render above tiles; mouse drag moves and resizes them.
   Note: dragging a float's top border moves it, dragging its bottom-right corner resizes it; both send `layout.float` with the new rect (ADR-016 #5).
+  Note (0.8.0): `prefix F` opens a scratch float (a new shell in the tab's directory, floated and focused) when the tab has none, and otherwise hides or shows the tab's floats (`tab.set floats_hidden`): hidden floats keep running, leave the screen and give up focus. `prefix o`/`O` focus the next/previous float, showing hidden ones (`g`/`G` until 0.8.1, when `o` was read as "other float" to match the `n`/`N` shape). A float's border carries its pane's title.
 - REQ-UI-012: Layout templates can be saved and loaded by name (`femux layout save|load`); they serialize `layout.get` output plus cwd and cmd per pane.
   Note: one JSON file per name under `$XDG_STATE_HOME/femux/layouts/` (macOS: `~/Library/Application Support/femux/layouts/`); `load` opens a new tab and rebuilds the tree by splitting, re-running each pane's `cmd`; `list` names the files and `export` prints a template, or the current tab when no name is given.
 
@@ -306,12 +315,13 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
 - REQ-UI-020: The tab strip shows index, title, a running indicator when the fg process is not the shell, an urgency marker on bell or agent state change in an unfocused tab, and a zoom marker.
   Note: "not the shell" is `pane.info.fg_pid != pid` (ADR-016 #1); urgency (`!`) comes from `pane.bell` or a `pane.meta_changed` setting `agent.state` and clears when the tab is selected; zoom shows `Z`.
 - REQ-UI-021: Title precedence: user rename > OSC 2 > fg command > cwd basename.
-  Note (0.6.1): while the shell itself is in the foreground (the pane runs no other program), the title is `<shell> <dir>` (`~` for home, else the last path component) instead of the shell's OSC 2 title, which is usually that same information spelled `~ - fish`. A program's OSC 2 title still beats its command name.
+  Note (0.6.1): while the shell itself is in the foreground (the pane runs no other program), the title is `<shell> <dir>` (`~` for home, else the last path component) instead of the shell's OSC 2 title, which is usually that same information spelled `~ - fish`. A program's OSC 2 title still beats its command name. The session navigator and window navigator show the same titles as the tab strip.
 
 ### 5.4 Info bar
 
 - REQ-UI-030: One bar at `top|bottom|left|right`; `left` and `right` are vertical and stack modules.
   Note: a `left`/`right` bar is a 24-column column the full height of the terminal, with the tab strip and panes beside it; the session chip and mode come first, the `left` modules follow from the top and the `right` ones are anchored to the bottom. Prompts, confirmations and messages use the bar row, or with a vertical bar the bottom row of the pane area while they are shown.
+  Note (0.8.1): the chip reads `session <name>` (`session <host>:<name>` over `--host`), so a session named by a number never reads as a tab index; the `tabs` module on a horizontal bar renders `tab 2/5` (`!` after it when another tab is urgent) instead of a second row of tab numbers, and the default `left` is `["session"]` because the tab strip already lists the tabs. `femux` with no session to attach to creates one named `main`.
   Note (0.6.1): the horizontal bar keeps one cell of padding at each end. It shows no mode label while typing into panes, only `PREFIX`, `NORMAL`, `COPY` and the navigators' names, and no permanent prefix hint (the which-key panel shows the prefix table).
 - REQ-UI-031: Modules are listed in config in order; each is a plugin implementing `InfoModule { fn render(&self, w: usize) -> Spans; fn interval(&self) -> Duration }`.
   Note: modules also get `sample(&mut self, ctx)`, called every `max(interval(), [infobar] interval_ms)` and only for modules the config shows, and `render` reads a `BarCtx` (session, tabs, agent counts, the focused pane's cwd, notifications of hidden panes, orientation). Unknown names are skipped. `session` is the client's own chip and mode, so with the `infobar` plugin disabled the bar still shows them.
@@ -323,13 +333,16 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
 
 ### 5.5 Navigators and overlays
 
-- REQ-UI-040: Session navigator (`S`): full-screen list of sessions with tab counts, agent summary, last activity; `enter` attaches, `x` kills, `r` renames, `/` filters.
+- REQ-UI-040: Session navigator (`s`; `S` starts a new one): full-screen list of sessions with tab counts, agent summary, last activity; `enter` attaches, `x` kills, `r` renames, `/` filters.
   Note: each session row shows its root, agent summary and tab count (`attached` for this client's own); `tab` expands a session to its tabs; created, last activity (ADR-018 #1), tab, pane and client counts sit under the preview. `n` creates a session; `x` asks first, and killing the attached session first moves this client to another one. `enter` attaches by detaching this client's view and attaching to the chosen session.
-- REQ-UI-041: Window navigator (`W`): tree of sessions → tabs → panes with a live preview of the selected pane.
+  Note (0.8.1): the list shows sessions only until `tab` expands one; every row names its kind (`session api`, `tab 1 fish ~`), the session row's right side reads `5 tabs · attached`, and the footer counts tabs, panes and clients. A session's tabs never appear as sessions.
+- REQ-UI-041: Window navigator (`w`): tree of sessions → tabs → panes with a live preview of the selected pane.
+  Note (0.8.1): named the pane navigator (`PANES` on the bar, action `panes`): femux has no window object, a tab owns its layout of panes, and the tree's leaves are panes. Pane rows are titled like the tab strip (`● fish ~`, or the program and its directory).
   Note: the preview reads the selected pane's screen with `scrollback.read` every 500 ms; `enter` goes to the pane, attaching to its session when it is another one.
 - REQ-UI-042: Side nav (`b`): persistent left column listing sessions and tabs; click to switch.
   Note: 26 columns, between a `left` bar and the panes, which the daemon resizes. The attached session is expanded to its tabs and the others are collapsed; clicking a session attaches to it, clicking a tab selects it. Sessions refresh every 2 s while the side nav or a navigator is open.
-- REQ-UI-043: Command palette (`ctrl+p`, `prefix :`): fuzzy search over all bound actions and CLI subcommands.
+- REQ-UI-043: Command palette (`prefix :`): fuzzy search over all bound actions and CLI subcommands.
+  Note (0.8.3): no root key by default. `ctrl+p` was bound at the root until 0.8.1, but it is readline's and fish's history key and the usual fuzzy-finder key inside editors, which ADR-008 set out to avoid; `[keys.root] "ctrl+p" = "palette"` restores it.
   Note: actions are listed by name (`femux keys list`) with their description and key; choosing a CLI subcommand types `femux <subcommand> ` into the focused pane. Matching is subsequence-based.
 - REQ-UI-044: Inbox overlay (agents plugin): list of panes in `blocked|done|error` with one-key jump and one-key respond.
   Note: `prefix i` (bound by the agents plugin to the client action `inbox`). Rows sort blocked, error, done, newest first, across every session; each shows what the pane's last screen line says. `1`-`9` and `enter` jump to the pane, `j/k` move, `y`/`n`/`a` type that letter plus Enter into a blocked pane, `x` dismisses (sets `agent.state=idle`, `source=hook`), `/` filters, `q`/`escape` close.
@@ -389,6 +402,9 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
   Note: the traits live in `crates/femux-plugin` (added to §12), which depends only on `femux-proto`; a daemon plugin runs as a protocol client, in-process or not.
 - REQ-PLUG-003: Plugins use only `femux-proto` to talk to the core; a plugin MAY run out-of-process.
 - REQ-PLUG-004: Built-in plugin list and their versions: `agents` (0.5), `infobar` (0.4), `notify` (0.5), `git` (0.8), `clipboard` (0.2), `graphics` (0.7), `shell-integration` (0.2), `broadcast` (0.8), `which-key` (0.2), `recorder` (0.8), `hosts` (0.6), `theme` (0.4), `launcher` (0.3).
+  Note (0.8.0): `git` worktree tabs: `femux git tab <branch>` makes (or reuses) a worktree at `<repo root>/.worktrees/<branch>`, creating the branch when it does not exist, keeps `.worktrees/` out of `git status` through `.git/info/exclude`, and opens a tab there titled with the branch (or selects the tab already titled so). `femux git tabs` lists the worktrees and their tabs; `femux git rm <branch> [--force]` refuses a worktree with uncommitted changes, closes its tabs and removes it. The repository is the one the command runs in.
+  Note (0.8.0): `broadcast`: `prefix B` (or the `broadcast` action) toggles the tab's `broadcast` flag (`tab.set`); while it is on, keys and pastes typed into any pane go to every tiled and floating pane of the tab, mouse input does not, and borders take the warning color. `femux broadcast on|off [tab]` sets it, defaulting to the tab of `$FEMUX_PANE`.
+  Note (0.8.0): `recorder`: `prefix R` (or the `record` action) toggles the pane metadata `recorder.on`; the daemon-side plugin then subscribes to `pane.output` for that pane and writes an asciinema v2 cast to `<state dir>/recordings/femux-<unix time>-<pane>.cast`, naming it in `recorder.file` while recording and `recorder.last` after. The cast's size is the pane's at the start. `femux record [pane] [file] [--duration s]` records in the foreground until interrupted or the duration ends.
 
 ---
 
@@ -437,7 +453,7 @@ pane_exited   = { desktop = false }
 
 `~/.config/femux/config.toml`, validated on load with line-numbered errors. Reload with `femux reload`.
 
-Note: `femux reload` validates the file, then the daemon applies `keep_alive`, `[terminal] scrollback_lines` (for new panes), `[restore]` and `[env] allow`, and attached clients re-read their keys, prefix, mouse, borders, tab strip and theme. `[daemon] name` and `[plugins] enabled` take effect on the next start. An invalid file changes nothing (ADR-017 #3).
+Note: `femux reload` validates the file, then the daemon applies `keep_alive`, `[terminal] scrollback_lines` (for new panes), `[restore]`, `[env] allow` and `[notify]` (both sides of the notify plugin re-read it), and attached clients re-read their keys, prefix, mouse, borders, tab strip, info bar, which-key delay and theme, resizing their view when the tab strip or bar moving changes the pane area. `[daemon] name` and `[plugins] enabled` take effect on the next start. An invalid file changes nothing (ADR-017 #3).
 
 ```toml
 [daemon]
@@ -530,7 +546,7 @@ cwd = "~/writing/notes"
 
 ## 11. CLI
 
-`femux` (attach or start), `femux daemon [--foreground]`, `femux attach [session] [--host h] [--stdio]`, `femux ls`, `femux new <name>`, `femux kill <name>`, `femux launch <name|file>`, `femux tab new|close|rename|select`, `femux pane split|close|focus|resize|info|set|cat|signal|respawn`, `femux layout save|load|list|export`, `femux agent …`, `femux integration install|uninstall`, `femux keys list|explain`, `femux config check|edit`, `femux reload`, `femux reload`, `femux update [--check]`, `femux hosts add|list|rm`, `femux notify test`, `femux graphics list [pane]`.
+`femux` (attach or start), `femux daemon [--foreground]`, `femux attach [session] [--host h] [--stdio]`, `femux ls`, `femux new <name>`, `femux kill <name>`, `femux launch <name|file>`, `femux tab new|close|rename|select`, `femux pane split|close|focus|resize|info|set|cat|signal|respawn`, `femux layout save|load|list|export`, `femux agent …`, `femux integration install|uninstall`, `femux keys list|explain`, `femux config check|edit`, `femux reload`, `femux reload`, `femux update [--check]`, `femux hosts add|list|rm`, `femux notify test`, `femux graphics list [pane]`, `femux git tab|tabs|rm`, `femux broadcast on|off`, `femux record`.
 
 - REQ-CLI-001: Every subcommand has `--json` output.
 - REQ-CLI-002: Inside a pane, commands default to that pane (`$FEMUX_PANE`).
@@ -609,7 +625,7 @@ Each minor version is one feature set and one GitButler branch named `v0.N.0`. P
 | 005 | Compiled-in plugins, config-enabled | No TPM, no supply-chain surface, no ABI; PRs via issues |
 | 006 | Tiered agent detection, hooks first | Screen scraping is the last resort, not the design |
 | 007 | `termwiz` for the client | Kitty keyboard and graphics support; drives multiplexing in WezTerm |
-| 008 | `ctrl+space` prefix, prefix-less nav off | Avoids Neovim and agent conflicts by default |
+| 008 | `ctrl+space` prefix, prefix-less nav off, no root keys | Avoids Neovim, shell and agent conflicts by default |
 | 009 | Restore off by default; opt-in per tab | Re-running commands is a security decision the user makes explicitly |
 | 010 | MIT license | Maximum adoption, no copyleft friction for native clients |
 | 011 | Linux reference, macOS supported | `/proc` is the only reliable fg-process state source |

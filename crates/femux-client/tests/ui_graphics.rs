@@ -53,7 +53,7 @@ async fn gfx_001_images_reach_the_host_at_the_pane_position() {
     d.app.sync_graphics();
     assert!(d.app.graphics.take_output().is_empty());
     // A full-screen overlay hides it; closing it puts it back without reading again.
-    d.press_all(&["ctrl+space", "W"]).await;
+    d.press_all(&["ctrl+space", "w"]).await;
     let out = host_until(&mut d, "a=d,").await;
     assert!(out.contains("\x1b_Ga=d,d=i,i=1,p=1,q=2\x1b\\"));
     d.press("q").await;

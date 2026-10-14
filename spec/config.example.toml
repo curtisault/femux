@@ -22,7 +22,7 @@ running_indicator = "●"
 
 [infobar]
 position = "bottom"           # top | bottom | left | right
-left  = ["session", "tabs"]
+left  = ["session"]           # "tabs" adds a `tab 2/5` counter (the strip lists them)
 right = ["agents", "git", "cpu", "mem", "net", "clock"]
 interval_ms = 1000
 
@@ -56,12 +56,13 @@ hold_ms = 5000
 agent_done = { sound = "bell", desktop = true, only_when_hidden = true }
 
 [plugins]
-enabled = ["agents", "infobar", "notify", "clipboard", "shell-integration", "which-key", "launcher", "hosts", "graphics"]
+enabled = ["agents", "infobar", "notify", "clipboard", "shell-integration", "which-key", "launcher", "hosts", "graphics", "git", "broadcast", "recorder"]
 
 [ui]
 which_key_delay_ms = 400
 
 [keys.prefix]
-"s" = "split down"
-"v" = "split right"
-# any action name from `femux keys list`
+"-" = "split down"
+"|" = "split right"
+# any action name from `femux keys list`; `[keys.root]` binds without the prefix,
+# e.g. "ctrl+p" = "palette"

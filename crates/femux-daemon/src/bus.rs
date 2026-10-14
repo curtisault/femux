@@ -10,6 +10,9 @@ use femux_proto::Event;
 use femux_proto::msg::{EventsLost, EventsSubscribe};
 use tokio::sync::Notify;
 
+/// The raw output event's kind.
+const OUTPUT: &str = "pane.output";
+
 /// What an event is about, for subscription filters.
 #[derive(Debug, Clone, Default)]
 pub struct Scope {
@@ -34,10 +37,11 @@ impl Filter {
     }
 
     fn matches(&self, e: &Event, scope: &Scope) -> bool {
-        let kind_ok = self
-            .kinds
-            .as_ref()
-            .is_none_or(|ks| ks.iter().any(|k| k == e.kind()));
+        // `pane.output` only reaches subscribers that ask for it by name (ADR-022).
+        let kind_ok = match &self.kinds {
+            Some(ks) => ks.iter().any(|k| k == e.kind()),
+            None => e.kind() != OUTPUT,
+        };
         // Server-wide events (no session scope, e.g. clipboard.changed from clipboard.set)
         // reach every subscriber whatever its session filter.
         let session_ok = self
@@ -129,12 +133,24 @@ impl Bus {
                 push(sub, &event, self.buffer_cap);
             }
         }
-        if self.replay_cap > 0 {
+        // Raw output is never retained: it would push every other event out of the ring.
+        if self.replay_cap > 0 && event.kind() != OUTPUT {
             if self.replay.len() == self.replay_cap {
                 self.replay.pop_front();
             }
             self.replay.push_back(Retained { event, scope });
         }
+    }
+
+    /// Whether some subscriber takes `pane.output` of `pane` (only then is it encoded).
+    pub fn wants_output(&self, pane: &str) -> bool {
+        self.subs.values().any(|s| {
+            s.filter
+                .kinds
+                .as_ref()
+                .is_some_and(|ks| ks.iter().any(|k| k == OUTPUT))
+                && s.filter.pane.as_deref().is_none_or(|p| p == pane)
+        })
     }
 
     /// Adds a subscriber; with `since`, first queues retained events newer than it (REQ-EVT-003).

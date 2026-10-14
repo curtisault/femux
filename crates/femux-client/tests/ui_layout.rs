@@ -16,7 +16,7 @@ async fn ui_010_preselection_places_the_next_split() {
     d.press_all(&["ctrl+space", "ctrl+h"]).await;
     assert_eq!(d.app.preselect, Some(m::Direction::H));
     assert!(d.screen().contains("next split"), "{}", d.screen());
-    d.press_all(&["ctrl+space", "s"]).await;
+    d.press_all(&["ctrl+space", "-"]).await;
     let split = d
         .sent
         .iter()

@@ -21,11 +21,17 @@ async fn ui_001_three_modes() {
             .iter()
             .all(|k| *k == "pane.input" || *k == "frame.ack")
     );
-    // prefix esc: sticky normal; vim motions act on the layout, not the pane.
+    // prefix esc cancels: nothing reaches the pane and no mode is entered.
     d.press_all(&["ctrl+space", "escape"]).await;
+    assert_eq!(d.app.mode, Mode::Terminal);
+    assert_eq!(d.app.message, None, "esc is swallowed silently");
+    assert!(!d.app.prefix_armed());
+    assert!(d.sent_kinds().iter().all(|k| *k == "frame.ack"));
+    // prefix space: sticky normal; vim motions act on the layout, not the pane.
+    d.press_all(&["ctrl+space", "space"]).await;
     assert_eq!(d.app.mode, Mode::Normal);
     d.sent_kinds();
-    d.press("v").await;
+    d.press("|").await;
     assert!(d.sent_kinds().contains(&"layout.split"));
     d.press("h").await;
     assert!(d.sent_kinds().contains(&"layout.focus"));

@@ -183,7 +183,7 @@ section!(Tabs {
 
 section!(Infobar {
     position: BarPosition = BarPosition::Bottom,
-    left: Vec<String> = strings(&["session", "tabs"]),
+    left: Vec<String> = strings(&["session"]),
     right: Vec<String> = strings(&["agents", "git", "cpu", "mem", "net", "clock"]),
     interval_ms: u64 = 1000,
 });
@@ -231,6 +231,9 @@ section!(Plugins {
         "launcher",
         "hosts",
         "graphics",
+        "git",
+        "broadcast",
+        "recorder",
     ]),
 });
 
@@ -477,7 +480,7 @@ mod tests {
         let mut c = Config::parse(text).unwrap();
         // The example's [keys.prefix] shows overrides; the defaults have none.
         assert_eq!(
-            c.keys.prefix.get("s").map(String::as_str),
+            c.keys.prefix.get("-").map(String::as_str),
             Some("split down")
         );
         c.keys = Keys::default();

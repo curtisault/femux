@@ -478,7 +478,7 @@ fn attach_session(
         Some(s) if session_known(&listed, s) || listed.is_empty() => s.to_owned(),
         // On reconnect the session may be gone: take another rather than fail.
         Some(_) | None if !listed.is_empty() => listed[0].name.clone(),
-        _ => "0".to_owned(),
+        _ => "main".to_owned(),
     };
     if !session_known(&listed, &name) {
         conn.call(

@@ -87,6 +87,18 @@ impl InfoModule for Tabs {
         "tabs"
     }
     fn render(&self, ctx: &BarCtx, _w: usize) -> Spans {
+        // A row says `tab 2/5` (the strip already lists the tabs); a column lists them.
+        if !ctx.vertical {
+            let at = ctx.tabs.iter().position(|t| t.current).map_or(0, |i| i + 1);
+            let mut out = vec![Span::new(
+                format!("tab {at}/{}", ctx.tabs.len()),
+                Style::Muted,
+            )];
+            if ctx.tabs.iter().any(|t| t.urgent && !t.current) {
+                out.push(Span::new(" !", Style::Warn));
+            }
+            return out;
+        }
         let mut out = Vec::new();
         for (i, t) in ctx.tabs.iter().enumerate() {
             if i > 0 {
@@ -800,9 +812,10 @@ mod tests {
             ],
             ..Default::default()
         };
+        // A row counts (the strip lists them) and flags an urgent tab elsewhere.
         let tabs = module("tabs").render(&ctx, 40);
-        assert_eq!(text(&tabs), "1 2 3");
-        assert_eq!((tabs[2].style, tabs[4].style), (Style::Key, Style::Warn));
+        assert_eq!(text(&tabs), "tab 2/3 !");
+        assert_eq!(tabs[1].style, Style::Warn);
         assert_eq!(text(&module("agents").render(&ctx, 40)), "◐ 2 ■ 1 ✓ 1");
         let notes = module("notifications").render(&ctx, 40);
         assert_eq!(text(&notes), "codex needs y/n");

@@ -77,6 +77,16 @@ impl Rig {
 
     /// Polls until `agent.state` and `agent.source` are `state`/`source`; returns the meta.
     async fn expect(&mut self, state: &str, source: &str) -> BTreeMap<String, String> {
+        self.expect_where(state, source, |_| true).await
+    }
+
+    /// [`Rig::expect`], also waiting for `also` to hold on the meta.
+    async fn expect_where(
+        &mut self,
+        state: &str,
+        source: &str,
+        also: impl Fn(&BTreeMap<String, String>) -> bool,
+    ) -> BTreeMap<String, String> {
         let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
         loop {
             let meta = self.meta().await;
@@ -84,7 +94,7 @@ impl Rig {
                 meta.get("agent.state").map(String::as_str),
                 meta.get("agent.source").map(String::as_str),
             );
-            if got == (Some(state), Some(source)) {
+            if got == (Some(state), Some(source)) && also(&meta) {
                 return meta;
             }
             assert!(
@@ -208,10 +218,14 @@ async fn agt_003_heuristics_judge_silence_after_output_by_the_last_line() {
     r.expect("working", "heuristic").await;
     r.expect("blocked", "heuristic").await;
     // Answer: more output, then silence on a plain line: done.
+    // A slow machine can pause long enough between echoing the answer and printing
+    // all-done to judge the echo `done` first; the verdict that counts is on all-done.
     r.run("y").await;
-    r.expect("done", "heuristic").await;
-    let meta = r.meta().await;
-    assert!(meta["agent.evidence"].contains("all-done"), "{meta:?}");
+    r.expect_where("done", "heuristic", |m| {
+        m.get("agent.evidence")
+            .is_some_and(|e| e.contains("all-done"))
+    })
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread")]

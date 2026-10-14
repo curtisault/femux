@@ -13,7 +13,7 @@ async fn ui_011_floats_render_above_tiles_and_follow_the_mouse() {
     let mut d = Drive::new(ClientConfig::default()).await;
     let pane = d.pane.clone();
     d.wait_pane_text(&pane, "$").await;
-    d.press_all(&["ctrl+space", "v"]).await;
+    d.press_all(&["ctrl+space", "|"]).await;
     d.until("two panes", |a| a.model.panes.len() == 2).await;
     let new = d.app.model.focused_id().unwrap();
     d.press_all(&["ctrl+space", "f"]).await;

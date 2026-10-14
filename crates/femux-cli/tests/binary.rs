@@ -32,7 +32,7 @@ fn arch_004_plain_femux_starts_a_daemon_and_attaches() {
         exit_within(&mut child, Duration::from_secs(10)).expect("viewer exits on prefix d");
     assert!(status.success(), "{status:?}");
     // Detach leaves the session and its processes running.
-    assert_eq!(env.run(&["ls"]).trim(), "0: 1 tabs, 0 clients");
+    assert_eq!(env.run(&["ls"]).trim(), "main: 1 tabs, 0 clients");
 }
 
 #[test]
