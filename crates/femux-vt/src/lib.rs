@@ -168,6 +168,9 @@ pub struct Changes {
     pub pwd: Option<String>,
     /// Texts written to the system clipboard by the pane program (OSC 52 and friends).
     pub clipboard: Vec<String>,
+    /// Clipboard read requests from the pane program, `true` where one was served from the
+    /// text given to [`Terminal::set_clipboard_read`] (REQ-SEC-002).
+    pub clipboard_reads: Vec<bool>,
     /// OSC 9;4 progress reports: state (0 remove, 1 set, 2 error, 3 indeterminate, 4 pause)
     /// and the percentage when given.
     pub progress: Vec<(u8, Option<u8>)>,
@@ -183,6 +186,9 @@ struct Effects {
     title_changed: bool,
     pwd_changed: bool,
     clipboard: Vec<String>,
+    /// What a clipboard read is answered with; `None` denies.
+    clipboard_read: Option<String>,
+    clipboard_reads: Vec<bool>,
     progress: Vec<(u8, Option<u8>)>,
     host: HostCaps,
     xtversion: String,
@@ -353,6 +359,49 @@ unsafe extern "C" fn on_clipboard_write(
     }
 }
 
+/// Clipboard reads from the pane program (OSC 52 `?`, OSC 5522 read) are answered with the
+/// text the daemon set for this pane, or left unanswered, which libghostty-vt turns into an
+/// empty clipboard for OSC 52 and EPERM for OSC 5522 (REQ-SEC-002).
+unsafe extern "C" fn on_clipboard_read(
+    _t: ffi::GhosttyTerminal,
+    ud: *mut c_void,
+    read: *const ffi::GhosttyClipboardRead,
+) {
+    // SAFETY: `read` is valid for the duration of this callback; the reply borrows locals
+    // only while `reply` runs.
+    unsafe {
+        let r = &*read;
+        let fx = effects(ud);
+        let Some(reply) = r.reply else { return };
+        let Some(text) = &fx.clipboard_read else {
+            fx.clipboard_reads.push(false);
+            return;
+        };
+        fx.clipboard_reads.push(true);
+        let mime = b"text/plain";
+        let content = ffi::GhosttyClipboardContent {
+            mime: ffi::GhosttyString {
+                ptr: mime.as_ptr(),
+                len: mime.len(),
+            },
+            data: ffi::GhosttyString {
+                ptr: text.as_ptr(),
+                len: text.len(),
+            },
+        };
+        let rep = ffi::GhosttyClipboardReadReply {
+            size: std::mem::size_of::<ffi::GhosttyClipboardReadReply>(),
+            result: ffi::GhosttyClipboardReadResult::GHOSTTY_CLIPBOARD_READ_RESULT_SUCCESS,
+            contents: &content,
+            contents_len: 1,
+            available: ptr::null(),
+            available_len: 0,
+            remember: false,
+        };
+        reply(read, &rep);
+    }
+}
+
 /// Virtual cell size used until a client reports a real one; keeps pixel reports sane.
 const DEFAULT_CELL_PX: (u32, u32) = (10, 20);
 
@@ -415,7 +464,7 @@ impl Terminal {
             let ud = &mut *t.effects as *mut Effects as *const c_void;
             t.set_opt(O::GHOSTTY_TERMINAL_OPT_USERDATA, ud)?;
             // Callback options take the function pointer itself as the value.
-            let callbacks: [(O, *const c_void); 6] = [
+            let callbacks: [(O, *const c_void); 7] = [
                 (
                     O::GHOSTTY_TERMINAL_OPT_WRITE_PTY,
                     on_write_pty as *const c_void,
@@ -433,6 +482,10 @@ impl Terminal {
                 (
                     O::GHOSTTY_TERMINAL_OPT_PROGRESS_REPORT,
                     on_progress as *const c_void,
+                ),
+                (
+                    O::GHOSTTY_TERMINAL_OPT_CLIPBOARD_READ,
+                    on_clipboard_read as *const c_void,
                 ),
             ];
             for (opt, f) in callbacks {
@@ -462,6 +515,13 @@ impl Terminal {
 
     unsafe fn get<T>(&self, key: ffi::GhosttyTerminalData, out: *mut T) -> Result<(), Error> {
         check(unsafe { ffi::ghostty_terminal_get(self.raw, key, out as *mut c_void) })
+    }
+
+    /// What the next clipboard read requests from the pane program get: `Some(text)` serves
+    /// it, `None` denies (REQ-SEC-002). The daemon sets this from `[clipboard] read_allow`
+    /// before feeding bytes that carry a read.
+    pub fn set_clipboard_read(&mut self, text: Option<String>) {
+        self.effects.clipboard_read = text;
     }
 
     /// Feeds bytes read from the pane's PTY.
@@ -507,12 +567,14 @@ impl Terminal {
         );
         let bells = std::mem::take(&mut fx.bells);
         let clipboard = std::mem::take(&mut fx.clipboard);
+        let clipboard_reads = std::mem::take(&mut fx.clipboard_reads);
         let progress = std::mem::take(&mut fx.progress);
         Changes {
             bells,
             title: title.then(|| self.title()),
             pwd: pwd.then(|| self.pwd()),
             clipboard,
+            clipboard_reads,
             progress,
             reports: std::mem::take(&mut self.reports),
         }
@@ -748,12 +810,33 @@ mod tests {
     #[test]
     fn clipboard_writes_are_reported() {
         let mut t = Terminal::new(20, 3, 100).unwrap();
-        // OSC 52 with base64 "hello"; a read request ("?") produces nothing.
+        // OSC 52 with base64 "hello"; a read request ("?") is denied by default: the
+        // program gets an empty clipboard, never the text.
         t.write(b"\x1b]52;c;aGVsbG8=\x07\x1b]52;c;?\x07");
         let c = t.take_changes();
         assert_eq!(c.clipboard, ["hello"]);
+        assert_eq!(c.clipboard_reads, [false]);
         assert!(t.take_changes().clipboard.is_empty());
-        assert!(t.take_pty_output().is_empty(), "reads are not answered");
+        let out = t.take_pty_output();
+        assert!(
+            out.starts_with(b"\x1b]52;c;") && !out.windows(8).any(|w| w == b"aGVsbG8="),
+            "{out:?}"
+        );
+    }
+
+    /// REQ-SEC-002: a read is served only from the text the daemon hands the terminal.
+    #[test]
+    fn clipboard_reads_are_served_from_the_given_text_only() {
+        let mut t = Terminal::new(20, 3, 100).unwrap();
+        t.set_clipboard_read(Some("hello".into()));
+        t.write(b"\x1b]52;c;?\x07");
+        assert_eq!(t.take_changes().clipboard_reads, [true]);
+        let out = t.take_pty_output();
+        assert!(out.windows(8).any(|w| w == b"aGVsbG8="), "{out:?}");
+        t.set_clipboard_read(None);
+        t.write(b"\x1b]52;c;?\x07");
+        assert_eq!(t.take_changes().clipboard_reads, [false]);
+        assert!(!t.take_pty_output().windows(8).any(|w| w == b"aGVsbG8="));
     }
 
     #[test]

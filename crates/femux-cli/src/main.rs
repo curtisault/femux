@@ -376,6 +376,7 @@ fn run_daemon(server: &str, socket: PathBuf, cfg: &Config, plugins: Vec<Plugin>)
     dcfg.db = Some(femux_config::db_path(server));
     dcfg.restore = cfg.restore.clone();
     dcfg.env_allow = cfg.env.allow.clone();
+    dcfg.read_allow = cfg.clipboard.read_allow.clone();
     dcfg.config_path = Some(femux_config::config_path());
     dcfg.gaps = cfg.layout.gaps;
     dcfg.scheme = femux_daemon::scheme(cfg.layout.scheme);

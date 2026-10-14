@@ -197,3 +197,9 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-UI-043 (no root key by default; `[keys.root]` restores `ctrl+p`) | femux-client `ui_overlays::ui_043_palette_fuzzy_searches_actions_and_cli_commands`, `bindings::tests::every_default_binding_of_spec_5_1_exists` | pass |
 | REQ-UI-040 (`prefix S` names and starts a session) | femux-client `ui_nav::ui_040_prefix_shift_s_names_and_starts_a_session` | pass |
 | REQ-UI-002 (`docs/prefixes.md` matches the default bindings) | femux-cli `plugins::tests::prefixes_doc_matches_the_default_bindings` | pass |
+
+## 0.9.0
+
+| Requirement | Tests | Status |
+| --- | --- | --- |
+| REQ-SEC-002 (clipboard reads need `read_allow`) | femux-vt `tests::clipboard_writes_are_reported`, `tests::clipboard_reads_are_served_from_the_given_text_only`; femux-test `security::sec_002_clipboard_reads_need_read_allow` | pass |

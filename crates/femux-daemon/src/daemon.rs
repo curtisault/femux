@@ -45,6 +45,9 @@ pub struct Config {
     pub restore: femux_config::Restore,
     /// `[env] allow`: what of a pane's environment is persisted (REQ-PTY-006).
     pub env_allow: Vec<String>,
+    /// `[clipboard] read_allow`: foreground commands whose clipboard reads are served
+    /// (REQ-SEC-002).
+    pub read_allow: Vec<String>,
     /// The config file `server.reload` re-reads (ADR-013, ADR-017 #3).
     pub config_path: Option<PathBuf>,
     /// `[layout] gaps` and `scheme`: new tabs start with them.
@@ -76,6 +79,7 @@ impl Config {
             db: None,
             restore: femux_config::Restore::default(),
             env_allow: pty::default_env_allow(),
+            read_allow: Vec::new(),
             config_path: None,
             gaps: 0,
             scheme: m::Scheme::Bsp,
@@ -120,6 +124,7 @@ pub struct Settings {
     pub scrollback_lines: usize,
     pub restore: femux_config::Restore,
     pub env_allow: Vec<String>,
+    pub read_allow: Vec<String>,
     /// `[layout] gaps` for every tab; `scheme` for new tabs.
     pub gaps: u16,
     pub scheme: m::Scheme,
@@ -152,6 +157,9 @@ pub struct Daemon {
     pub started: Instant,
     /// Compressed images and shared memory objects handed to clients (`image.read`).
     pub images: crate::images::Shared,
+    /// The newest clipboard text seen (`clipboard.set` or a pane's write): what an allowed
+    /// clipboard read from a pane gets (REQ-SEC-002).
+    pub last_clipboard: Mutex<Option<String>>,
 }
 
 /// Per-connection context passed to handlers.
@@ -247,6 +255,7 @@ impl Daemon {
             scrollback_lines: cfg.scrollback_lines,
             restore: cfg.restore.clone(),
             env_allow: cfg.env_allow.clone(),
+            read_allow: cfg.read_allow.clone(),
             gaps: cfg.gaps,
             scheme: cfg.scheme,
         };
@@ -265,6 +274,7 @@ impl Daemon {
             shutdown: watch::channel(false).0,
             started: Instant::now(),
             images: crate::images::Shared::default(),
+            last_clipboard: Mutex::new(None),
         })
     }
 
@@ -1804,7 +1814,9 @@ impl Daemon {
             }
             Q::ClipboardSet(r) => {
                 // The daemon owns no clipboard: attached clients copy the text to their host
-                // terminal when they see the event (clipboard plugin, 0.2.0).
+                // terminal when they see the event (clipboard plugin, 0.2.0). It remembers
+                // the text for panes allowed to read it back (REQ-SEC-002).
+                *self.last_clipboard.lock().unwrap() = Some(r.text.clone());
                 self.emit(
                     m::ClipboardChanged {
                         text: r.text,
@@ -1936,8 +1948,14 @@ async fn reader(
         let now = crate::bus::now_ms();
         activity.store(now, std::sync::atomic::Ordering::Relaxed);
         output.store(now, std::sync::atomic::Ordering::Relaxed);
+        // A clipboard read is answered while the bytes are parsed, so the policy is decided
+        // first, from the process in the foreground right now (REQ-SEC-002).
+        let read = carries_clipboard_read(&buf[..n]).then(|| d.clipboard_read_source(&*master));
         let (replies, changes) = {
             let mut vt = vt.lock().unwrap();
+            if let Some(source) = read {
+                vt.set_clipboard_read(source);
+            }
             vt.write(&buf[..n]);
             let _ = vt.sync();
             (vt.take_pty_output(), vt.take_changes())
@@ -1989,6 +2007,35 @@ async fn writer(
                 Err(_would_block) => continue,
             }
         }
+    }
+}
+
+/// Whether `bytes` hold the start of an OSC 52 or OSC 5522 sequence, the two that can ask
+/// for the clipboard. A sequence split across reads is decided by the read holding its start.
+fn carries_clipboard_read(bytes: &[u8]) -> bool {
+    bytes.windows(4).any(|w| w == b"]52;") || bytes.windows(6).any(|w| w == b"]5522;")
+}
+
+impl Daemon {
+    /// What a clipboard read from the pane on `master` gets: the newest clipboard text when
+    /// its foreground command is in `[clipboard] read_allow`, else nothing (REQ-SEC-002).
+    fn clipboard_read_source(&self, master: &impl std::os::fd::AsFd) -> Option<String> {
+        let allow = self.settings.lock().unwrap().read_allow.clone();
+        if allow.is_empty() {
+            return None;
+        }
+        let fg = pty::foreground(master)?;
+        let cmd = pty::proc_name(fg).unwrap_or_default();
+        if !allow.contains(&cmd) {
+            return None;
+        }
+        Some(
+            self.last_clipboard
+                .lock()
+                .unwrap()
+                .clone()
+                .unwrap_or_default(),
+        )
     }
 }
 
@@ -2117,6 +2164,7 @@ impl Daemon {
             );
         }
         for text in c.clipboard {
+            *self.last_clipboard.lock().unwrap() = Some(text.clone());
             self.emit(
                 m::ClipboardChanged {
                     text,
