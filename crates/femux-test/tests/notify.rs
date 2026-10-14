@@ -144,15 +144,19 @@ async fn notify_posted_says_whether_the_pane_was_shown() {
         title: "t".into(),
         level: None,
     };
+    // The event can arrive while the post's reply is awaited: look from before the post.
+    let start = c.events.len();
     c.call(post("agent_done")).await.unwrap();
-    let Event::NotifyPosted(n) = c.wait_event("notify.posted").await else {
+    let Event::NotifyPosted(n) = c.wait_event_from("notify.posted", start).await else {
         panic!()
     };
     assert!(!n.shown, "nobody attached");
     assert_eq!(n.event.as_deref(), Some("agent_done"));
     let view = c.attach("s", 80, 24).await.view_id;
+    // The event can arrive while the post's reply is awaited: look from before the post.
+    let start = c.events.len();
     c.call(post("agent_done")).await.unwrap();
-    let Event::NotifyPosted(n) = c.wait_event("notify.posted").await else {
+    let Event::NotifyPosted(n) = c.wait_event_from("notify.posted", start).await else {
         panic!()
     };
     assert!(n.shown, "a view shows it");
@@ -174,8 +178,10 @@ async fn notify_posted_says_whether_the_pane_was_shown() {
     })
     .await
     .unwrap();
+    // The event can arrive while the post's reply is awaited: look from before the post.
+    let start = c.events.len();
     c.call(post("agent_done")).await.unwrap();
-    let Event::NotifyPosted(n) = c.wait_event("notify.posted").await else {
+    let Event::NotifyPosted(n) = c.wait_event_from("notify.posted", start).await else {
         panic!()
     };
     assert!(!n.shown);
