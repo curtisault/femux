@@ -18,10 +18,11 @@ async fn ui_053_mouse_focuses_forwards_and_can_be_disabled() {
     let right = d.app.model.focused_id().unwrap();
     assert_ne!(right, pane);
     // Click in the left pane: focus moves there and the press reaches the pane. (A left
-    // press on a pane that does not track the mouse starts a selection instead, 0.9.0.)
+    // press on a pane that does not track the mouse starts a selection instead, 0.9.0, and a
+    // right press opens the context menu, 0.11.0.)
     d.sent.clear();
     d.app
-        .on_mouse(3, 4, MouseKind::Press(m::MouseButton::Right), vec![]);
+        .on_mouse(3, 4, MouseKind::Press(m::MouseButton::Middle), vec![]);
     d.app.on_mouse(3, 4, MouseKind::Release, vec![]);
     d.settle().await;
     let kinds: Vec<&str> = d.sent.iter().map(|r| r.kind()).collect();

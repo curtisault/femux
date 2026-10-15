@@ -844,6 +844,7 @@ pub fn render(app: &mut App, theme: &Theme, s: &mut Surface) {
         Overlay::Inbox(st) => {
             crate::inbox::draw_inbox(&app.dir, &st, &mut c, theme, &mut cursor);
         }
+        Overlay::Menu(st) => crate::menu::draw(&st, &mut c, theme),
         Overlay::None | Overlay::Confirm { .. } | Overlay::Prompt { .. } => {}
     }
 

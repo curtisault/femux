@@ -111,6 +111,8 @@ pub enum NavTarget {
 pub enum Confirm {
     ClosePane(String),
     KillSession(String),
+    /// A tab of the context menu with a program running in it (REQ-UI-046).
+    CloseTab(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -147,6 +149,8 @@ pub enum Overlay {
     Inbox(crate::inbox::InboxState),
     /// The marks overlay (REQ-SESS-004): the selected row.
     Marks(usize),
+    /// The context menu (REQ-UI-046).
+    Menu(crate::menu::MenuState),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -324,6 +328,8 @@ pub struct App {
     /// The mouse selection, while dragging and after (REQ-UI-053).
     pub selection: Option<Selection>,
     mouse_pane: Option<String>,
+    /// Panes this client sends right clicks to instead of opening the menu (REQ-UI-046).
+    pub right_clicks: std::collections::HashSet<String>,
     /// Tab strip hit boxes from the last render: `(x0, x1, tab)`.
     pub tab_hits: Vec<(u16, u16, String)>,
     /// Side nav rows from the last render: `(y, target)` (REQ-UI-042).
@@ -389,6 +395,7 @@ impl App {
             drag: None,
             selection: None,
             mouse_pane: None,
+            right_clicks: Default::default(),
             tab_hits: Vec::new(),
             panel,
             modules: Vec::new(),
@@ -483,6 +490,83 @@ impl App {
     }
 
     /// Where everything goes on screen (REQ-UI-030, REQ-UI-042).
+    /// `j`/`k` and the arrows move, `enter` runs, `esc` closes; other keys leave it open.
+    fn menu_key(&mut self, mut st: crate::menu::MenuState, chord: &Chord) {
+        match chord.to_string().as_str() {
+            "j" | "down" => st.down(),
+            "k" | "up" => st.up(),
+            "enter" => return self.menu_run(&st, st.selected),
+            "escape" | "q" => return,
+            _ => {}
+        }
+        self.overlay = Overlay::Menu(st);
+    }
+
+    /// Runs item `i` of a menu: each runs what its key does (REQ-UI-046).
+    fn menu_run(&mut self, st: &crate::menu::MenuState, i: usize) {
+        use crate::menu::Act;
+        self.overlay = Overlay::None;
+        let Some(item) = st.items.get(i) else {
+            return;
+        };
+        match item.act.clone() {
+            Act::Run(a) => self.run(a),
+            Act::RightClicks(p) => {
+                if self.right_clicks.remove(&p) {
+                    self.message = Some("right-click opens the menu again".into());
+                } else {
+                    self.right_clicks.insert(p);
+                    self.message = Some(
+                        "right clicks go to the pane · shift+right-click opens the menu".into(),
+                    );
+                }
+            }
+            Act::RenameTab(t) => {
+                let title = self
+                    .model
+                    .tabs
+                    .iter()
+                    .find(|x| x.id == t)
+                    .map(|x| self.model.tab_title(x))
+                    .unwrap_or_default();
+                self.overlay = Overlay::Prompt {
+                    title: "rename tab".into(),
+                    input: title,
+                    what: PromptKind::RenameTab(t),
+                };
+            }
+            Act::CloseTab(t) => {
+                let Some(tab) = self.model.tabs.iter().find(|x| x.id == t) else {
+                    return;
+                };
+                if self.model.tab_running(tab) {
+                    let title = self.model.tab_title(tab);
+                    self.overlay = Overlay::Confirm {
+                        text: format!("close tab {title} with a program running? y/n"),
+                        what: Confirm::CloseTab(t),
+                    };
+                } else {
+                    self.quiet(m::TabClose { tab_id: t });
+                }
+            }
+        }
+    }
+
+    /// Opens the pane menu at `(x, y)` for pane `id`.
+    fn open_pane_menu(&mut self, id: &str, x: u16, y: u16) {
+        let tab = self.model.current_tab();
+        let facts = crate::menu::PaneFacts {
+            id: id.to_owned(),
+            zoomed: tab.is_some_and(|t| t.zoomed),
+            floating: tab.is_some_and(|t| t.floats.iter().any(|f| f.id == id)),
+            sending: self.right_clicks.contains(id),
+        };
+        let items = crate::menu::pane_items(&facts);
+        self.overlay = Overlay::Menu(crate::menu::MenuState::open(
+            items, x, y, self.cols, self.rows,
+        ));
+    }
+
     /// Every table as help shows it (REQ-UI-045).
     pub fn help(&self) -> crate::help::Help {
         crate::help::Help::build(&self.bindings, |_, _| None)
@@ -1091,6 +1175,7 @@ impl App {
                     match what {
                         Confirm::ClosePane(p) => self.quiet(m::LayoutClose { pane_id: p }),
                         Confirm::KillSession(name) => self.kill_session(name),
+                        Confirm::CloseTab(t) => self.quiet(m::TabClose { tab_id: t }),
                     }
                 } else {
                     let _ = text;
@@ -1166,6 +1251,7 @@ impl App {
             Overlay::Navigator(nav) => return self.navigator_key(nav, &k, &chord),
             Overlay::Inbox(st) => return self.inbox_key(st, &k, &chord),
             Overlay::Marks(sel) => return self.marks_key(sel, &chord),
+            Overlay::Menu(st) => return self.menu_key(st, &chord),
             Overlay::WhichKey | Overlay::None => {}
         }
 
@@ -2355,6 +2441,26 @@ impl App {
             }
             return;
         }
+        // The context menu (REQ-UI-046): hovering highlights, a click on an item runs it, a
+        // click elsewhere closes it.
+        if let Overlay::Menu(st) = &self.overlay {
+            let mut st = st.clone();
+            match kind {
+                MouseKind::Move => {
+                    if let Some(i) = st.item_at(x, y) {
+                        st.selected = i;
+                    }
+                    self.overlay = Overlay::Menu(st);
+                }
+                MouseKind::Press(m::MouseButton::Left) if st.item_at(x, y).is_some() => {
+                    let i = st.item_at(x, y).unwrap();
+                    self.menu_run(&st, i);
+                }
+                MouseKind::Press(_) if !st.contains(x, y) => self.overlay = Overlay::None,
+                _ => {}
+            }
+            return;
+        }
         if self.panel.dragging {
             match kind {
                 MouseKind::Move | MouseKind::Press(_) => {
@@ -2423,6 +2529,17 @@ impl App {
         match (self.hit(x, y), kind) {
             (Hit::PanelEdge, MouseKind::Press(m::MouseButton::Left)) => self.panel.dragging = true,
             (Hit::Panel(i), MouseKind::Press(m::MouseButton::Left)) => self.panel_act(i),
+            (Hit::Tab(t), MouseKind::Press(m::MouseButton::Right)) => {
+                let view_id = self.model.view_id.clone();
+                self.quiet(m::TabSelect {
+                    view_id: Some(view_id),
+                    tab_id: t.clone(),
+                });
+                let items = crate::menu::tab_items(&t);
+                self.overlay = Overlay::Menu(crate::menu::MenuState::open(
+                    items, x, y, self.cols, self.rows,
+                ));
+            }
             (Hit::Tab(t), MouseKind::Press(_)) => {
                 let view_id = self.model.view_id.clone();
                 self.quiet(m::TabSelect {
@@ -2466,6 +2583,15 @@ impl App {
                     .get(&id)
                     .and_then(|p| p.screen.as_ref())
                     .is_some_and(|s| s.mouse);
+                // A right click opens the menu, unless the program tracks the mouse or was
+                // given right clicks; shift opens it anyway (REQ-UI-046).
+                if button == m::MouseButton::Right
+                    && (mods.contains(&m::Mod::Shift)
+                        || (!tracks && !self.right_clicks.contains(&id)))
+                {
+                    self.open_pane_menu(&id, x, y);
+                    return;
+                }
                 if button == m::MouseButton::Left && (!tracks || mods.contains(&m::Mod::Shift)) {
                     self.selection = Some(Selection {
                         pane: id,
