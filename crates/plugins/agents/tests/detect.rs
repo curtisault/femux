@@ -188,21 +188,83 @@ async fn agt_002_a_process_waiting_on_the_tty_is_blocked_then_exited_then_idle()
 
 #[cfg(target_os = "linux")]
 #[tokio::test(flavor = "multi_thread")]
-async fn agt_004_a_lower_tier_waits_out_the_hold() {
+async fn agt_004_a_lower_tier_waits_out_the_hold_and_needs_something_new() {
     let mut r = rig(settings(true)).await;
     let claude = r.claude();
-    r.run(&format!("{} -c 'read x'", claude.display())).await;
+    r.run(&format!(
+        "{} -c 'read x; echo got-$x; read y'",
+        claude.display()
+    ))
+    .await;
     r.expect("blocked", "process").await;
     // The hook says done: tier 2 must not take it back within hold_ms…
     r.set(&[("agent.state", "done")]).await;
     r.expect("done", "hook").await;
-    let t0 = tokio::time::Instant::now();
     tokio::time::sleep(Duration::from_millis(1000)).await;
     assert_eq!(r.meta().await["agent.state"], "done");
-    // …and may once the hook's state is older than that.
+    // …nor after it by reading the same quiet process again (0.11.0)…
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let meta = r.meta().await;
+    assert_eq!(
+        (meta["agent.state"].as_str(), meta["agent.source"].as_str()),
+        ("done", "hook")
+    );
+    // …only once the pane does something new: output, then a new wait.
+    r.run("a").await;
     r.expect("blocked", "process").await;
-    assert!(t0.elapsed() >= Duration::from_millis(1000));
     r.run("").await;
+}
+
+/// A Python under the name of a known agent, sleeping in `select` as an event loop does.
+#[cfg(target_os = "linux")]
+fn python_agent(r: &Rig, screen: &str) -> Option<String> {
+    let python = ["/usr/bin/python3", "/bin/python3", "/usr/local/bin/python3"]
+        .into_iter()
+        .find(|p| std::path::Path::new(p).exists())?;
+    let dir = r.bin.path().join("py");
+    std::fs::create_dir_all(&dir).unwrap();
+    let agent = dir.join("claude");
+    if !agent.exists() {
+        std::os::unix::fs::symlink(python, &agent).unwrap();
+    }
+    let script = dir.join(format!("agent{}.py", screen.len()));
+    std::fs::write(
+        &script,
+        format!(
+            "import select, sys\nsys.stdout.write({screen:?})\nsys.stdout.flush()\nselect.select([], [], [], 30)\n"
+        ),
+    )
+    .unwrap();
+    Some(format!("{} {}", agent.display(), script.display()))
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test(flavor = "multi_thread")]
+async fn agt_002_an_event_loop_wait_is_read_off_the_screen() {
+    let mut r = rig(settings(true)).await;
+    // Idle at its prompt: done, not blocked.
+    let Some(idle) = python_agent(&r, "Answered.\r\n\r\n> ") else {
+        eprintln!("no python3: skipped");
+        return;
+    };
+    r.run(&idle).await;
+    let meta = r.expect("done", "process").await;
+    assert_eq!(meta["agent.name"], "claude");
+    let e = &meta["agent.evidence"];
+    // The kernel names select's sleep differently by version (do_select,
+    // poll_schedule_timeout): the classification is what counts.
+    assert!(e.contains("waits for a prompt"), "{e}");
+    r.run("\u{3}").await;
+    r.expect("exited", "process").await;
+    // A permission prompt: blocked, with the line it rests on.
+    let ask = python_agent(&r, "Do you want to proceed?\r\n> 1. Yes\r\n  2. No\r\n").unwrap();
+    r.run(&ask).await;
+    let meta = r.expect("blocked", "process").await;
+    let e = &meta["agent.evidence"];
+    assert!(
+        e.contains("waits on a question") && e.contains("1. Yes"),
+        "{e}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

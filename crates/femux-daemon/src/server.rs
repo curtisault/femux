@@ -66,7 +66,16 @@ pub async fn serve(d: Arc<Daemon>, listener: UnixListener) {
     let next_conn = AtomicU64::new(1);
     let mut shutdown = d.shutdown.subscribe();
     // Saved sessions come back before the first client is accepted (REQ-STORE-004).
-    d.open_store();
+    if let Some(backup) = d.open_store() {
+        // REQ-LOG-005 (REQ-STORE-007): the saved state could not be loaded.
+        femux_log::warn("daemon.store", "store.backup")
+            .msg(format!(
+                "the store could not be loaded; moved to {}",
+                backup.display()
+            ))
+            .field("backup", backup.display().to_string())
+            .emit();
+    }
     tokio::spawn(resizer(d.clone()));
     tokio::spawn(crate::persist::store_task(d.clone()));
     #[cfg(target_os = "linux")]
@@ -156,12 +165,23 @@ async fn connection(d: Arc<Daemon>, id: u64, stream: UnixStream) {
             }
         };
         let rid = env.id;
+        let body = crate::logging::trace_body(&env.body);
+        let started = std::time::Instant::now();
         let reply = match Request::decode(&env.kind, env.body) {
             Err(e) => encode_error(rid, e.code(), e.to_string()),
-            Ok(req) => match handle(&d, &mut conn, req) {
-                Ok(resp) => resp.encode(rid),
-                Err((code, msg)) => encode_error(rid, code, msg),
-            },
+            Ok(req) => {
+                let kind = req.kind();
+                let r = handle(&d, &mut conn, req);
+                let took = started.elapsed();
+                let reply = match &r {
+                    Ok(resp) => resp.encode(rid),
+                    Err((code, msg)) => encode_error(rid, *code, msg.clone()),
+                };
+                let size = reply.as_ref().map_or(0, Vec::len);
+                let err = r.as_ref().err().map(|(c, m)| (c.as_str(), m.as_str()));
+                crate::logging::answered(id, kind, took, size, err, body);
+                reply
+            }
         };
         match reply {
             Ok(bytes) => {
@@ -236,6 +256,13 @@ async fn handshake(
         .filter(|f| SERVED.contains(&f.as_str()))
         .cloned()
         .collect();
+    femux_log::debug("daemon.server", "client.connect")
+        .msg(format!("{} connected", hello.client))
+        .field("conn", id)
+        .field("client", hello.client.clone())
+        .field("features", features.clone())
+        .field("terminal", hello.term.as_ref().and_then(|t| t.name.clone()))
+        .emit();
     let seq = d.bus.lock().unwrap().seq();
     d.state
         .lock()

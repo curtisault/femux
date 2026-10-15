@@ -35,7 +35,10 @@ pub enum Action {
     NewSession,
     PaneNav,
     Palette,
-    SideNav,
+    /// Show or hide the panel (REQ-UI-042).
+    Panel,
+    /// Give the panel the keys (REQ-UI-042).
+    PanelFocus,
     /// The agent inbox (REQ-UI-044); bound by the agents plugin.
     Inbox,
     /// The marks overlay (REQ-SESS-004).
@@ -48,6 +51,8 @@ pub enum Action {
     Broadcast,
     /// Record the focused pane (recorder plugin).
     Record,
+    /// Write the server's state into the log (REQ-LOG-007); palette only.
+    DebugSnapshot,
     Detach,
     Help,
     NormalMode,
@@ -147,7 +152,8 @@ pub const ALL: &[Action] = &[
     Action::NewSession,
     Action::PaneNav,
     Action::Palette,
-    Action::SideNav,
+    Action::Panel,
+    Action::PanelFocus,
     Action::Inbox,
     Action::Marks,
     Action::FloatScratch,
@@ -155,6 +161,7 @@ pub const ALL: &[Action] = &[
     Action::FloatPrev,
     Action::Broadcast,
     Action::Record,
+    Action::DebugSnapshot,
     Action::Detach,
     Action::Help,
     Action::NormalMode,
@@ -230,7 +237,8 @@ impl Action {
             NewSession => "new session",
             PaneNav => "panes",
             Palette => "palette",
-            SideNav => "sidenav",
+            Panel => "panel",
+            PanelFocus => "panel focus",
             Inbox => "inbox",
             Marks => "marks",
             FloatScratch => "float scratch",
@@ -238,6 +246,7 @@ impl Action {
             FloatPrev => "float prev",
             Broadcast => "broadcast",
             Record => "record",
+            DebugSnapshot => "debug snapshot",
             Detach => "detach",
             Help => "help",
             NormalMode => "normal",
@@ -317,7 +326,8 @@ impl Action {
             NewSession => "new session (asks for a name)".into(),
             PaneNav => "pane navigator".into(),
             Palette => "command palette".into(),
-            SideNav => "side nav".into(),
+            Panel => "show or hide the panel".into(),
+            PanelFocus => "focus the panel".into(),
             Inbox => "agent inbox".into(),
             Marks => "list marks".into(),
             FloatScratch => "scratch float / hide floats".into(),
@@ -325,6 +335,7 @@ impl Action {
             FloatPrev => "previous float".into(),
             Broadcast => "type into every pane of the tab".into(),
             Record => "record the pane".into(),
+            DebugSnapshot => "write the server's state into the log".into(),
             Detach => "detach".into(),
             Help => "help".into(),
             NormalMode => "sticky normal mode".into(),
@@ -366,9 +377,8 @@ impl Action {
             SplitDown | SplitRight | ClosePane | Equalize | SwapNext | Scheme(_) => "splits",
             NewTab | RenameTab | NextTab | PrevTab | Tab(_) => "tabs",
             SetMark | JumpMark | Marks | CopyMode | Paste | NewSession | Detach => "session",
-            SessionNav | PaneNav | Palette | SideNav | Inbox | Help | NormalMode | SendPrefix => {
-                "ui"
-            }
+            SessionNav | PaneNav | Palette | Panel | PanelFocus | Inbox | Help | NormalMode
+            | SendPrefix | DebugSnapshot => "ui",
             _ => "copy",
         }
     }
@@ -436,7 +446,8 @@ const PREFIX: &[(&str, Action)] = &[
     ("S", Action::NewSession),
     ("w", Action::PaneNav),
     (":", Action::Palette),
-    ("b", Action::SideNav),
+    ("b", Action::Panel),
+    ("ctrl+b", Action::PanelFocus),
     ("d", Action::Detach),
     ("?", Action::Help),
     ("space", Action::NormalMode),
@@ -674,7 +685,8 @@ mod tests {
         assert_eq!(p("v"), None, "split right left `v` for `|`");
         assert_eq!(p("W"), None, "navigators are lowercase");
         assert_eq!(p(":"), Some(Action::Palette));
-        assert_eq!(p("b"), Some(Action::SideNav));
+        assert_eq!(p("b"), Some(Action::Panel));
+        assert_eq!(p("ctrl+b"), Some(Action::PanelFocus));
         assert_eq!(p("d"), Some(Action::Detach));
         assert_eq!(p("?"), Some(Action::Help));
         assert_eq!(p("space"), Some(Action::NormalMode));

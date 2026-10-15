@@ -132,7 +132,7 @@ fn attach_over_ssh_runs_the_remote_session_and_detaches() {
     });
     // The session chip names the host.
     assert!(
-        contains(&out, "session box:main"),
+        contains(&out, " box:main "),
         "{}",
         String::from_utf8_lossy(&out.lock().unwrap())
     );

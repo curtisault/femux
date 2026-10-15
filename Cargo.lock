@@ -596,13 +596,14 @@ dependencies = [
 
 [[package]]
 name = "femux-cli"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "clap",
  "clap_complete",
  "femux-client",
  "femux-config",
  "femux-daemon",
+ "femux-log",
  "femux-plugin",
  "femux-plugin-agents",
  "femux-plugin-broadcast",
@@ -629,9 +630,10 @@ dependencies = [
 
 [[package]]
 name = "femux-client"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "base64 0.22.1",
+ "femux-log",
  "femux-plugin",
  "femux-plugin-agents",
  "femux-plugin-clipboard",
@@ -643,6 +645,7 @@ dependencies = [
  "femux-proto",
  "femux-test",
  "libc",
+ "serde_json",
  "tempfile",
  "termwiz",
  "tokio",
@@ -650,7 +653,7 @@ dependencies = [
 
 [[package]]
 name = "femux-config"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "serde",
  "toml",
@@ -658,10 +661,11 @@ dependencies = [
 
 [[package]]
 name = "femux-daemon"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "base64 0.22.1",
  "femux-config",
+ "femux-log",
  "femux-proto",
  "femux-vt",
  "flate2",
@@ -669,6 +673,7 @@ dependencies = [
  "libc",
  "nix 0.31.3",
  "regex",
+ "rmpv",
  "rusqlite",
  "serde_json",
  "tempfile",
@@ -678,9 +683,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "femux-plugin"
-version = "0.9.0"
+name = "femux-log"
+version = "0.10.0"
 dependencies = [
+ "femux-config",
+ "libc",
+ "serde_json",
+ "tempfile",
+ "ulid",
+]
+
+[[package]]
+name = "femux-plugin"
+version = "0.10.0"
+dependencies = [
+ "femux-log",
  "femux-proto",
  "femux-test",
  "serde_json",
@@ -828,7 +845,7 @@ dependencies = [
 
 [[package]]
 name = "femux-proto"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "jsonschema",
  "rmp-serde",
@@ -840,7 +857,7 @@ dependencies = [
 
 [[package]]
 name = "femux-test"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "base64 0.22.1",
  "femux-daemon",
@@ -856,7 +873,7 @@ dependencies = [
 
 [[package]]
 name = "femux-vt"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "base64 0.22.1",
  "libc",

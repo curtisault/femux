@@ -183,14 +183,28 @@ impl Daemon {
             return Err(invalid("this daemon keeps no store"));
         }
         self.store_dirty.store(CLEAN, Ordering::SeqCst);
+        let started = std::time::Instant::now();
         let snap = self.build_snapshot();
         {
             let mut store = self.store.lock().unwrap();
             let Some(store) = store.as_mut() else {
                 return Err(invalid("this daemon keeps no store"));
             };
-            store.write(&snap).map_err(internal)?;
+            if let Err(e) = store.write(&snap) {
+                femux_log::error("daemon.store", "store.error")
+                    .msg(format!("snapshot failed: {e}"))
+                    .field("error", e.to_string())
+                    .emit();
+                return Err(internal(e));
+            }
         }
+        let took = started.elapsed();
+        femux_log::time("store.snapshot", took);
+        femux_log::debug("daemon.store", "store.snapshot")
+            .msg(format!("snapshot in {:.1} ms", took.as_secs_f64() * 1000.0))
+            .field("duration_ms", took.as_secs_f64() * 1000.0)
+            .field("sessions", snap.sessions.len())
+            .emit();
         self.emit(m::StoreSnapshotted::default(), Scope::default());
         Ok(snap.ts)
     }
@@ -348,11 +362,45 @@ impl Daemon {
         }
     }
 
+    /// `[debug] level` after a reload (REQ-LOG-003): applied only when the file's value changed,
+    /// so a reload does not undo `femux debug on`.
+    fn apply_log_level(self: &Arc<Self>, level: femux_config::LogLevel) {
+        let changed = {
+            let mut s = self.settings.lock().unwrap();
+            std::mem::replace(&mut s.log_level, level) != level
+        };
+        if !changed {
+            return;
+        }
+        let (l, p) = match level {
+            femux_config::LogLevel::Warn => (femux_log::Level::Warn, m::LogLevel::Warn),
+            femux_config::LogLevel::Debug => (femux_log::Level::Debug, m::LogLevel::Debug),
+            femux_config::LogLevel::Trace => (femux_log::Level::Trace, m::LogLevel::Trace),
+        };
+        if femux_log::set_level(l) != Some(l) {
+            self.emit(
+                m::ServerDebugChanged {
+                    level: p,
+                    ..Default::default()
+                },
+                Scope::default(),
+            );
+        }
+    }
+
     /// `server.reload` (ADR-013, ADR-017 #3): re-reads the config file and applies what can
     /// change while running. An invalid file changes nothing.
     pub fn reload(self: &Arc<Self>) -> R<()> {
         if let Some(path) = &self.cfg.config_path {
-            let c = femux_config::Config::load(path).map_err(invalid)?;
+            let c = femux_config::Config::load(path).map_err(|e| {
+                femux_log::warn("daemon", "config.error")
+                    .msg(format!("reload refused: {e}"))
+                    .field("path", path.display().to_string())
+                    .field("error", e.clone())
+                    .emit();
+                invalid(e)
+            })?;
+            self.apply_log_level(c.debug.level);
             let gaps = c.layout.gaps;
             {
                 let mut s = self.settings.lock().unwrap();

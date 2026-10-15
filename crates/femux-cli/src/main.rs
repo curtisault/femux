@@ -6,6 +6,7 @@
 
 mod config;
 mod conn;
+mod debug;
 mod integration;
 mod layouts;
 mod plugins;
@@ -37,6 +38,17 @@ struct Cli {
     /// Print machine-readable JSON instead of text.
     #[arg(long, global = true)]
     json: bool,
+    /// Debug mode: log in detail to the server's log (`--debug=trace` for more). Also
+    /// $FEMUX_DEBUG=1 or trace.
+    #[arg(
+        long,
+        global = true,
+        value_name = "LEVEL",
+        num_args = 0..=1,
+        require_equals = true,
+        default_missing_value = "debug"
+    )]
+    debug: Option<String>,
     #[command(subcommand)]
     command: Option<Cmd>,
 }
@@ -94,6 +106,9 @@ enum Cmd {
     Config(ConfigCmd),
     /// Apply config.toml to the running daemon and its clients (an invalid file changes nothing).
     Reload,
+    /// The log and debug mode: on, off, status, path, snapshot, tail.
+    #[command(subcommand)]
+    Debug(debug::DebugCmd),
     /// Print shell completions for bash, zsh or fish.
     Completions {
         #[arg(value_enum)]
@@ -271,6 +286,8 @@ enum IntegrationCmd {
 struct Out {
     text: String,
     json: Value,
+    /// The command printed its own output (`debug tail`).
+    printed: bool,
     /// A plugin asked to attach to this session afterwards.
     attach: Option<String>,
 }
@@ -281,6 +298,7 @@ fn ok(text: impl Into<String>, json: Value) -> R {
     Ok(Out {
         text: text.into(),
         json,
+        printed: false,
         attach: None,
     })
 }
@@ -343,8 +361,12 @@ fn running(socket: &Path) -> bool {
 fn spawn_daemon(server: &str, socket: &Path) -> io::Result<()> {
     let mut cmd = Proc::new(std::env::current_exe()?);
     cmd.args(["daemon", "--foreground", "--server", server, "--socket"])
-        .arg(socket)
-        .stdin(Stdio::null())
+        .arg(socket);
+    // REQ-LOG-003: a daemon started by a process in debug mode starts in it.
+    if let Some(l) = debug::requested_level() {
+        cmd.arg(format!("--debug={l}"));
+    }
+    cmd.stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     // SAFETY: setsid is async-signal-safe.
@@ -368,6 +390,14 @@ fn spawn_daemon(server: &str, socket: &Path) -> io::Result<()> {
 }
 
 fn run_daemon(server: &str, socket: PathBuf, cfg: &Config, plugins: Vec<Plugin>) -> io::Result<()> {
+    // REQ-LOG-005: the daemon's own stderr (detached, it went nowhere) goes into the log.
+    let captured = femux_log::capture_stderr().unwrap_or(false);
+    femux_log::start(json!({
+        "command": "daemon",
+        "socket": socket.display().to_string(),
+        "plugins": cfg.plugins.enabled,
+        "stderr_captured": captured,
+    }));
     let mut dcfg = femux_daemon::Config::new(server);
     dcfg.socket = socket.clone();
     dcfg.keep_alive = cfg.daemon.keep_alive;
@@ -381,6 +411,8 @@ fn run_daemon(server: &str, socket: PathBuf, cfg: &Config, plugins: Vec<Plugin>)
     dcfg.config_path = Some(femux_config::config_path());
     dcfg.gaps = cfg.layout.gaps;
     dcfg.scheme = femux_daemon::scheme(cfg.layout.scheme);
+    dcfg.log_level = cfg.debug.level;
+    dcfg.metrics_interval = Duration::from_millis(cfg.debug.metrics_interval_ms);
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
@@ -392,7 +424,14 @@ fn run_daemon(server: &str, socket: PathBuf, cfg: &Config, plugins: Vec<Plugin>)
             while !running(&socket) && Instant::now() < deadline {
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }
-            let _ = femux_plugin::run_daemon_plugin(&socket, p).await;
+            let name = p.name();
+            if let Err(e) = femux_plugin::run_daemon_plugin(&socket, p).await {
+                femux_log::error(&format!("plugin.{name}"), "plugin.error")
+                    .msg(format!("plugin {name} stopped: {e}"))
+                    .field("plugin", name)
+                    .field("error", e.to_string())
+                    .emit();
+            }
         });
     }
     rt.block_on(femux_daemon::run_with_signals(dcfg))
@@ -950,6 +989,7 @@ fn run_cmd(cli: &Cli, cfg: &Config, socket: &Path, all_plugins: Vec<Plugin>, cmd
                 )
             }
         },
+        Some(Cmd::Debug(d)) => run_debug(d, cli.json, socket, &server),
         Some(Cmd::Completions { shell }) => {
             let mut cmd = cmd.clone();
             let mut buf = Vec::new();
@@ -959,6 +999,74 @@ fn run_cmd(cli: &Cli, cfg: &Config, socket: &Path, all_plugins: Vec<Plugin>, cmd
                 text.clone(),
                 json!({"shell": shell.to_string(), "script": text}),
             )
+        }
+    }
+}
+
+/// `femux debug …` (REQ-LOG-003, 007, 008).
+fn run_debug(d: &debug::DebugCmd, json: bool, socket: &Path, server: &str) -> R {
+    use debug::DebugCmd as D;
+    use femux_log::Level;
+    let set = |level: Level| -> R {
+        let mut c = connect(socket)?;
+        let r = debug::set(&mut c, Some(level))?;
+        let (text, json) = debug::report(&r);
+        ok(text, json)
+    };
+    match d {
+        D::On { trace } => set(if *trace { Level::Trace } else { Level::Debug }),
+        D::Crash => panic!("femux debug crash"),
+        D::Off => set(Level::Warn),
+        D::Status => {
+            if !running(socket) {
+                let path = femux_log::path(server);
+                return ok(
+                    format!("no daemon at {}\nlog: {}", socket.display(), path.display()),
+                    json!({"running": false, "debug": false, "path": path}),
+                );
+            }
+            let mut c = connect(socket)?;
+            let (text, mut j) = debug::report(&debug::set(&mut c, None)?);
+            j["running"] = true.into();
+            ok(text, j)
+        }
+        D::Path => {
+            let path = if running(socket) {
+                debug::log_path(connect(socket).ok().as_mut(), server)
+            } else {
+                femux_log::path(server)
+            };
+            ok(path.display().to_string(), json!({"path": path}))
+        }
+        D::Snapshot => {
+            let mut c = connect(socket)?;
+            let fields = debug::snapshot(&mut c)?;
+            let path = femux_log::current_path().unwrap_or_else(|| femux_log::path(server));
+            ok(
+                format!("snapshot written to {}", path.display()),
+                json!({"path": path, "snapshot": fields}),
+            )
+        }
+        D::Tail {
+            level,
+            event,
+            pane,
+            since,
+            follow,
+        } => {
+            let f = debug::Filter::new(level, event.clone(), pane.clone(), since.as_deref())?;
+            let path = if running(socket) {
+                debug::log_path(connect(socket).ok().as_mut(), server)
+            } else {
+                femux_log::path(server)
+            };
+            debug::tail(&path, &f, *follow, json).map_err(|e| e.to_string())?;
+            Ok(Out {
+                text: String::new(),
+                json: Value::Null,
+                printed: true,
+                attach: None,
+            })
         }
     }
 }
@@ -1029,6 +1137,8 @@ fn host(cfg: &Config, plugins: Vec<Plugin>, cmd: &Command) -> femux_client::Host
         reload: Some(Box::new(|| {
             Config::load(&femux_config::config_path()).map(|c| config::client(&c))
         })),
+        debug: debug::requested_level().map(debug::to_proto),
+        metrics_interval: Duration::from_millis(cfg.debug.metrics_interval_ms),
     }
 }
 
@@ -1119,6 +1229,7 @@ fn run_plugin(matches: &ArgMatches, plugins: &[Plugin], socket: &Path, server: &
             conn: None,
         };
         return Some(p.run(&full, &input, &mut core).map(|o| Out {
+            printed: false,
             text: o.text,
             json: o.json,
             attach: o.attach,
@@ -1208,12 +1319,22 @@ fn main() -> ExitCode {
     let cmd = with_plugin_commands(Cli::command(), &plugins);
     let matches = cmd.clone().get_matches();
     let json = matches.get_flag("json");
+    let requested = match debug::requested(matches.get_one::<String>("debug").map(String::as_str)) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("femux: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let _ = debug::REQUESTED.set(requested);
+    let sub = matches.subcommand_name().map(str::to_owned);
     let result = (|| {
         // Only the globals are needed to find the socket; the subcommand may be a plugin's.
         let globals = Cli {
             server: matches.get_one::<String>("server").cloned(),
             socket: matches.get_one::<PathBuf>("socket").cloned(),
             json,
+            debug: None,
             command: None,
         };
         let socket = socket_path(&globals, &cfg);
@@ -1221,6 +1342,23 @@ fn main() -> ExitCode {
             .server
             .clone()
             .unwrap_or_else(|| cfg.daemon.name.clone());
+        // REQ-LOG-001/003: every process logs to its server's file; the daemon at least at
+        // `[debug] level`, everything else at what was asked for, else warnings only.
+        let proc = match matches.subcommand() {
+            None => femux_log::Proc::Client,
+            Some(("attach", a)) if !a.get_flag("stdio") => femux_log::Proc::Client,
+            Some(("daemon", a)) if a.get_flag("foreground") => femux_log::Proc::Daemon,
+            _ => femux_log::Proc::Cli,
+        };
+        let asked = requested.unwrap_or(femux_log::Level::Warn);
+        let level = match proc {
+            femux_log::Proc::Daemon => asked.max(debug::from_config(cfg.debug.level)),
+            _ => asked,
+        };
+        debug::init(&server, proc, level, &cfg);
+        if proc != femux_log::Proc::Daemon {
+            femux_log::start(json!({"command": sub.clone().unwrap_or_default()}));
+        }
         if let Some(r) = run_plugin(&matches, &plugins, &socket, &server) {
             let out = r?;
             // Attach afterwards only from a terminal, outside femux, and not for --json.
@@ -1238,7 +1376,16 @@ fn main() -> ExitCode {
         let cli = Cli::from_arg_matches(&matches).map_err(|e| e.to_string())?;
         run_cmd(&cli, &cfg, &socket, plugins, &cmd)
     })();
+    let code = i32::from(result.is_err());
+    if let Err(e) = &result {
+        femux_log::warn("cli", "cli.error")
+            .msg(e.clone())
+            .field("command", sub.clone().unwrap_or_default())
+            .emit();
+    }
+    femux_log::stop(sub.as_deref().unwrap_or("attach"), code);
     match result {
+        Ok(out) if out.printed => ExitCode::SUCCESS,
         Ok(out) => {
             if json {
                 println!("{}", serde_json::to_string_pretty(&out.json).unwrap());

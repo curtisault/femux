@@ -168,6 +168,8 @@ pub struct Pane {
     pub activity: Arc<std::sync::atomic::AtomicU64>,
     /// ms since epoch of the newest output; 0 before any (ADR-019 #3).
     pub output: Arc<std::sync::atomic::AtomicU64>,
+    /// Bytes read from the pane's pty, for `metrics` (REQ-LOG-006).
+    pub bytes_read: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl Pane {

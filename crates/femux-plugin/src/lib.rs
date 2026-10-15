@@ -3,6 +3,10 @@
 //! (subcommands). A plugin implements any subset and talks to the core only through
 //! `femux-proto` (REQ-PLUG-003), so it can also run out of process.
 
+/// The femux log (SPEC §3.9), for plugins: REQ-PLUG-003 keeps them to this crate and the
+/// protocol, so the log reaches them through here.
+pub use femux_log as log;
+
 use std::path::Path;
 use std::time::Duration;
 
@@ -98,8 +102,9 @@ pub struct BarCtx {
     /// What the daemon host's `hosts` plugin last published (`plugin.data`, ADR-020): the
     /// values `remote:` modules show.
     pub remote: std::collections::BTreeMap<String, String>,
-    /// The bar is a column (`left`/`right`): modules may use several lines (`\n` in a span).
-    pub vertical: bool,
+    /// The bar is short of room: render the short form, the value without its label
+    /// (`31%` for `cpu 31%`), REQ-UI-030.
+    pub short: bool,
 }
 
 /// An info bar module (REQ-UI-031): the bar calls `sample` every `interval` to refresh what
@@ -409,6 +414,12 @@ pub async fn run_daemon_plugin(
         &mut pending,
     )
     .await?;
+    let name = plugin.name();
+    let target = format!("plugin.{name}");
+    femux_log::info(&target, "plugin.start")
+        .msg(format!("plugin {name} started"))
+        .field("plugin", name)
+        .emit();
     for req in plugin.start() {
         send(&mut wr, req, &mut next_id, &mut pending).await?;
     }
@@ -425,8 +436,12 @@ pub async fn run_daemon_plugin(
     let mut tick = tokio::time::interval(every.unwrap_or(Duration::from_secs(3600)));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
+        // Set when a branch starts its work, so the wait for input is not counted.
+        let started: std::time::Instant;
+        let mut what = "event";
         let reqs = tokio::select! {
             frame = frames.recv() => {
+                started = std::time::Instant::now();
                 let Some(frame) = frame else { return Ok(()) };
                 let Ok(msg) = decode_envelope(&frame).and_then(ServerMsg::decode) else {
                     continue;
@@ -434,23 +449,51 @@ pub async fn run_daemon_plugin(
                 match msg {
                     ServerMsg::Event(ev) => plugin.on_event(&ev),
                     ServerMsg::Response(id, resp) => match pending.remove(&id) {
-                        Some(req) => plugin.on_response(&req, &resp),
+                        Some(req) => {
+                            what = req.kind();
+                            plugin.on_response(&req, &resp)
+                        }
                         None => Vec::new(),
                     },
-                    ServerMsg::Error(id, _) => {
-                        pending.remove(&id);
+                    ServerMsg::Error(id, e) => {
+                        // REQ-LOG-005: a request of this plugin the daemon refused.
+                        let kind = pending.remove(&id).map_or("?", |r| r.kind());
+                        femux_log::warn(&target, "plugin.error")
+                            .msg(format!("{name}: {kind}: {}: {}", e.code.as_str(), e.message))
+                            .field("plugin", name)
+                            .field("kind", kind)
+                            .field("code", e.code.as_str())
+                            .emit();
                         Vec::new()
                     }
                     ServerMsg::Push(_) => Vec::new(),
                 }
             }
             _ = tick.tick(), if every.is_some() => {
+                started = std::time::Instant::now();
+                what = "tick";
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map_or(0, |d| d.as_millis() as u64);
                 plugin.tick(now)
             }
         };
+        // REQ-LOG-005/006: time spent in the plugin, and handlers over 50 ms.
+        let took = started.elapsed();
+        if femux_log::debug_mode() {
+            femux_log::time(&format!("plugin.{name}"), took);
+        }
+        if took >= Duration::from_millis(50) {
+            femux_log::warn(&target, "plugin.slow")
+                .msg(format!(
+                    "{name}: {what} took {:.0} ms",
+                    took.as_secs_f64() * 1000.0
+                ))
+                .field("plugin", name)
+                .field("handler", what)
+                .field("ms", took.as_secs_f64() * 1000.0)
+                .emit();
+        }
         for req in reqs {
             send(&mut wr, req, &mut next_id, &mut pending).await?;
         }

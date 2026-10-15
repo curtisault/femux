@@ -7,6 +7,7 @@ mod daemon;
 mod frames;
 mod images;
 pub mod layout;
+mod logging;
 #[cfg(target_os = "linux")]
 mod logind;
 mod persist;
@@ -37,6 +38,37 @@ pub async fn run(cfg: Config) -> io::Result<()> {
 pub async fn run_with_signals(cfg: Config) -> io::Result<()> {
     let listener = server::bind(&cfg.socket)?;
     let d = Daemon::new(cfg);
+    // REQ-LOG-006: the daemon's own readings join each `metrics` record.
+    let weak = Arc::downgrade(&d);
+    femux_log::start_metrics(d.cfg.metrics_interval, move || {
+        let Some(d) = weak.upgrade() else {
+            return serde_json::Value::Null;
+        };
+        // The bus first and on its own: no lock is held while taking another.
+        let bus_seq = d.bus.lock().unwrap().seq();
+        let st = d.state.lock().unwrap();
+        let mut busiest: Vec<(String, u64)> = st
+            .panes
+            .values()
+            .map(|p| {
+                let n = p.bytes_read.swap(0, std::sync::atomic::Ordering::Relaxed);
+                (p.id.clone(), n)
+            })
+            .collect();
+        busiest.sort_by_key(|b| std::cmp::Reverse(b.1));
+        busiest.truncate(5);
+        serde_json::json!({
+            "sessions": st.sessions.len(),
+            "panes": st.panes.len(),
+            "views": st.views.len(),
+            "conns": st.conns.len(),
+            "bus_seq": bus_seq,
+            "busiest_panes": busiest
+                .into_iter()
+                .map(|(id, b)| serde_json::json!({"pane": id, "bytes_read": b}))
+                .collect::<Vec<_>>(),
+        })
+    });
     let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let d2 = d.clone();
     tokio::spawn(async move {

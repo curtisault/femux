@@ -1,0 +1,16 @@
+[package]
+name = "femux-log"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# The JSON Lines log, levels, rotation and metrics (SPEC §3.9). No terminal, UI or agent code:
+# the daemon, the client, the CLI and (through femux-plugin) the plugins all write with it.
+[dependencies]
+femux-config = { path = "../femux-config" }
+serde_json = "1"
+ulid = "1"
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"

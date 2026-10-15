@@ -7,13 +7,14 @@ from the `femux` CLI. Agent tracking and the other extras are built-in plugins o
 
 ## Status
 
-femux is pre-1.0 and at version 0.9: a client and CLI meant for daily use, locally and over SSH,
+femux is pre-1.0 and at version 0.10: a client and CLI meant for daily use, locally and over SSH,
 with sessions that can survive a daemon restart and tracking of the coding agents running in them.
 
 Working now: tabs, BSP splits with preselection, master and scroll layouts, floating panes, zoom,
-marks, copy mode with regex search, a command palette, which-key hints, mouse support, an info
-bar on any side with cpu, memory, network, battery, git, agent and notification modules, session
-and pane navigators, a side nav, themes, the `femux` CLI with `--json` output, session files
+marks, copy mode with regex search, a command palette, which-key hints, mouse support, one bar
+at the top or bottom with the session, the tabs and cpu, memory, network, battery, git, agent and
+notification modules, a panel on the left (`prefix b`, focused with `prefix ctrl+b`) listing
+sessions, tabs, panes and every agent, session and pane navigators, themes, the `femux` CLI with `--json` output, session files
 with `femux launch`, opt-in restore of sessions after the daemon restarts
 (`[restore] enabled = true`), agent state tracking with an inbox, notifications, attaching
 to a remote femux over SSH, and images: Kitty graphics and sixel from programs such as
@@ -117,6 +118,24 @@ carries on and the client reconnects on its own. Notifications from the remote p
 machine with your own `[notify]` settings, and `remote:cpu`, `remote:mem`, `remote:net` and
 `remote:hostname` in the info bar show the remote machine. `femux hosts add --forward` forwards
 the remote socket with `ssh -L` instead of running the protocol over the SSH channel.
+
+## Debugging
+
+Every femux process writes to one log per server, `~/.local/state/femux/logs/<server>.jsonl`,
+one JSON record per line. Normally only warnings, errors and crashes go in. Debug mode records
+what femux does and why: requests, pane and agent state changes, plugin activity, slow draws,
+and a `metrics` record every 10 seconds. Nothing leaves your machine, and typed text, pane
+output and clipboard contents are never logged.
+
+```sh
+femux --debug                  # attach in debug mode (or FEMUX_DEBUG=1; --debug=trace for more)
+femux debug on                 # switch a running daemon; `femux debug off` to stop
+femux debug snapshot           # write the whole state into the log
+femux debug tail --follow --level warn --json   # stream problems, e.g. for an agent to watch
+```
+
+The bar says `DEBUG` while debug mode is on. `[debug]` in the config sets the starting level,
+the rotation size and the metrics interval.
 
 ## Documentation
 

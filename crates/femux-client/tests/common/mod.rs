@@ -57,7 +57,11 @@ impl Drive {
         })
         .await
         .unwrap();
-        let area = femux_client::layout::Layout::compute(cols, rows, &cfg, false).panes;
+        // As the client does: beside the panel when it starts open.
+        let panel = cfg
+            .panel_open
+            .then_some(cfg.panel_width.max(femux_client::panel::MIN_WIDTH));
+        let area = femux_client::layout::Layout::compute(cols, rows, &cfg, panel).panes;
         let attach = conn
             .call(m::SessionAttach {
                 name: "s".into(),

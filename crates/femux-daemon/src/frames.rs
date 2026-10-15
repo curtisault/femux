@@ -17,6 +17,8 @@ pub struct FrameState {
     pub subscribed: bool,
     pub seq: u64,
     pub unacked: Option<u64>,
+    /// When the unacked frame was built (REQ-LOG-005 `client.lagging`).
+    pub sent_at: Option<std::time::Instant>,
     /// Next frame must be full (after attach, events_lost, tab switch).
     pub need_full: bool,
     tab: Option<String>,
@@ -146,6 +148,7 @@ fn plan(state: &State, view_id: &str) -> Option<Plan> {
 /// Pane terminals are read without holding the state lock, so a busy pane can delay its
 /// own frames but never requests (REQ-PTY-003).
 pub fn build(state: &std::sync::Mutex<State>, view_id: &str) -> Option<m::Frame> {
+    let started = std::time::Instant::now();
     let plan = plan(&state.lock().unwrap(), view_id)?;
     let mut sent_updates = Vec::new();
     let mut panes = Vec::new();
@@ -217,6 +220,13 @@ pub fn build(state: &std::sync::Mutex<State>, view_id: &str) -> Option<m::Frame>
     fs.tab_gen = plan.tab_gen;
     fs.seq += 1;
     fs.unacked = Some(fs.seq);
+    fs.sent_at = Some(std::time::Instant::now());
+    femux_log::count("frames.sent", 1);
+    femux_log::count(
+        "frames.cells",
+        panes.iter().map(|p| p.cells.len() as u64).sum(),
+    );
+    femux_log::time("frame.build", started.elapsed());
     Some(m::Frame {
         view_id: view_id.to_owned(),
         frame_seq: fs.seq,

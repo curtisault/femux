@@ -302,6 +302,8 @@ fn test_002_every_milestone_requirement_is_mapped() {
         ("UI", 30..=33),
         ("UI", 40..=42),
         ("UI", 44..=44),
+        // §13, 0.11.0: UI-045 and UI-046 (AGT-002/004 and UI-044 are mapped above).
+        ("UI", 45..=46),
         // §13, 0.6.0: SEC-007 (PROTO-003 is part of PROTO-*).
         ("SEC", 7..=7),
         // §13, 0.7.0: GFX-*.
@@ -309,6 +311,8 @@ fn test_002_every_milestone_requirement_is_mapped() {
         // §13, 0.9.0: SEC-002 and SEC-004 (VT-002 and UI-053 are mapped above).
         ("SEC", 2..=2),
         ("SEC", 4..=4),
+        // §13, 0.11.1: LOG-001–008.
+        ("LOG", 1..=8),
     ];
     let mut want = std::collections::BTreeSet::new();
     for line in spec.lines() {

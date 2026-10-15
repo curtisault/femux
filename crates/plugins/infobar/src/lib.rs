@@ -21,7 +21,6 @@ pub fn plugin() -> Plugin {
 
 /// Every module name this plugin provides.
 pub const MODULES: &[&str] = &[
-    "tabs",
     "clock",
     "cpu",
     "mem",
@@ -41,7 +40,6 @@ impl ClientPlugin for Infobar {
     }
     fn modules(&self) -> Vec<Box<dyn InfoModule>> {
         vec![
-            Box::new(Tabs),
             Box::new(Clock::default()),
             Box::new(Cpu::default()),
             Box::new(Mem::default()),
@@ -58,8 +56,8 @@ impl ClientPlugin for Infobar {
 const SECOND: Duration = Duration::from_secs(1);
 
 fn label(name: &str, ctx: &BarCtx) -> Option<Span> {
-    // The vertical bar prints the module name above its value.
-    (!ctx.vertical).then(|| Span::new(format!("{name} "), Style::Muted))
+    // The short form is the value alone (REQ-UI-030).
+    (!ctx.short).then(|| Span::new(format!("{name} "), Style::Muted))
 }
 
 /// 1536 -> "1.5k", 9_876_543_210 -> "9.2G".
@@ -75,53 +73,6 @@ pub fn human(bytes: f64) -> String {
         format!("{v:.0}{}", units[i])
     } else {
         format!("{v:.1}{}", units[i])
-    }
-}
-
-// ---------------------------------------------------------------- tabs
-
-struct Tabs;
-
-impl InfoModule for Tabs {
-    fn name(&self) -> &str {
-        "tabs"
-    }
-    fn render(&self, ctx: &BarCtx, _w: usize) -> Spans {
-        // A row says `tab 2/5` (the strip already lists the tabs); a column lists them.
-        if !ctx.vertical {
-            let at = ctx.tabs.iter().position(|t| t.current).map_or(0, |i| i + 1);
-            let mut out = vec![Span::new(
-                format!("tab {at}/{}", ctx.tabs.len()),
-                Style::Muted,
-            )];
-            if ctx.tabs.iter().any(|t| t.urgent && !t.current) {
-                out.push(Span::new(" !", Style::Warn));
-            }
-            return out;
-        }
-        let mut out = Vec::new();
-        for (i, t) in ctx.tabs.iter().enumerate() {
-            if i > 0 {
-                out.push(Span::text(if ctx.vertical { "\n" } else { " " }));
-            }
-            let style = if t.current {
-                Style::Key
-            } else if t.urgent {
-                Style::Warn
-            } else {
-                Style::Muted
-            };
-            let text = if ctx.vertical {
-                format!("{} {}", t.index, t.title)
-            } else {
-                t.index.to_string()
-            };
-            out.push(Span::new(text, style));
-        }
-        out
-    }
-    fn interval(&self) -> Duration {
-        SECOND
     }
 }
 
@@ -158,11 +109,18 @@ impl InfoModule for Clock {
     fn sample(&mut self, _ctx: &BarCtx) {
         self.text = local_time();
     }
-    fn render(&self, _ctx: &BarCtx, _w: usize) -> Spans {
-        if self.text.is_empty() {
-            return vec![Span::text(local_time())];
-        }
-        vec![Span::text(self.text.clone())]
+    fn render(&self, ctx: &BarCtx, _w: usize) -> Spans {
+        let text = if self.text.is_empty() {
+            local_time()
+        } else {
+            self.text.clone()
+        };
+        // Short: the time without the day.
+        let text = match (ctx.short, text.split_once(' ')) {
+            (true, Some((_, time))) => time.to_owned(),
+            _ => text,
+        };
+        vec![Span::text(text)]
     }
     fn interval(&self) -> Duration {
         SECOND
@@ -204,12 +162,6 @@ impl InfoModule for Cpu {
         };
         let mut out: Spans = label("cpu", ctx).into_iter().collect();
         out.push(Span::text(format!("{now:.0}%")));
-        if ctx.vertical {
-            out.push(Span::new(
-                format!(" {}", sparkline(self.history.iter().copied())),
-                Style::Muted,
-            ));
-        }
         out
     }
     fn interval(&self) -> Duration {
@@ -233,15 +185,11 @@ impl InfoModule for Mem {
         self.used_total = Some((sys.used_memory(), sys.total_memory()));
     }
     fn render(&self, ctx: &BarCtx, _w: usize) -> Spans {
-        let Some((used, total)) = self.used_total.filter(|(_, t)| *t > 0) else {
+        let Some((used, _)) = self.used_total.filter(|(_, t)| *t > 0) else {
             return Vec::new();
         };
         let mut out: Spans = label("mem", ctx).into_iter().collect();
-        out.push(Span::text(if ctx.vertical {
-            format!("{} / {}", human(used as f64), human(total as f64))
-        } else {
-            human(used as f64)
-        }));
+        out.push(Span::text(human(used as f64)));
         out
     }
     fn interval(&self) -> Duration {
@@ -289,8 +237,7 @@ impl InfoModule for Net {
             return Vec::new();
         };
         let mut out: Spans = label("net", ctx).into_iter().collect();
-        let sep = if ctx.vertical { "\n" } else { " " };
-        out.push(Span::text(format!("↓{}{sep}↑{}", human(down), human(up))));
+        out.push(Span::text(format!("↓{} ↑{}", human(down), human(up))));
         out
     }
     fn interval(&self) -> Duration {
@@ -483,7 +430,11 @@ impl InfoModule for Git {
         if ctx.cwd.as_deref() != Some(cwd.as_str()) {
             return Vec::new();
         }
-        let mut out = vec![Span::text(g.branch.clone())];
+        // Short: the branch alone.
+        if ctx.short {
+            return vec![Span::text(g.branch.clone())];
+        }
+        let mut out = vec![Span::new("⎇ ", Style::Ok), Span::text(g.branch.clone())];
         if g.dirty > 0 {
             out.push(Span::new(format!(" +{}", g.dirty), Style::Warn));
         }
@@ -520,18 +471,25 @@ impl InfoModule for Agents {
         let mut out = Vec::new();
         for (state, glyph, style) in AGENT_STATES {
             let n = ctx.agents.get(state).copied().unwrap_or(0);
-            if n == 0 {
+            // Working, blocked and done always count (`✓ 0`); errors only when there are
+            // some. The short form keeps only what is there, glyph and count joined (`◐1`).
+            if n == 0 && (ctx.short || state == "error") {
                 continue;
             }
             if !out.is_empty() {
-                out.push(Span::text(if ctx.vertical { "\n" } else { " " }));
+                out.push(Span::text(" "));
             }
-            out.push(Span::new(format!("{glyph} "), style));
-            out.push(Span::text(if ctx.vertical {
-                format!("{n} {state}")
+            let glyph = if ctx.short {
+                glyph.to_owned()
             } else {
-                n.to_string()
-            }));
+                format!("{glyph} ")
+            };
+            out.push(Span::new(glyph, style));
+            out.push(Span::text(n.to_string()));
+        }
+        // No agents at all: nothing to show.
+        if ctx.agents.values().all(|n| *n == 0) {
+            return Vec::new();
         }
         out
     }
@@ -559,16 +517,11 @@ impl InfoModule for Notifications {
     }
     /// REQ-UI-033: the client passes only notifications whose pane is hidden, newest first.
     fn render(&self, ctx: &BarCtx, w: usize) -> Spans {
-        let n = if ctx.vertical { 3 } else { 1 };
-        let mut out = Vec::new();
-        for (i, note) in ctx.notifications.iter().take(n).enumerate() {
-            if i > 0 {
-                out.push(Span::text("\n"));
-            }
-            let title: String = note.title.chars().take(w.max(1)).collect();
-            out.push(Span::new(title, level_style(note.level)));
-        }
-        out
+        let Some(note) = ctx.notifications.first() else {
+            return Vec::new();
+        };
+        let title: String = note.title.chars().take(w.max(1)).collect();
+        vec![Span::new(title, level_style(note.level))]
     }
     fn interval(&self) -> Duration {
         SECOND
@@ -618,7 +571,7 @@ impl InfoModule for Hostname {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use femux_plugin::{NoteItem, TabItem};
+    use femux_plugin::NoteItem;
 
     fn text(s: &Spans) -> String {
         s.iter().map(|s| s.text.as_str()).collect()
@@ -661,16 +614,19 @@ mod tests {
         c.sample(&ctx);
         let t = text(&c.render(&ctx, 40));
         assert!(t.len() == 9 && t.as_bytes()[6] == b':', "{t:?}");
-        // Vertical: no label (the bar prints the name), several lines where useful.
-        let v = BarCtx {
-            vertical: true,
+        // Short: the value without its label, the time without the day (REQ-UI-030).
+        let short = BarCtx {
+            short: true,
             ..Default::default()
         };
-        let mut n = module("net");
-        n.sample(&v);
-        std::thread::sleep(Duration::from_millis(100));
-        n.sample(&v);
-        assert!(text(&n.render(&v, 20)).contains("\n↑"));
+        let mut n = module("cpu");
+        n.sample(&short);
+        std::thread::sleep(Duration::from_millis(250));
+        n.sample(&short);
+        let out = text(&n.render(&short, 20));
+        assert!(out.ends_with('%') && !out.starts_with("cpu"), "{out:?}");
+        let t = text(&c.render(&short, 40));
+        assert!(t.len() == 5 && t.as_bytes()[2] == b':', "{t:?}");
     }
 
     #[test]
@@ -760,12 +716,17 @@ mod tests {
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
             m.sample(&ctx);
-            if text(&m.render(&ctx, 40)) == "work +1" {
+            if text(&m.render(&ctx, 40)) == "⎇ work +1" {
                 break;
             }
             assert!(Instant::now() < deadline, "{:?}", text(&m.render(&ctx, 40)));
             std::thread::sleep(Duration::from_millis(50));
         }
+        let short = BarCtx {
+            short: true,
+            ..ctx.clone()
+        };
+        assert_eq!(text(&m.render(&short, 40)), "work");
         // Another directory shows nothing until sampled there.
         let elsewhere = BarCtx {
             cwd: Some("/".into()),
@@ -775,28 +736,8 @@ mod tests {
     }
 
     #[test]
-    fn tabs_agents_and_notifications_render_from_the_context() {
+    fn agents_and_notifications_render_from_the_context() {
         let mut ctx = BarCtx {
-            tabs: vec![
-                TabItem {
-                    index: 1,
-                    title: "shell".into(),
-                    current: false,
-                    urgent: false,
-                },
-                TabItem {
-                    index: 2,
-                    title: "api".into(),
-                    current: true,
-                    urgent: false,
-                },
-                TabItem {
-                    index: 3,
-                    title: "infra".into(),
-                    current: false,
-                    urgent: true,
-                },
-            ],
             agents: [("working", 2), ("blocked", 1), ("idle", 4), ("done", 1)]
                 .map(|(k, v)| (k.to_owned(), v))
                 .into(),
@@ -812,27 +753,17 @@ mod tests {
             ],
             ..Default::default()
         };
-        // A row counts (the strip lists them) and flags an urgent tab elsewhere.
-        let tabs = module("tabs").render(&ctx, 40);
-        assert_eq!(text(&tabs), "tab 2/3 !");
-        assert_eq!(tabs[1].style, Style::Warn);
         assert_eq!(text(&module("agents").render(&ctx, 40)), "◐ 2 ■ 1 ✓ 1");
+        // The bar shows the newest notification.
         let notes = module("notifications").render(&ctx, 40);
         assert_eq!(text(&notes), "codex needs y/n");
         assert_eq!(notes[0].style, Style::Warn);
-        ctx.vertical = true;
-        assert_eq!(
-            text(&module("tabs").render(&ctx, 40)),
-            "1 shell\n2 api\n3 infra"
-        );
-        assert_eq!(
-            text(&module("agents").render(&ctx, 40)),
-            "◐ 2 working\n■ 1 blocked\n✓ 1 done"
-        );
-        assert_eq!(
-            text(&module("notifications").render(&ctx, 40)),
-            "codex needs y/n\nopencode done"
-        );
+        // Zero counts show in full (`✓ 0`), not in the short form, which joins glyph and count.
+        ctx.agents = [("working".to_owned(), 1), ("blocked".to_owned(), 1)].into();
+        assert_eq!(text(&module("agents").render(&ctx, 40)), "◐ 1 ■ 1 ✓ 0");
+        ctx.short = true;
+        assert_eq!(text(&module("agents").render(&ctx, 40)), "◐1 ■1");
+        ctx.short = false;
         ctx.notifications.clear();
         ctx.agents.clear();
         assert!(module("notifications").render(&ctx, 40).is_empty());

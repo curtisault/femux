@@ -9,7 +9,8 @@ use femux_proto::msg as m;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn copy_mode_search_selects_and_yanks() {
-    let mut d = Drive::new(ClientConfig::default()).await;
+    // A 22-row pane under the one bar: line19 is in history once line40 is printed.
+    let mut d = Drive::with(ClientConfig::default(), Vec::new(), 80, 23).await;
     let pane = d.pane.clone();
     d.wait_pane_text(&pane, "$").await;
     d.obs.call(m::EventsSubscribe::default()).await.unwrap();
@@ -207,10 +208,10 @@ async fn all_default_bindings_work() {
     assert!(matches!(d.app.overlay, Overlay::Palette(_)));
     d.press("escape").await;
     d.press_all(&["ctrl+space", "?"]).await;
-    assert!(matches!(d.app.overlay, Overlay::Help));
+    assert!(matches!(d.app.overlay, Overlay::Help(_)));
     assert!(d.screen().contains("prefix table"));
     d.press("escape").await;
-    // S / W: the navigators (0.4.0), q closes them; b toggles the side nav.
+    // s / w: the navigators (0.4.0), q closes them; b toggles the panel (0.10.0).
     for k in ["s", "w"] {
         d.press_all(&["ctrl+space", k]).await;
         assert!(matches!(d.app.overlay, Overlay::Navigator(_)), "{k}");
@@ -218,9 +219,9 @@ async fn all_default_bindings_work() {
         assert!(matches!(d.app.overlay, Overlay::None), "{k}");
     }
     d.press_all(&["ctrl+space", "b"]).await;
-    assert!(d.app.sidenav_open);
+    assert!(d.app.panel.open);
     d.press_all(&["ctrl+space", "b"]).await;
-    assert!(!d.app.sidenav_open);
+    assert!(!d.app.panel.open);
     // x: close pane; confirmation when a program runs in it.
     d.type_text("sleep 30\n").await;
     d.until("running", |x| x.model.panes[&c].running()).await;

@@ -792,6 +792,27 @@
         "pane_id",
         "data"
       ]
+    },
+    "ServerDebugChanged": {
+      "type": "object",
+      "description": "The daemon's log level changed (REQ-LOG-003); attached clients log at the same level.",
+      "properties": {
+        "seq": {
+          "$ref": "common.json#/$defs/U64"
+        },
+        "ts": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "ms since epoch"
+        },
+        "level": {
+          "$ref": "server.json#/$defs/LogLevel"
+        }
+      },
+      "required": [
+        "seq",
+        "ts",
+        "level"
+      ]
     }
   },
   "x-messages": [
@@ -922,6 +943,10 @@
     {
       "kind": "config.reloaded",
       "body": "ConfigReloaded"
+    },
+    {
+      "kind": "server.debug_changed",
+      "body": "ServerDebugChanged"
     },
     {
       "kind": "events_lost",

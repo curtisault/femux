@@ -5,9 +5,8 @@ mod common;
 use std::time::Instant;
 
 use common::Drive;
-use femux_client::app::{MouseKind, NavTarget, Overlay};
+use femux_client::app::{NavTarget, Overlay};
 use femux_client::config::ClientConfig;
-use femux_client::layout::{Layout, SIDENAV_WIDTH};
 use femux_client::nav::{NavKind, rows};
 use femux_proto::msg as m;
 
@@ -245,88 +244,6 @@ async fn ui_041_pane_navigator_previews_panes_live_and_goes_to_them() {
     d.press("enter").await;
     d.until("on that tab and pane", |a| {
         a.model.current == t2.tab_id && a.model.focused_id().as_deref() == Some(t2.pane_id.as_str())
-    })
-    .await;
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn ui_042_side_nav_lists_sessions_and_tabs_and_switches_on_click() {
-    let mut d = Drive::with(ClientConfig::default(), vec![], 120, 30).await;
-    let pane = d.pane.clone();
-    d.wait_pane_text(&pane, "$").await;
-    d.obs
-        .call(m::SessionCreate {
-            name: "other".into(),
-            root: None,
-            file: None,
-        })
-        .await
-        .unwrap();
-    d.press_all(&["ctrl+space", "t"]).await;
-    d.until("two tabs", |a| a.model.tabs.len() == 2).await;
-    d.press_all(&["ctrl+space", "b"]).await;
-    pump(&mut d).await;
-    assert!(d.app.sidenav_open);
-    // The panes move over; the daemon resizes the view.
-    let l = Layout::compute(120, 30, &d.app.cfg, true);
-    assert_eq!(l.panes.x, SIDENAV_WIDTH);
-    d.until("pane resized", |a| {
-        a.model.panes[&a.model.focused_id().unwrap()]
-            .screen
-            .as_ref()
-            .is_some_and(|s| s.rect.w == 120 - SIDENAV_WIDTH)
-    })
-    .await;
-    let screen = d.screen();
-    // Tab titles are the shell's name: sh, or bash on macOS.
-    let titles: Vec<String> = d
-        .app
-        .model
-        .tabs
-        .iter()
-        .enumerate()
-        .map(|(i, t)| format!("{} {}", i + 1, d.app.model.tab_title(t)))
-        .collect();
-    for want in ["sessions", "▾ s", "▸ other", "b hides"]
-        .into_iter()
-        .chain(titles.iter().map(String::as_str))
-    {
-        assert!(screen.contains(want), "{want}:\n{screen}");
-    }
-    // Click the first tab, then the other session.
-    let hit = |d: &Drive, t: &NavTarget| {
-        d.app
-            .sidenav_hits
-            .iter()
-            .find(|(_, x)| x == t)
-            .map(|(y, _)| *y)
-            .unwrap()
-    };
-    let first_tab = NavTarget::Tab {
-        session: "s".into(),
-        tab: d.app.model.tabs[0].id.clone(),
-    };
-    let y = hit(&d, &first_tab);
-    d.app
-        .on_mouse(5, y, MouseKind::Press(m::MouseButton::Left), vec![]);
-    d.settle().await;
-    d.until("tab 1", |a| a.model.current == a.model.tabs[0].id)
-        .await;
-    let _ = d.screen();
-    let y = hit(&d, &NavTarget::Session("other".into()));
-    d.app
-        .on_mouse(5, y, MouseKind::Press(m::MouseButton::Left), vec![]);
-    d.settle().await;
-    d.until("other session", |a| a.model.session == "other")
-        .await;
-    // b hides it again and gives the panes the width back.
-    d.press_all(&["ctrl+space", "b"]).await;
-    assert!(!d.app.sidenav_open);
-    d.until("full width", |a| {
-        a.model
-            .focused()
-            .and_then(|p| p.screen.as_ref())
-            .is_some_and(|s| s.rect.w == 120)
     })
     .await;
 }

@@ -58,6 +58,10 @@ pub struct Config {
     /// REQ-STORE-003: snapshot this long after a layout change, and this often while dirty.
     pub snapshot_debounce: Duration,
     pub snapshot_interval: Duration,
+    /// `[debug] level`, which `server.reload` re-applies when it changes (REQ-LOG-003).
+    pub log_level: femux_config::LogLevel,
+    /// `[debug] metrics_interval_ms` (REQ-LOG-006).
+    pub metrics_interval: Duration,
 }
 
 impl Config {
@@ -88,6 +92,8 @@ impl Config {
             scheme: m::Scheme::Bsp,
             snapshot_debounce: Duration::from_millis(500),
             snapshot_interval: Duration::from_secs(30),
+            log_level: femux_config::LogLevel::Warn,
+            metrics_interval: Duration::from_secs(10),
         }
     }
 }
@@ -131,6 +137,8 @@ pub struct Settings {
     /// `[layout] gaps` for every tab; `scheme` for new tabs.
     pub gaps: u16,
     pub scheme: m::Scheme,
+    /// `[debug] level` as last read (REQ-LOG-003).
+    pub log_level: femux_config::LogLevel,
 }
 
 /// How dirty the saved state is (REQ-STORE-003).
@@ -264,6 +272,7 @@ impl Daemon {
             read_allow: cfg.read_allow.clone(),
             gaps: cfg.gaps,
             scheme: cfg.scheme,
+            log_level: cfg.log_level,
         };
         Arc::new(Daemon {
             cfg,
@@ -409,8 +418,24 @@ impl Daemon {
             saved_env: BTreeMap::new(),
             activity: Arc::default(),
             output: Arc::default(),
+            bytes_read: Arc::default(),
         };
         st.panes.insert(id.clone(), pane);
+        if femux_log::enabled(femux_log::Level::Info) {
+            let p = &st.panes[&id];
+            // REQ-LOG-004: the program's name, never its arguments.
+            let program = femux_log::program(p.cmd.as_deref().unwrap_or(&self.cfg.shell));
+            femux_log::info("daemon.pty", "pane.spawn")
+                .pane(&id)
+                .tab(tab)
+                .msg(format!("pane spawned: {program}"))
+                .field("program", program)
+                .field("cwd", p.cwd.clone())
+                .field("cols", size.0)
+                .field("rows", size.1)
+                .field("restored", p.restored)
+                .emit();
+        }
         match opts.delay {
             // Staggered re-runs start later (REQ-STORE-005).
             Some(d) if !d.is_zero() => {
@@ -476,8 +501,11 @@ impl Daemon {
             master.clone(),
             vt,
             tx,
-            pane.activity.clone(),
-            pane.output.clone(),
+            Clocks {
+                activity: pane.activity.clone(),
+                output: pane.output.clone(),
+                bytes_read: pane.bytes_read.clone(),
+            },
         )));
         pane.tasks.push(tokio::spawn(writer(master.clone(), rx)));
         pane.tasks
@@ -535,6 +563,13 @@ impl Daemon {
         let Some(mut pane) = st.panes.remove(id) else {
             return;
         };
+        // REQ-LOG-005: a closed pane ends without pane.exited; say so here.
+        femux_log::info("daemon.pty", "pane.exit")
+            .pane(id)
+            .tab(&pane.tab)
+            .msg("pane closed")
+            .field("closed", true)
+            .emit();
         Self::kill_pane(&mut pane);
         let tab_id = pane.tab.clone();
         let Some(tab) = st.tabs.get_mut(&tab_id) else {
@@ -762,6 +797,15 @@ impl Daemon {
             if pane.size == size {
                 continue;
             }
+            femux_log::debug("daemon.pty", "pane.resize")
+                .pane(&p)
+                .msg(format!(
+                    "{}×{} → {}×{}",
+                    pane.size.0, pane.size.1, size.0, size.1
+                ))
+                .field("cols", size.0)
+                .field("rows", size.1)
+                .emit();
             pane.size = size;
             pane.resizes += 1;
             let mut vt = pane.vt.lock().unwrap();
@@ -845,6 +889,10 @@ impl Daemon {
     pub fn conn_closed(self: &Arc<Self>, conn: u64) {
         let mut st = self.state.lock().unwrap();
         st.conns.remove(&conn);
+        femux_log::debug("daemon.server", "client.disconnect")
+            .msg(format!("connection {conn} closed"))
+            .field("conn", conn)
+            .emit();
         let views: Vec<String> = st
             .views
             .values()
@@ -1745,6 +1793,24 @@ impl Daemon {
                 if v.frames.unacked == Some(r.frame_seq) {
                     v.frames.unacked = None;
                     v.frames.wake.notify_one();
+                    // REQ-LOG-005/006: how long the client took; a slow one had frames
+                    // coalesced meanwhile (REQ-VT-004).
+                    if let Some(sent) = v.frames.sent_at.take() {
+                        let took = sent.elapsed();
+                        femux_log::time("frame.ack", took);
+                        if took >= Duration::from_secs(1) {
+                            femux_log::warn("daemon.frames", "client.lagging")
+                                .view(&r.view_id)
+                                .msg(format!(
+                                    "frame {} acked after {:.1} s",
+                                    r.frame_seq,
+                                    took.as_secs_f64()
+                                ))
+                                .field("frame_seq", r.frame_seq)
+                                .field("ack_ms", took.as_millis() as u64)
+                                .emit();
+                        }
+                    }
                 }
                 Response::FrameAck(m::Empty {})
             }
@@ -1808,6 +1874,33 @@ impl Daemon {
                 panes: st.panes.len() as u32,
                 clients: st.conns.len() as u32,
             }),
+            Q::ServerDebug(r) => {
+                // REQ-LOG-003 (ADR-024): set the level when asked, tell every client.
+                if let Some(l) = r.level {
+                    let level = from_proto_level(l);
+                    if femux_log::set_level(level) != Some(level) {
+                        femux_log::info("daemon", "debug.level")
+                            .msg(format!("log level set to {level}"))
+                            .field("level", level.as_str())
+                            .emit();
+                        self.emit(
+                            m::ServerDebugChanged {
+                                level: l,
+                                ..Default::default()
+                            },
+                            Scope::default(),
+                        );
+                    }
+                }
+                Response::ServerDebug(m::ServerDebugOk {
+                    level: to_proto_level(femux_log::level()),
+                    path: femux_log::current_path()
+                        .unwrap_or_else(|| femux_log::path(&self.cfg.name))
+                        .display()
+                        .to_string(),
+                    since: femux_log::level_since(),
+                })
+            }
             Q::ServerStop(r) => {
                 // REQ-LIFE-001: without restore the panes are SIGHUPed; with it they are left to
                 // the hangup the kernel sends when the daemon's PTY ends close.
@@ -1931,15 +2024,27 @@ fn search(
     out
 }
 
+/// What the reader updates as output arrives: the pane's activity and output times
+/// (ADR-018 #1, ADR-019 #3) and its byte count (REQ-LOG-006).
+struct Clocks {
+    activity: Arc<std::sync::atomic::AtomicU64>,
+    output: Arc<std::sync::atomic::AtomicU64>,
+    bytes_read: Arc<std::sync::atomic::AtomicU64>,
+}
+
 async fn reader(
     d: Arc<Daemon>,
     id: String,
     master: Arc<tokio::io::unix::AsyncFd<std::os::fd::OwnedFd>>,
     vt: Arc<Mutex<Terminal>>,
     input: mpsc::UnboundedSender<Vec<u8>>,
-    activity: Arc<std::sync::atomic::AtomicU64>,
-    output: Arc<std::sync::atomic::AtomicU64>,
+    clocks: Clocks,
 ) {
+    let Clocks {
+        activity,
+        output,
+        bytes_read,
+    } = clocks;
     let mut buf = vec![0u8; 64 * 1024];
     loop {
         let Ok(mut guard) = master.readable().await else {
@@ -1955,9 +2060,11 @@ async fn reader(
         let now = crate::bus::now_ms();
         activity.store(now, std::sync::atomic::Ordering::Relaxed);
         output.store(now, std::sync::atomic::Ordering::Relaxed);
+        bytes_read.fetch_add(n as u64, std::sync::atomic::Ordering::Relaxed);
         // A clipboard read is answered while the bytes are parsed, so the policy is decided
         // first, from the process in the foreground right now (REQ-SEC-002).
-        let read = carries_clipboard_read(&buf[..n]).then(|| d.clipboard_read_source(&*master));
+        let read =
+            carries_clipboard_read(&buf[..n]).then(|| d.clipboard_read_source(&id, &*master));
         let (replies, changes) = {
             let mut vt = vt.lock().unwrap();
             if let Some(source) = read {
@@ -2025,15 +2132,27 @@ fn carries_clipboard_read(bytes: &[u8]) -> bool {
 }
 
 impl Daemon {
-    /// What a clipboard read from the pane on `master` gets: the newest clipboard text when
+    /// What a clipboard read from pane `id` on `master` gets: the newest clipboard text when
     /// its foreground command is in `[clipboard] read_allow`, else nothing (REQ-SEC-002).
-    fn clipboard_read_source(&self, master: &impl std::os::fd::AsFd) -> Option<String> {
+    /// The command is looked up live; when that fails (macOS now and then: `tcgetpgrp` on
+    /// the master or `proc_name` with nothing to say), the poller's last answer stands in.
+    fn clipboard_read_source(&self, id: &str, master: &impl std::os::fd::AsFd) -> Option<String> {
         let allow = self.settings.lock().unwrap().read_allow.clone();
         if allow.is_empty() {
             return None;
         }
-        let fg = pty::foreground(master)?;
-        let cmd = pty::proc_name(fg).unwrap_or_default();
+        let live = pty::foreground(master).and_then(pty::proc_name);
+        let cmd = match live {
+            Some(c) => c,
+            None => self
+                .state
+                .lock()
+                .unwrap()
+                .panes
+                .get(id)
+                .map(|p| p.fg_cmd.clone())
+                .unwrap_or_default(),
+        };
         if !allow.contains(&cmd) {
             return None;
         }
@@ -2194,6 +2313,24 @@ impl Daemon {
                 scope.clone(),
             );
         }
+    }
+}
+
+/// The protocol's settable levels (ADR-024) as the log's.
+pub fn from_proto_level(l: m::LogLevel) -> femux_log::Level {
+    match l {
+        m::LogLevel::Warn => femux_log::Level::Warn,
+        m::LogLevel::Debug => femux_log::Level::Debug,
+        m::LogLevel::Trace => femux_log::Level::Trace,
+    }
+}
+
+/// The log's level as the protocol reports it: below debug mode is `warn`.
+pub fn to_proto_level(l: Option<femux_log::Level>) -> m::LogLevel {
+    match l {
+        Some(femux_log::Level::Trace) => m::LogLevel::Trace,
+        Some(femux_log::Level::Debug) => m::LogLevel::Debug,
+        _ => m::LogLevel::Warn,
     }
 }
 

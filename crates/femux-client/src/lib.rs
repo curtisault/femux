@@ -7,12 +7,15 @@ pub mod bindings;
 pub mod config;
 pub mod copy;
 pub mod graphics;
+pub mod help;
 pub mod host;
 pub mod inbox;
 pub mod keys;
 pub mod layout;
+pub mod menu;
 pub mod model;
 pub mod nav;
+pub mod panel;
 pub mod probe;
 pub mod remote;
 pub mod render;
@@ -354,7 +357,7 @@ impl Conn {
 
 /// The message families the client uses (REQ-PROTO-020): the daemon refuses requests of
 /// families a connection did not ask for.
-pub const FEATURES: [&str; 12] = [
+pub const FEATURES: [&str; 13] = [
     "session",
     "tab",
     "layout",
@@ -367,6 +370,7 @@ pub const FEATURES: [&str; 12] = [
     "notify",
     "plugin",
     "image",
+    "server",
 ];
 
 /// What the `femux` binary hands the client.
@@ -377,6 +381,10 @@ pub struct Host {
     pub cli_commands: Vec<String>,
     /// Re-reads the client's config after `config.reloaded` (ADR-013).
     pub reload: Option<Box<dyn Fn() -> Result<ClientConfig, String> + Send>>,
+    /// `femux --debug`: put the daemon in this level on attach (REQ-LOG-003).
+    pub debug: Option<m::LogLevel>,
+    /// `[debug] metrics_interval_ms` (REQ-LOG-006).
+    pub metrics_interval: Duration,
 }
 
 /// Collects output for the terminfo renderer.
@@ -578,10 +586,44 @@ fn relink(target: Target, hello_msg: m::Hello) -> std_mpsc::Receiver<Relink> {
     rx
 }
 
+/// `debug snapshot` (REQ-LOG-007): runs this binary's `femux debug snapshot` against the
+/// local daemon on a thread and reports where it went. A remote daemon's state is on its host.
+fn debug_snapshot(target: &Target, tx: std_mpsc::Sender<String>) {
+    let Target::Local(socket) = target else {
+        let _ = tx.send("debug snapshot: run `femux debug snapshot` on the remote host".into());
+        return;
+    };
+    let socket = socket.clone();
+    std::thread::spawn(move || {
+        let out = std::env::current_exe().and_then(|exe| {
+            std::process::Command::new(exe)
+                .arg("--socket")
+                .arg(&socket)
+                .args(["--json", "debug", "snapshot"])
+                .stdin(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .output()
+        });
+        let text = match out {
+            Ok(o) => serde_json::from_slice::<serde_json::Value>(&o.stdout)
+                .ok()
+                .and_then(|v| {
+                    v["path"]
+                        .as_str()
+                        .map(|p| format!("snapshot written to {p}"))
+                })
+                .unwrap_or_else(|| "debug snapshot failed".into()),
+            Err(e) => format!("debug snapshot: {e}"),
+        };
+        let _ = tx.send(text);
+    });
+}
+
 /// Attaches to `session` (or the first session, creating `0` if there is none) on `target`
 /// and runs the client until detach or until the session goes away. A remote link that drops
 /// is reconnected; the remote daemon keeps the session meanwhile.
 pub fn run(target: &Target, session: Option<&str>, host: Host) -> io::Result<()> {
+    term::restore_on_panic();
     let caps = Capabilities::new_from_env().map_err(other)?;
     // Before raw mode: ssh may need to ask about host keys or passwords.
     if let Some(r) = target.remote() {
@@ -592,8 +634,12 @@ pub fn run(target: &Target, session: Option<&str>, host: Host) -> io::Result<()>
     let probe = probe::run(&mut term, Duration::from_millis(250));
     let mut early = term.parse(&probe.leftover, true);
     let (cols, rows) = term.size();
-    // The pane area before the app exists (no side nav yet).
-    let area = layout::Layout::compute(cols, rows, &host.cfg, false).panes;
+    // The pane area before the app exists: beside the panel when it starts open.
+    let panel = host
+        .cfg
+        .panel_open
+        .then_some(host.cfg.panel_width.max(panel::MIN_WIDTH));
+    let area = layout::Layout::compute(cols, rows, &host.cfg, panel).panes;
 
     let hello_msg = m::Hello {
         proto: femux_proto::PROTO_VERSION,
@@ -624,6 +670,26 @@ pub fn run(target: &Target, session: Option<&str>, host: Host) -> io::Result<()>
     let mut conn = Conn::connect(target, false)?;
     let mut aside = hello(&mut conn, &hello_msg, first_wait)?;
     let attach = attach_session(&mut conn, session, area.w, area.h, &mut aside)?;
+    // REQ-LOG-003: a debug client switches the daemon; any client learns its level. A daemon
+    // from before 0.11.1 answers with an error, which leaves the level alone.
+    let debug = conn
+        .call(m::ServerDebug { level: host.debug }, &mut aside)
+        .ok()
+        .and_then(|r| match r {
+            Response::ServerDebug(d) => Some(d.level),
+            _ => None,
+        });
+    femux_log::info("client", "client.attach")
+        .session(&attach.snapshot.session)
+        .view(&attach.view_id)
+        .msg(format!("attached to {}", attach.snapshot.session))
+        .field("cols", area.w)
+        .field("rows", area.h)
+        .field("remote", target.remote().map(|r| r.label.clone()))
+        .field("kitty_graphics", probe.kitty_graphics)
+        .field("kitty_keyboard", probe.kitty_keyboard)
+        .field("sync_output", probe.sync_output)
+        .emit();
     let host_colors = theme::HostColors {
         dark_mode: probe.dark,
         fg: probe.fg,
@@ -643,6 +709,9 @@ pub fn run(target: &Target, session: Option<&str>, host: Host) -> io::Result<()>
         app.message = Some(e);
     }
     app.remote = target.remote().map(|r| r.label.clone());
+    if let Some(l) = debug {
+        app.set_debug(l);
+    }
     app.graphics.enabled = probe.kitty_graphics && app.cfg.kitty_graphics;
     app.graphics.sync = probe.sync_output;
     // ADR-021 #4: shared memory when the daemon is on this machine and the host reads it,
@@ -653,6 +722,16 @@ pub fn run(target: &Target, session: Option<&str>, host: Host) -> io::Result<()>
         Target::Local(_) => graphics::Transfer::Plain,
     };
     let mut relinking: Option<std_mpsc::Receiver<Relink>> = None;
+    // `debug snapshot` results from the `femux debug snapshot` the client runs (REQ-LOG-007).
+    let (snap_tx, snap_rx) = std_mpsc::channel::<String>();
+    if let Some(r) = target.remote() {
+        femux_log::info("client.remote", "remote.connect")
+            .msg(format!("connected to {}", r.label))
+            .field("host", r.label.clone())
+            .emit();
+    }
+    // REQ-LOG-006: this client's readings join its `metrics` records.
+    femux_log::start_metrics(host.metrics_interval, || serde_json::Value::Null);
     let mouse = app.cfg.mouse;
     term.enter(mouse)?;
 
@@ -665,8 +744,16 @@ pub fn run(target: &Target, session: Option<&str>, host: Host) -> io::Result<()>
         loop {
             if relinking.is_none() && conn.closed() && conn.rx.try_recv().is_err() {
                 let Some(r) = target.remote() else {
+                    femux_log::warn("client", "client.detach")
+                        .msg("the daemon went away")
+                        .field("reason", "daemon gone")
+                        .emit();
                     return Err(other("the daemon went away"));
                 };
+                femux_log::warn("client.remote", "remote.drop")
+                    .msg(format!("link to {} lost", r.label))
+                    .field("host", r.label.clone())
+                    .emit();
                 app.link_lost(&r.label, None);
                 relinking = Some(relink(target.clone(), hello_msg.clone()));
             }
@@ -678,6 +765,12 @@ pub fn run(target: &Target, session: Option<&str>, host: Host) -> io::Result<()>
                         next,
                     }) => {
                         let label = &target.remote().unwrap().label;
+                        femux_log::debug("client.remote", "remote.retry")
+                            .msg(format!("reconnect {attempt} to {label} failed: {error}"))
+                            .field("host", label.clone())
+                            .field("attempt", attempt)
+                            .field("error", error.clone())
+                            .emit();
                         app.link_lost(label, Some((attempt, error, next)));
                     }
                     Ok(Relink::Up(mut c, mut a)) => {
@@ -685,6 +778,12 @@ pub fn run(target: &Target, session: Option<&str>, host: Host) -> io::Result<()>
                         let session = app.model.session.clone();
                         match attach_session(&mut c, Some(&session), pw, ph, &mut a) {
                             Ok(at) => {
+                                femux_log::info("client.remote", "remote.reconnect")
+                                    .msg(format!(
+                                        "reconnected to {}",
+                                        target.remote().map_or("", |r| r.label.as_str())
+                                    ))
+                                    .emit();
                                 conn = *c;
                                 aside = a;
                                 app.reattached(&at);
@@ -706,6 +805,10 @@ pub fn run(target: &Target, session: Option<&str>, host: Host) -> io::Result<()>
                     Err(std_mpsc::TryRecvError::Empty) => {}
                     Err(std_mpsc::TryRecvError::Disconnected) => relinking = None,
                 }
+            }
+            if let Ok(text) = snap_rx.try_recv() {
+                app.message = Some(text);
+                app.dirty = true;
             }
             for msg in aside
                 .drain(..)
@@ -734,7 +837,14 @@ pub fn run(target: &Target, session: Option<&str>, host: Host) -> io::Result<()>
             }
             for fx in app.take_effects() {
                 match fx {
-                    Effect::Exit => return Ok(()),
+                    Effect::Exit => {
+                        femux_log::info("client", "client.detach")
+                            .msg("detached")
+                            .field("reason", "detach")
+                            .emit();
+                        return Ok(());
+                    }
+                    Effect::DebugSnapshot => debug_snapshot(target, snap_tx.clone()),
                     Effect::Clipboard(text) => term.write(term::osc52(&text).as_bytes())?,
                     Effect::Passthrough(bytes) => term.write(&bytes)?,
                     Effect::Bell => term.write(host::BELL.as_bytes())?,
@@ -789,11 +899,26 @@ pub fn run(target: &Target, session: Option<&str>, host: Host) -> io::Result<()>
                 app.graphics.invalidate();
             }
             if app.dirty {
+                let started = Instant::now();
                 let mut next = Surface::new(size.0 as usize, size.1 as usize);
                 render::render(&mut app, &theme, &mut next);
                 let bytes = paint(&mut renderer, &prev, &next, sync)?;
                 term.write(&bytes)?;
                 prev = next;
+                // REQ-LOG-005/006: draw time, and draws over a frame's budget.
+                let took = started.elapsed();
+                femux_log::time("render.draw", took);
+                femux_log::count("host.bytes", bytes.len() as u64);
+                if took >= Duration::from_millis(16) {
+                    femux_log::warn("client.render", "render.slow")
+                        .msg(format!("a draw took {:.1} ms", took.as_secs_f64() * 1000.0))
+                        .field("ms", took.as_secs_f64() * 1000.0)
+                        .field("panes", app.model.panes.len())
+                        .field("bytes", bytes.len())
+                        .field("cols", size.0)
+                        .field("rows", size.1)
+                        .emit();
+                }
             }
             // Images go over the painted text (REQ-GFX-001); the reads they need leave now,
             // not after the next wait.

@@ -13,6 +13,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use femux_config::{Config, NotifyAction};
+use femux_plugin::log;
 use femux_plugin::{
     CliArg, CliCommand, CliCore, CliInput, CliOutput, CliPlugin, ClientPlugin, DaemonPlugin,
     HostEffect, Plugin,
@@ -92,7 +93,12 @@ impl Client {
         let Some(a) = n.event.as_ref().and_then(|e| self.actions.get(e)) else {
             return Vec::new();
         };
+        let event = n.event.as_deref().unwrap_or("");
         if !fires(a, n.shown) {
+            log::debug("plugin.notify", "notify.skipped")
+                .msg(format!("{event}: shown, and only_when_hidden is set"))
+                .field("event", event)
+                .emit();
             return Vec::new();
         }
         let mut out = Vec::new();
@@ -111,6 +117,21 @@ impl Client {
                 body,
             });
         }
+        let actions: Vec<&str> = out
+            .iter()
+            .map(|e| match e {
+                HostEffect::Bell => "bell",
+                HostEffect::Sound(_) => "sound",
+                HostEffect::Desktop { .. } => "desktop",
+                _ => "other",
+            })
+            .collect();
+        log::info("plugin.notify", "notify.run")
+            .msg(format!("{event}: {}", actions.join(", ")))
+            .field("event", event)
+            .field("actions", actions)
+            .field("shown", n.shown)
+            .emit();
         out
     }
 }
@@ -137,16 +158,44 @@ impl ClientPlugin for Client {
 /// plugin's event loop never waits on the network.
 pub type Poster = Box<dyn Fn(String, serde_json::Value) + Send>;
 
+/// A webhook URL's host: what REQ-LOG-004 lets the log say about it.
+pub fn url_host(url: &str) -> &str {
+    let rest = url.split_once("://").map_or(url, |(_, r)| r);
+    let host = rest.split(['/', '?', '#']).next().unwrap_or("");
+    // Credentials in the URL stay out too.
+    host.rsplit_once('@').map_or(host, |(_, h)| h)
+}
+
 fn http_post(url: String, body: serde_json::Value) {
     std::thread::spawn(move || {
         let agent: ureq::Agent = ureq::Agent::config_builder()
             .timeout_global(Some(Duration::from_secs(10)))
             .build()
             .into();
-        let _ = agent
+        let event = body["event"].as_str().unwrap_or("").to_owned();
+        let r = agent
             .post(&url)
             .header("Content-Type", "application/json")
             .send(body.to_string());
+        // REQ-LOG-005: each action's result, a failure at warn.
+        match r {
+            Ok(resp) => log::debug("plugin.notify", "notify.webhook")
+                .msg(format!(
+                    "webhook to {} answered {}",
+                    url_host(&url),
+                    resp.status()
+                ))
+                .field("event", event)
+                .field("host", url_host(&url))
+                .field("status", resp.status().as_u16())
+                .emit(),
+            Err(e) => log::warn("plugin.notify", "notify.webhook")
+                .msg(format!("webhook to {} failed: {e}", url_host(&url)))
+                .field("event", event)
+                .field("host", url_host(&url))
+                .field("error", e.to_string())
+                .emit(),
+        }
     });
 }
 
@@ -190,6 +239,14 @@ impl Daemon {
         if !self.actions.contains_key(event) {
             return Vec::new();
         }
+        let mut r = log::info("plugin.notify", "notify.post")
+            .msg(format!("{event}: {title}"))
+            .field("event", event)
+            .field("title", title.clone());
+        if let Some(p) = pane {
+            r = r.pane(p);
+        }
+        r.emit();
         vec![
             m::NotifyPost {
                 pane_id: pane.map(str::to_owned),
@@ -359,6 +416,17 @@ impl CliPlugin for Cli {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// REQ-LOG-004: a webhook is logged by its host, without path, query or credentials.
+    #[test]
+    fn log_004_webhooks_are_logged_by_host() {
+        assert_eq!(url_host("https://ntfy.sh/mytopic?auth=x"), "ntfy.sh");
+        assert_eq!(
+            url_host("http://user:pw@hooks.local:8080/a#b"),
+            "hooks.local:8080"
+        );
+        assert_eq!(url_host("ntfy.sh/topic"), "ntfy.sh");
+    }
 
     fn posted(event: &str, shown: bool) -> m::NotifyPosted {
         m::NotifyPosted {

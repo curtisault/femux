@@ -103,7 +103,7 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-STORE-006 | femux-test `store::store_006_scrollback_is_opt_in`; femux-daemon `persist::tests::history_bytes_redraw_text_and_styles`, `store::tests::store_001_002_snapshot_roundtrip_wal_and_mode` (compressed) | pass |
 | REQ-STORE-007 | femux-daemon `store::tests::store_007_unloadable_files_are_backed_up_never_overwritten`; femux-test `store::store_007_a_bad_store_is_backed_up_and_the_daemon_starts` | pass |
 | REQ-STORE-008 | femux-client `app::tests::store_008_restored_panes_have_a_dashed_border_until_a_command_runs`; femux-test `store::store_004_sessions_come_back_with_their_ids_layout_and_marks` (daemon mark) | pass |
-| `femux reload` (ADR-013) | femux-test `store::server_reload_applies_the_config_or_changes_nothing`; femux-cli `cli::reload_applies_the_config_to_the_running_daemon`; femux-client `app::tests::config_reloaded_asks_for_the_config_and_applies_it`, `app::tests::a_reload_that_moves_the_bar_aside_resizes_the_view`; femux-plugin-notify `reload::notify_actions_follow_a_reload` | pass |
+| `femux reload` (ADR-013) | femux-test `store::server_reload_applies_the_config_or_changes_nothing`; femux-cli `cli::reload_applies_the_config_to_the_running_daemon`; femux-client `app::tests::config_reloaded_asks_for_the_config_and_applies_it`, `app::tests::a_reload_that_moves_the_bar_keeps_the_view`; femux-plugin-notify `reload::notify_actions_follow_a_reload` | pass |
 | REQ-CFG-001 | femux-config `tests::session_files_list_tabs_then_plain_shells`; femux-cli `cli::cfg_001_002_launch_from_a_file_and_from_flags`; femux-plugin-launcher `tests::cfg_002_flags_build_the_same_session_as_a_file` | pass |
 | REQ-CFG-002 | femux-cli `cli::cfg_001_002_launch_from_a_file_and_from_flags`; femux-plugin-launcher `tests::*` | pass |
 | Plugin `launcher` | femux-cli `cli::cfg_001_002_launch_from_a_file_and_from_flags`; femux-test `repo::plug_003_plugins_depend_on_the_protocol_crates_only` | pass |
@@ -113,16 +113,16 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 
 | Requirement | Tests | Status |
 | --- | --- | --- |
-| REQ-UI-030 | femux-client `ui_bar::ui_030_the_bar_sits_on_any_side_and_the_panes_move_over`, `ui_bar::ui_030_a_column_bar_never_draws_over_the_panes`, `layout::tests::ui_030_the_bar_takes_one_side_and_the_panes_the_rest` | pass |
+| REQ-UI-030 | femux-client `ui_bar::ui_030_one_bar_at_the_top_or_bottom`, `ui_bar::ui_030_a_short_row_gives_from_the_right_first`, `layout::tests::ui_030_one_bar_at_the_top_or_bottom_and_the_panes_the_rest` | pass |
 | REQ-UI-031 | femux-client `ui_bar::ui_031_modules_come_from_plugins_in_config_order_on_their_interval` | pass |
-| REQ-UI-032 | femux-plugin-infobar `tests::*`; femux-client `ui_bar::acceptance_0_4_bar_on_all_four_sides_with_every_built_in_module` | pass |
+| REQ-UI-032 | femux-plugin-infobar `tests::*`; femux-client `ui_bar::acceptance_0_10_one_bar_with_every_built_in_module` | pass |
 | REQ-UI-033 | femux-client `ui_bar::ui_033_notifications_show_while_their_pane_is_hidden`; femux-test `notify::notify_post_is_relayed_to_the_panes_session` | pass |
 | Plugin `infobar` | femux-plugin-infobar `tests::*`; femux-client `ui_bar::*` | pass |
 | REQ-UI-040 | femux-client `ui_nav::ui_040_session_navigator_lists_attaches_renames_creates_and_kills`, `nav::tests::ui_040_sessions_expand_to_tabs_and_filter`; femux-test `notify::last_activity_follows_output_and_input` | pass |
 | REQ-UI-041 | femux-client `ui_nav::ui_041_window_navigator_previews_panes_live_and_goes_to_them`, `nav::tests::ui_041_windows_list_every_pane_and_preview_the_selection` | pass |
-| REQ-UI-042 | femux-client `ui_nav::ui_042_side_nav_lists_sessions_and_tabs_and_switches_on_click` | pass |
+| REQ-UI-042 | femux-client `ui_panel::ui_042_the_panel_shows_folds_focuses_and_resizes` (the side nav became the panel in 0.10.0) | pass |
 | Plugin `theme` | femux-plugin-theme `tests::bundled_themes_by_name`, `tests::files_override_a_base_and_reject_unknown_keys`; femux-client `theme::tests::plugin_palettes_win_and_their_errors_fall_back` | pass |
-| Acceptance (0.4.0) | femux-client `ui_bar::acceptance_0_4_bar_on_all_four_sides_with_every_built_in_module`, `ui_nav::*` | pass |
+| Acceptance (0.4.0) | femux-client `ui_bar::acceptance_0_10_one_bar_with_every_built_in_module`, `ui_nav::*` | pass |
 
 ## 0.5.0
 
@@ -160,7 +160,7 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-UI-010 (`[layout] scheme`, `gaps`) | femux-daemon `layout::tests::gaps_widen_every_separator_and_give_way_when_space_is_short`; femux-test `scheme::layout_config_sets_the_scheme_and_gaps`; femux-client `render::tests::borders_run_down_the_middle_of_gaps` | pass |
 | REQ-UI-051 (background before mode 2031, colors from the terminal) | femux-client `theme::tests::picks_by_name_then_background_then_mode`, `theme::tests::terminal_theme_takes_the_hosts_colors` | pass |
 | REQ-UI-021 (shell titles) | femux-client `ui_tabs::ui_021_title_precedence`, `ui_tabs::ui_020_tab_strip_shows_running_urgent_and_zoom`, `nav::tests::ui_021_navigator_tab_titles_match_the_tab_strip` | pass |
-| REQ-UI-030 (padding, no TERMINAL label or prefix hint) | femux-client `ui_bar::ui_030_the_bar_sits_on_any_side_and_the_panes_move_over` | pass |
+| REQ-UI-030 (padding, no TERMINAL label or prefix hint) | femux-client `ui_bar::ui_030_one_bar_at_the_top_or_bottom` | pass |
 
 ## 0.7.0
 
@@ -190,7 +190,7 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 
 | Requirement | Tests | Status |
 | --- | --- | --- |
-| REQ-UI-030 (`session <name>` chip, `tab 2/5` module, `main` default) | femux-client `ui_bar::ui_030_the_bar_sits_on_any_side_and_the_panes_move_over`, `ui_bar::acceptance_0_4_bar_on_all_four_sides_with_every_built_in_module`, `ui_bar::ui_032_remote_modules_show_the_daemon_hosts_values`; femux-cli `remote::*` | pass |
+| REQ-UI-030 (`session <name>` chip, `tab 2/5` module, `main` default) | femux-client `ui_bar::ui_030_one_bar_at_the_top_or_bottom`, `ui_bar::acceptance_0_10_one_bar_with_every_built_in_module`, `ui_bar::ui_032_remote_modules_show_the_daemon_hosts_values`; femux-cli `remote::*` | pass |
 | REQ-UI-040 (sessions listed as sessions, rows named by kind) | femux-client `nav::tests::ui_040_sessions_expand_to_tabs_and_filter`, `ui_nav::ui_040_session_navigator_lists_attaches_renames_creates_and_kills` | pass |
 | REQ-UI-041 (pane navigator) | femux-client `nav::tests::ui_041_panes_list_every_pane_and_preview_the_selection`, `ui_nav::ui_041_pane_navigator_previews_panes_live_and_goes_to_them` | pass |
 | REQ-UI-002 (re-keyed prefix table: `s`/`w` navigators, `S` new session, `-`/`|` splits, `e` swap, `p`/`N` previous tab, `o`/`O` floats, `space` sticky normal, `esc` cancels) | femux-client `bindings::tests::every_default_binding_of_spec_5_1_exists`, `ui_modes::ui_002_prefix_is_one_shot_and_configurable`, `acceptance::*`, `ui_nav::*`, `ui_marks_floats::ui_011_scratch_float_hides_shows_and_cycles`; femux-cli `cli::cli_001_every_subcommand_has_json`, `config::tests::example_config_feeds_the_client`; femux-config `tests::example_config_is_exactly_the_defaults` | pass |
@@ -207,3 +207,35 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-SEC-004 | femux-vt `tests::dcs_sequences_pass_through_only_when_on`; femux-test `security::sec_004_dcs_passthrough_is_opt_in`; femux-client `app::tests::passthrough_is_written_for_shown_panes_only` | pass |
 | REQ-VT-002 (host cursor shape and blink follow the focused pane) | femux-client `ui_cursor::vt_002_the_host_cursor_follows_the_pane`, `tests::paint_sets_the_cursor_shape_when_it_changes`; femux-test `adr023::frames_carry_cursor_blink_and_mouse_mode` | pass |
 | REQ-UI-053 (drag selects, release copies; mouse-tracking panes get the drag unless shift) | femux-client `ui_mouse::ui_053_drag_selects_and_release_copies`, `ui_mouse::ui_053_mouse_focuses_forwards_and_can_be_disabled`; femux-test `adr023::frames_carry_cursor_blink_and_mouse_mode` | pass |
+
+## 0.10.0
+
+| Requirement | Tests | Status |
+| --- | --- | --- |
+| REQ-UI-030 (one bar at top or bottom; `[bar]` replaces `[infobar]` and `[tabs]`; bare-name chip; a short row gives from the right) | femux-client `ui_bar::ui_030_one_bar_at_the_top_or_bottom`, `ui_bar::ui_030_a_short_row_gives_from_the_right_first`, `layout::tests::ui_030_one_bar_at_the_top_or_bottom_and_the_panes_the_rest`, `app::tests::the_session_chip_is_the_bare_name_unless_it_is_a_number`; femux-config `tests::replaced_sections_name_their_replacement`, `tests::example_config_is_exactly_the_defaults` | pass |
+| REQ-UI-020 (the tabs are the middle of the bar) | femux-client `ui_tabs::ui_020_tab_strip_shows_running_urgent_and_zoom`, `ui_tabs::ui_021_title_precedence`, `ui_mouse::ui_053_mouse_focuses_forwards_and_can_be_disabled` | pass |
+| REQ-UI-031/032 (one `modules` list; short forms) | femux-client `ui_bar::ui_031_modules_come_from_plugins_in_config_order_on_their_interval`, `ui_bar::acceptance_0_10_one_bar_with_every_built_in_module`; femux-plugin-infobar `tests::*`; femux-plugin-hosts `tests::*` | pass |
+| REQ-UI-042 (the panel: `workspace` and `agents`, folding, focus, answers, drag; `[panel]`) | femux-client `ui_panel::ui_042_the_panel_shows_folds_focuses_and_resizes`, `ui_panel::ui_042_panel_config_opens_it_at_its_width`, `panel::tests::branches_and_elapsed_times_read_compactly`, `layout::tests::ui_030_one_bar_at_the_top_or_bottom_and_the_panes_the_rest`, `acceptance::all_default_bindings_work`; femux-cli `plugins::tests::prefixes_doc_matches_the_default_bindings` | pass |
+
+## 0.11.0
+
+| Requirement | Tests | Status |
+| --- | --- | --- |
+| REQ-UI-046 | femux-client `ui_menu::*`, `menu::tests::*` (context menu on a pane or a tab at the pointer; keys, hover and clicks; right clicks to mouse-tracking panes or ones given them, shift opens it anyway; off with `mouse = false`) | pass |
+| REQ-UI-045 | femux-client `ui_help::ui_045_help_scrolls_filters_and_closes`, `help::tests::*`, `acceptance::all_default_bindings_work`; femux-cli `plugins::tests::prefixes_doc_matches_the_default_bindings` (help: grouped, folded, scrolling and filterable at four fifths of the height; q, esc, ? or a click outside close it; `docs/prefixes.md` from the same rows) | pass |
+| REQ-UI-044 (0.11.0: a row says the agent's last line above its prompt and footer, not the footer) | femux-client `inbox::tests::ui_044_said_line_skips_the_prompt_footer_and_rules`, `ui_inbox::*`, `ui_panel::*` | pass |
+| REQ-AGT-002 (0.11.0: a tty read is blocked; an event-loop wait is read off the screen, a selected choice or yes/no blocked, else done; evidence kept current) | femux-plugin-agents `detect::agt_002_an_event_loop_wait_is_read_off_the_screen`, `detect::agt_002_a_process_waiting_on_the_tty_is_blocked_then_exited_then_idle`, `detect::tests::agt_002_the_screen_tells_an_idle_agent_from_a_waiting_one`, `procfs::tests::stat_state_after_the_command_name` | pass |
+| REQ-AGT-004 (0.11.0: past the hold, a lower tier needs new output or a new foreground process) | femux-plugin-agents `tier::tests::agt_004_higher_tiers_override_and_lower_ones_wait_out_the_hold`, `detect::agt_004_a_lower_tier_waits_out_the_hold_and_needs_something_new` | pass |
+
+## 0.11.1
+
+| Requirement | Tests | Status |
+| --- | --- | --- |
+| REQ-LOG-001 | femux-log `tests::log_001_one_file_mode_0600_in_a_0700_dir_with_whole_lines`, `tests::log_001_big_records_are_cut_and_the_file_rotates`; femux-cli `logging::log_001_every_process_appends_to_one_file_per_server` (one JSON Lines file per server, 0600 in 0700, whole lines across writers, big records cut, rotation) | pass |
+| REQ-LOG-002 | femux-log `tests::log_002_record_shape`, `time::tests::formats_known_instants` (record shape) | pass |
+| REQ-LOG-003 | femux-log `tests::log_003_levels_filter_and_switch`; femux-cli `debug::tests::log_003_debug_requests_parse`, `logging::log_003_without_debug_only_warnings_and_errors_are_written`, `logging::log_003_debug_on_and_off_switch_a_running_daemon`, `logging::log_003_femux_debug_env_and_config_level`; femux-proto `schema::*`; femux-config `tests::example_config_is_exactly_the_defaults`; femux-client `ui_debug::log_003_the_bar_says_debug_while_the_daemon_is_in_debug_mode` (levels; `--debug`, `$FEMUX_DEBUG`, `[debug] level`, `femux debug on`, `off` and `status`; `server.debug`, ADR-024) | pass |
+| REQ-LOG-004 | femux-log `tests::log_004_programs_lose_their_arguments_and_assignments`; femux-daemon `logging::tests::log_004_trace_bodies_keep_secrets_out`; femux-plugin-notify `tests::log_004_webhooks_are_logged_by_host`; femux-cli `logging::log_004_no_record_holds_typed_text_output_clipboard_or_arguments` (no typed text, output, clipboard, payloads, env values or arguments; webhooks by host) | pass |
+| REQ-LOG-005 | femux-log `tests::log_005_panics_are_logged`; femux-cli `logging::log_005_the_catalog_reaches_the_log` (the event catalog, panics in every mode) | pass |
+| REQ-LOG-006 | femux-log `metrics::tests::log_006_histograms_report_percentiles_and_reset`, `tests::log_006_metrics_records_carry_counters_timings_and_readings`; femux-cli `logging::log_006_debug_mode_writes_metrics` (`metrics` in debug mode only) | pass |
+| REQ-LOG-007 | femux-cli `logging::log_007_snapshot_writes_the_state_as_one_record`; femux-client `ui_debug::log_007_the_palette_offers_debug_snapshot` (`femux debug snapshot`, the palette's `debug snapshot`) | pass |
+| REQ-LOG-008 | femux-cli `debug::tests::log_008_filters_globs_and_durations`, `logging::log_008_tail_filters_and_passes_json_through` (`femux debug tail`) | pass |

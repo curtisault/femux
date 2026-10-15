@@ -21,6 +21,45 @@ fn errno() -> io::Error {
     io::Error::last_os_error()
 }
 
+/// What a panic needs to give the host terminal back before anything is printed: the tty's
+/// descriptors, its saved attributes and whether mouse reporting is on (REQ-LOG-005).
+type Restore = (i32, i32, Option<libc::termios>, bool);
+static RESTORE: std::sync::Mutex<Option<Restore>> = std::sync::Mutex::new(None);
+
+fn leave_sequence(mouse: bool) -> String {
+    // The host's own cursor shape back (REQ-VT-002).
+    let mut s = String::from("\x1b[0m\x1b[?25h\x1b[0 q");
+    if mouse {
+        s.push_str("\x1b[?1006l\x1b[?1002l\x1b[?1000l");
+    }
+    s.push_str("\x1b[?2004l\x1b[2J\x1b[H\x1b[?1049l");
+    s
+}
+
+/// Restores the host terminal on a panic, then runs the hook that was there (the log's), so
+/// the panic is recorded and its message lands on the normal screen.
+pub fn restore_on_panic() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            if let Ok(mut g) = RESTORE.try_lock()
+                && let Some((tin, tout, orig, mouse)) = g.take()
+            {
+                let seq = leave_sequence(mouse);
+                // SAFETY: writing to and restoring the tty this process opened.
+                unsafe {
+                    libc::write(tout, seq.as_ptr().cast(), seq.len());
+                    if let Some(o) = orig {
+                        libc::tcsetattr(tin, libc::TCSANOW, &o);
+                    }
+                }
+            }
+            prev(info);
+        }));
+    });
+}
+
 impl Term {
     /// Uses stdin and stdout; both must be terminals.
     pub fn open() -> io::Result<Term> {
@@ -77,17 +116,19 @@ impl Term {
         }
         self.mouse = mouse;
         self.entered = true;
+        *RESTORE.lock().unwrap_or_else(|e| e.into_inner()) = Some((
+            self.tty_in.as_raw_fd(),
+            self.tty_out.as_raw_fd(),
+            self.orig,
+            mouse,
+        ));
         self.write(s.as_bytes())
     }
 
     pub fn leave(&mut self) {
+        RESTORE.lock().unwrap_or_else(|e| e.into_inner()).take();
         if self.entered {
-            // The host's own cursor shape back (REQ-VT-002).
-            let mut s = String::from("\x1b[0m\x1b[?25h\x1b[0 q");
-            if self.mouse {
-                s.push_str("\x1b[?1006l\x1b[?1002l\x1b[?1000l");
-            }
-            s.push_str("\x1b[?2004l\x1b[2J\x1b[H\x1b[?1049l");
+            let s = leave_sequence(self.mouse);
             let _ = self.write(s.as_bytes());
             self.entered = false;
         }

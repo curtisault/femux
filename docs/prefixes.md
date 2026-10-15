@@ -63,9 +63,9 @@ Press the prefix, then the key.
 
 | key | action | what it does |
 | --- | --- | --- |
-| `h` `j` `k` `l` | `focus <direction>` | focus the pane in that direction |
-| `H` `J` `K` `L` | `resize <direction>` | grow the pane in that direction |
-| `ctrl+h` `ctrl+j` `ctrl+k` `ctrl+l` | `preselect <direction>` | put the next split on that side |
+| `h j k l` | `focus <direction>` | focus the pane in that direction |
+| `H J K L` | `resize <direction>` | grow the pane in that direction |
+| `ctrl+h/j/k/l` | `preselect <direction>` | put the next split on that side |
 | `z` | `zoom` | zoom toggle |
 | `f` | `float` | float / tile |
 | `r` | `rotate` | rotate split |
@@ -80,7 +80,7 @@ Press the prefix, then the key.
 | key | action | what it does |
 | --- | --- | --- |
 | `-` | `split down` | split below |
-| `\|` `\` | `split right` | split right |
+| `\| \` | `split right` | split right |
 | `x` | `close pane` | close pane (confirms if a program is running) |
 | `=` | `equalize` | equalize |
 | `e` | `swap` | swap with next |
@@ -92,8 +92,8 @@ Press the prefix, then the key.
 | `t` | `new tab` | new tab |
 | `T` | `rename tab` | rename tab |
 | `n` | `next tab` | next tab |
-| `p` `N` | `previous tab` | previous tab |
-| `1`-`9` | `tab <n>` | select that tab |
+| `p N` | `previous tab` | previous tab |
+| `1-9` | `tab <n>` | select that tab |
 
 ### session
 
@@ -114,7 +114,8 @@ Press the prefix, then the key.
 | `s` | `sessions` | session navigator |
 | `w` | `panes` | pane navigator |
 | `:` | `palette` | command palette |
-| `b` | `sidenav` | side nav |
+| `b` | `panel` | show or hide the panel |
+| `ctrl+b` | `panel focus` | focus the panel |
 | `?` | `help` | help |
 | `space` | `normal` | sticky normal mode |
 | `i` | `inbox` | agent inbox (`agents` plugin) |
@@ -123,19 +124,19 @@ Press the prefix, then the key.
 
 | key | action | what it does |
 | --- | --- | --- |
-| `h` `left` | `copy left` | cursor left |
-| `j` `down` | `copy down` | cursor down |
-| `k` `up` | `copy up` | cursor up |
-| `l` `right` | `copy right` | cursor right |
+| `h left` | `copy left` | cursor left |
+| `j down` | `copy down` | cursor down |
+| `k up` | `copy up` | cursor up |
+| `l right` | `copy right` | cursor right |
 | `w` | `copy word next` | next word |
 | `b` | `copy word previous` | previous word |
 | `e` | `copy word end` | end of word |
-| `0` `home` | `copy line start` | start of line |
-| `$` `end` | `copy line end` | end of line |
+| `0 home` | `copy line start` | start of line |
+| `$ end` | `copy line end` | end of line |
 | `g` | `copy top` | oldest line (press twice) |
 | `G` | `copy bottom` | newest line |
-| `ctrl+u` `pageup` | `copy half up` | half a page up |
-| `ctrl+d` `pagedown` | `copy half down` | half a page down |
+| `ctrl+u pageup` | `copy half up` | half a page up |
+| `ctrl+d pagedown` | `copy half down` | half a page down |
 | `/` | `copy search down` | search forward (regex) |
 | `?` | `copy search up` | search backward (regex) |
 | `n` | `copy next match` | next match |
@@ -143,7 +144,7 @@ Press the prefix, then the key.
 | `v` | `copy select` | select characters |
 | `V` | `copy select line` | select lines |
 | `ctrl+v` | `copy select block` | select a block |
-| `y` `enter` | `copy yank` | copy the selection and leave |
+| `y enter` | `copy yank` | copy the selection and leave |
 | `[` | `copy prompt previous` | previous shell prompt |
 | `]` | `copy prompt next` | next shell prompt |
 | `q` | `copy exit` | leave copy mode |

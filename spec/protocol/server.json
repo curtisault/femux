@@ -75,6 +75,45 @@
     "ServerReload": {
       "type": "object",
       "description": "Re-reads the daemon's config file and applies what can change while running; emits config.reloaded so clients re-read theirs. An invalid file changes nothing and answers invalid."
+    },
+    "LogLevel": {
+      "type": "string",
+      "enum": [
+        "warn",
+        "debug",
+        "trace"
+      ],
+      "description": "A log level a client may set (REQ-LOG-003): warn writes warnings and errors only, debug is debug mode, trace adds protocol bodies."
+    },
+    "ServerDebug": {
+      "type": "object",
+      "description": "Sets the daemon's log level when level is given, else only reports it (REQ-LOG-003, ADR-024). A change emits server.debug_changed.",
+      "properties": {
+        "level": {
+          "$ref": "#/$defs/LogLevel"
+        }
+      }
+    },
+    "ServerDebugOk": {
+      "type": "object",
+      "properties": {
+        "level": {
+          "$ref": "#/$defs/LogLevel"
+        },
+        "path": {
+          "type": "string",
+          "description": "The daemon's log file"
+        },
+        "since": {
+          "$ref": "common.json#/$defs/U64",
+          "description": "When the level was set, ms since epoch"
+        }
+      },
+      "required": [
+        "level",
+        "path",
+        "since"
+      ]
     }
   },
   "x-messages": [
@@ -102,6 +141,11 @@
       "kind": "server.reload",
       "request": "ServerReload",
       "response": "Empty"
+    },
+    {
+      "kind": "server.debug",
+      "request": "ServerDebug",
+      "response": "ServerDebugOk"
     }
   ]
 }

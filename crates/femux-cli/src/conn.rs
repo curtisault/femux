@@ -66,11 +66,30 @@ impl Conn {
     pub fn call<C: Call>(&mut self, req: C) -> Result<C::Response, ErrorBody> {
         let id = self.next;
         self.next += 1;
-        let bytes = req.into().encode(id).map_err(|e| internal(e.to_string()))?;
+        let req = req.into();
+        let kind = req.kind();
+        let bytes = req.encode(id).map_err(|e| internal(e.to_string()))?;
         self.s
             .write_all(&bytes)
             .map_err(|e| internal(e.to_string()))?;
-        let resp = self.wait(id)?;
+        let t = std::time::Instant::now();
+        let resp = self.wait(id);
+        // REQ-LOG-005: proto.response, an error at warn.
+        match &resp {
+            Ok(_) => femux_log::debug("proto", "proto.response")
+                .msg(format!("{kind} answered"))
+                .field("kind", kind)
+                .field("id", id)
+                .field("bytes", bytes.len())
+                .field("latency_ms", t.elapsed().as_secs_f64() * 1000.0)
+                .emit(),
+            Err(e) => femux_log::warn("proto", "proto.error")
+                .msg(format!("{kind}: {}: {}", e.code.as_str(), e.message))
+                .field("kind", kind)
+                .field("code", e.code.as_str())
+                .emit(),
+        }
+        let resp = resp?;
         let bytes = resp.encode(id).map_err(|e| internal(e.to_string()))?;
         let env = decode_envelope(&bytes[4..]).map_err(|e| internal(e.to_string()))?;
         femux_proto::from_body(env.body).map_err(|e| internal(e.to_string()))

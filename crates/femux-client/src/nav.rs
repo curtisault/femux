@@ -9,7 +9,6 @@ use femux_proto::msg as m;
 use termwiz::color::ColorAttribute;
 
 use crate::app::{App, NavTarget};
-use crate::layout::Layout;
 use crate::model::tree_panes;
 use crate::render::{Canvas, attr, attributes, bold};
 use crate::theme::Theme;
@@ -344,112 +343,6 @@ pub fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64)
-}
-
-/// The side nav (REQ-UI-042): every session, the current one expanded to its tabs; a click
-/// switches to the session or tab. `app.sidenav_hits` is refreshed for the mouse.
-pub(crate) fn draw_sidenav(app: &mut App, c: &mut Canvas, theme: &Theme, l: &Layout) {
-    app.sidenav_hits.clear();
-    let Some(a) = l.sidenav else { return };
-    let bg = theme.overlay_bg;
-    let (x0, w) = (a.x as usize, a.w as usize);
-    for y in a.y..a.y + a.h {
-        c.fill(x0, y as usize, w, ' ', &attr(theme.text, bg));
-    }
-    // A separator on the right edge.
-    for y in a.y..a.y + a.h {
-        c.put(
-            x0 + w - 1,
-            y as usize,
-            "│",
-            &attr(theme.muted, ColorAttribute::Default),
-        );
-    }
-    let bottom = (a.y + a.h) as usize;
-    let mut y = a.y as usize + 1;
-    let head = match &app.remote {
-        Some(h) => format!("sessions on {h}"),
-        None => "sessions".to_owned(),
-    };
-    let head: String = head
-        .chars()
-        .take((a.w as usize).saturating_sub(3))
-        .collect();
-    c.put(x0 + 2, y, &head, &attr(theme.muted, bg));
-    y += 1;
-    let current = app.model.session.clone();
-    let mut names: Vec<String> = app
-        .dir
-        .sessions
-        .iter()
-        .map(|s| s.summary.name.clone())
-        .collect();
-    if !names.contains(&current) {
-        names.insert(0, current.clone());
-    }
-    for name in names {
-        if y + 2 >= bottom {
-            break;
-        }
-        let is_current = name == current;
-        let a1 = if is_current {
-            bold(attr(theme.text, bg))
-        } else {
-            attr(theme.text, bg)
-        };
-        let glyph = if is_current { "▾ " } else { "▸ " };
-        c.put(x0 + 2, y, glyph, &attr(theme.muted, bg));
-        c.put(x0 + 4, y, &name, &a1);
-        app.sidenav_hits
-            .push((y as u16, NavTarget::Session(name.clone())));
-        y += 1;
-        if !is_current {
-            continue;
-        }
-        let tabs = app.model.tabs.clone();
-        for (i, t) in tabs.iter().enumerate() {
-            if y + 2 >= bottom {
-                break;
-            }
-            let mut label = format!("{} {}", i + 1, app.model.tab_title(t));
-            if app.model.tab_running(t) {
-                label.push_str(" ●");
-            }
-            if t.urgent {
-                label.push_str(" !");
-            }
-            if t.zoomed {
-                label.push_str(" Z");
-            }
-            let label: String = label.chars().take(w.saturating_sub(6)).collect();
-            let row_attr = if t.id == app.model.current {
-                attr(theme.text, theme.selection)
-            } else if t.urgent {
-                attr(theme.warn, bg)
-            } else {
-                attr(theme.text, bg)
-            };
-            if t.id == app.model.current {
-                c.fill(x0 + 1, y, w.saturating_sub(2), ' ', &row_attr);
-            }
-            c.put(x0 + 4, y, &label, &row_attr);
-            app.sidenav_hits.push((
-                y as u16,
-                NavTarget::Tab {
-                    session: name.clone(),
-                    tab: t.id.clone(),
-                },
-            ));
-            y += 1;
-        }
-        y += 1;
-    }
-    c.put(
-        x0 + 2,
-        bottom - 1,
-        &format!("{} b hides", app.prefix_label()),
-        &attr(theme.muted, bg),
-    );
 }
 
 /// A navigator over the whole screen: the list on the left, a preview of the selected pane on

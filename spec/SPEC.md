@@ -141,6 +141,39 @@ Layer rules:
   Note: when a request closes the last session (or is `server.stop`), its reply is written before the daemon begins to exit.
 - REQ-LIFE-003: (Deferred, post-1.0) Live handoff of PTY fds to a new daemon via `SCM_RIGHTS`. Fd ownership MUST remain in the PTY manager so this stays possible.
 
+### 3.9 Logging, telemetry and debug mode (0.11.1)
+
+Every femux process that talks to a server (its daemon, each client, each CLI command, the plugins inside them) writes to one log for that server. Debug mode raises the detail and adds telemetry, so a person, or an agent watching the file, can see what femux did and why. Telemetry is local: nothing is sent off the machine, at any level, ever.
+
+- REQ-LOG-001: One log per server at `<state dir>/logs/<server>.jsonl`, JSON Lines, file mode 0600 in a 0700 directory, appended by every femux process that talks to that server. `femux debug path` prints it.
+  Note (0.11.1): until 0.11.0 femux logged nothing and the daemon's stderr went to `/dev/null`. Each record is one line written with a single `write(2)` on an `O_APPEND` descriptor, so processes interleave whole lines; a record over 16 KiB has its `fields` cut and `"truncated": true` set. At `[debug] max_mb` (default 64) the writing process renames the file to `<server>.1.jsonl`, replacing the previous one, and starts a new file; other processes reopen when the path's inode no longer matches their descriptor, checked once a second. A CLI command that never reaches a server logs to the server it would have used. A daemon on a remote host logs on that host; fetching its log is outside 0.11.1. A client attached with `--host` logs on its own machine, to the file of the server it would use locally (`--server`, else `[daemon] name`); its `client.attach` names the host.
+- REQ-LOG-002: A record is `{ts, level, proc, pid, run, target, event, msg, fields}` with `session`, `tab`, `pane` and `view` added at the top level whenever the record concerns one.
+  Note (0.11.1): `ts` is RFC 3339 UTC with milliseconds; `level` is `error|warn|info|debug|trace`; `proc` is `daemon|client|cli`; `run` is a ULID the process picks at start, so one process's lines can be followed through interleaving; `target` is the component (`daemon.pty`, `daemon.bus`, `daemon.store`, `proto`, `client.render`, `client.input`, `plugin.agents`, …); `event` is a stable name from the catalog (REQ-LOG-005); `msg` is one human sentence; `fields` holds the event's data. Out-of-process plugins write through the same crate (§12) and so the same file.
+- REQ-LOG-003: Outside debug mode only `warn` and `error` records are written. Debug mode writes `debug` and above plus telemetry (REQ-LOG-006); trace mode adds `trace`. `femux --debug <command>` (or `FEMUX_DEBUG=1`) starts in debug mode, `--debug=trace` (`FEMUX_DEBUG=trace`) in trace mode, and `femux debug on [--trace] | off | status` switch a running server without a restart.
+  Note (0.11.1): `--debug` is a global flag, so `femux --debug` attaches in debug mode and `femux --debug agent list` logs that one command in detail. A daemon started by a process in debug mode starts in it. A daemon already running is switched by `server.debug` (ADR-024), which a client in debug mode sends when it attaches; the mode then stays until `femux debug off` or the daemon exits, and `server.debug_changed` brings every attached client to the same level. `[debug] level` sets the level a daemon starts at (`warn` by default) and `femux reload` applies it. `femux debug status` prints the level, the log's path and size, and since when the mode is on. While debug mode is on the bar shows `DEBUG` beside the mode label, in the warning color, so it is never left on unnoticed.
+- REQ-LOG-004: No record, at any level, holds pane output, text typed or pasted into a pane, clipboard contents, image data, environment values or the full command line of a pane; they are logged as sizes, kinds, names and counts.
+  Note (0.11.1): a pane's command is logged by its program name (`argv[0]`'s file name) and cwd; the environment by variable names; a key by its chord and action only when it matches a binding, keys sent to a pane only as a count per second; a `[notify] webhook` by its host. `agent.evidence` may quote a screen line, since it is already pane metadata, and is logged as it is. Protocol bodies at `trace` follow the same rule: `pane.input`, `clipboard.set`, `image.read` and frame cell runs are logged by size only.
+- REQ-LOG-005: Debug mode records the events below; `warn` and `error` events are written in every mode. An event name, once listed here, is stable.
+  Note (0.11.1): the catalog, level in brackets.
+  - **Processes:** `proc.start` [info] with version, OS, the host terminal (`$TERM_PROGRAM`, `$TERM`), config path and hash, the subcommand and the level; `proc.stop` [info] with the reason and exit code; `proc.panic` [error] with message, location, thread and backtrace, from a panic hook in every process (the client restores the host terminal first); `proc.stderr` [warn], each line the daemon's own stderr receives (a pipe read into the log when stderr is not a terminal); `cli.error` [warn], a command that failed, with its message.
+  - **Protocol:** `proto.response` [debug], one per answered request, with kind, connection, bytes and latency; `proto.error` [warn] for a request answered with an error, with its code and message; request bodies at [trace] under REQ-LOG-004. Kinds a busy client sends many times a second (`frame.ack`, `pane.input`, `pane.info`, `pane.resize`, `scrollback.read`, `image.read`) get their `proto.response` only at [trace]; `metrics` counts them in every debug mode.
+  - **Clients:** `client.connect` and `client.disconnect` [debug] with the client's name, features and terminal; `client.attach` and `client.detach` [info], from the daemon with view and session and from the client with size, terminal capabilities and, on detach, the reason; `client.lagging` [warn] when a view acked a frame a second or more after it was sent, so frames were coalesced meanwhile (REQ-VT-004).
+  - **Panes:** `pane.spawn` [info] with program name, cwd, size and whether it was restored; `pane.exit` [info] with the exit code, or `closed: true` for a pane closed by request; `pane.fg` [debug] with pid and program name; `pane.resize` [debug].
+  - **Bus and store:** `bus.event` [debug] with kind and seq (not `pane.output` or `pane.passthrough`, which are only counted); `bus.lost` [warn] when a subscriber's queue overflowed and it will get `events_lost`; `store.snapshot` [debug] with duration and sessions; `store.error` [error]; `store.backup` [warn] (REQ-STORE-007).
+  - **Config and level:** `config.reload` [info]; `config.error` [warn] for a reload refused, with the error, which names the line; `debug.level` [info] when `server.debug` or a reload changes the level.
+  - **Plugins:** `plugin.start` [info]; `plugin.error` [warn] for a request of the plugin the daemon refused, [error] when the plugin stops; `plugin.slow` [warn] when a handler or tick takes 50 ms or more. Agents: `agent.propose` [debug] for every state a tier offers that is taken, or held off by a higher tier (`held by hook (done), 2.1 s old`), and [trace] for a tier repeating itself; `agent.state` [info] for every change, from, to, source and evidence. Notify: `notify.post` [info] from the daemon side with the event and title; `notify.run` [info] from the client with the actions run; `notify.skipped` [debug] when `only_when_hidden` held one back; `notify.webhook` [debug] with the answer's status, [warn] when it failed, both naming only the host. Hosts: `remote.connect` [info], `remote.drop` [warn], `remote.retry` [debug] for each failed reconnect, `remote.reconnect` [info].
+  - **Client UI:** `ui.action` [debug] with the action and where it came from (`key`, `mouse`, `palette`; `menu` arrives with REQ-UI-046); `ui.overlay` [debug] when the overlay changes; `ui.mode` [debug]; `render.slow` [warn] when a draw takes 16 ms or more, with pane count, size and bytes written.
+  - **Graphics:** `gfx.transmit` [debug] with image id, host id, generation, bytes and medium; `gfx.error` [warn] when an image read fails.
+  - **Snapshots and metrics:** `debug.snapshot` [info] (REQ-LOG-007); `metrics` [info] (REQ-LOG-006).
+
+  A new event is added to this list in the same commit as the code that writes it. The hidden `femux debug crash` panics on purpose, so a test can see `proc.panic` from the real binary.
+- REQ-LOG-006: In debug mode each process writes a `metrics` record [info] every `[debug] metrics_interval_ms` (default 10000) with counters and timings since the previous one.
+  Note (0.11.1): every process reports its RSS, open fds and threads (Linux; absent elsewhere), `counters` and `timings` (each timing as `n`, `p50_ms`, `p99_ms`, `max_ms`). The daemon counts requests per kind (`requests.<kind>`) and events per kind (`events.<kind>`), frames sent and cells in them; it times each request kind (`request.<kind>`), frame builds, frame acks, store snapshots and each plugin's handlers (`plugin.<name>`); and adds sessions, panes, views, connections, the bus's sequence number and the five panes that read the most bytes since the last record. A client counts frames received, input events sent and bytes written to the host and image bytes; it times draws (`render.draw`) and input latency (`input.latency`: a key sent to a pane until the next frame for that pane). Nothing is counted outside debug mode, and there is no identifier beyond those in REQ-LOG-002.
+- REQ-LOG-007: `femux debug snapshot` writes one `debug.snapshot` record [info] holding the server's whole state: sessions, tabs and layout trees, every pane (size, program name, cwd, foreground program, metadata including `agent.*`), the views attached, enabled plugins, the config hash and the debug level.
+  Note (0.11.1): it is built from existing read requests (`server.info`, `server.debug`, `session.list`, `session.tabs`, `pane.info`) and works outside debug mode too. Pane titles are left out (a shell may put a whole command line there) and the foreground command is its program name. The palette offers it as the action `debug snapshot`, with no default key: the client runs `femux debug snapshot` against its local daemon and shows the log's path; attached with `--host`, it says to run the command on that host. A snapshot taken when something looks wrong puts the state beside the events that led to it.
+- REQ-LOG-008: `femux debug tail [--level L] [--event glob] [--pane id] [--since dur] [--follow] [--json]` prints the log, the rotated file first, filtered, one record per line.
+  Note (0.11.1): the human form is `15:16:58.123 warn  daemon plugin.agents agent.state pane 01M4Y0T7 blocked → done (process): …`, levels colored when stdout is a terminal. `--json` passes the matching lines through unchanged, which is the form for an agent watching for problems: `femux debug tail --follow --level warn --json`. `--level` means that level and above; `--since` takes `30s`, `5m`, `1h`. Reading the file directly is supported; the format is REQ-LOG-002.
+
 ---
 
 ## 4. Protocol
@@ -220,6 +253,7 @@ daemon → hello_ok {proto: 1, server: "name", version: "0.2.0", features: [...]
 | `store.snapshot` | c→d | – | `{ts}` |
 | `server.info` | c→d | – | `{version, uptime, sessions, panes, clients}` |
 | `server.stop` | c→d | `{kill_panes: bool}` | – |
+| `server.debug` | c→d | `{level?: "warn"\|"debug"\|"trace"}` (0.11.1, ADR-024) | `{level, path, since}` |
 
 Input event shapes:
 
@@ -246,6 +280,7 @@ frame {view_id, frame_seq, full: bool, panes: [{pane_id, rect, cells: [ {x,y,run
 
 `session.created|renamed|closed`, `tab.created|selected|closed|moved|renamed`, `layout.changed{tab_id, tree}`, `pane.spawned|exited{code}|fg_changed{pid, cmd}|cwd_changed|title_changed|meta_changed{set,unset}|bell`, `view.attached|detached|resized`, `store.snapshot`, `events_lost{from,to}`.
   Note (0.9.0): `pane.passthrough{pane_id, data}` carries one DCS sequence a pane program emitted, base64, only while `[terminal] passthrough = true` (REQ-SEC-004); like `pane.output` it is never retained for `since`.
+  Note (0.11.1): `server.debug_changed{level}` follows every `server.debug` that changes the level, so attached clients log at the daemon's level (REQ-LOG-003).
 
 ### 4.7 Errors
 
@@ -291,7 +326,7 @@ Default bindings (prefix table unless noted):
 | `:` | command palette |
 | `b` / `ctrl+b` | toggle the panel / focus it (0.10.0) |
 | `d` | detach |
-| `?` | help |
+| `?` | help (scrolls; `q` closes, 0.11.0) |
 | `space` | sticky normal mode |
 
 Copy mode: `hjkl`, `w b e`, `0 $`, `gg G`, `ctrl+u/d`, `/ ? n N` (regex), `v V ctrl+v` select, `y` yank (OSC 52 + clipboard.set), `[ ]` previous/next prompt mark, `q` exit.
@@ -323,7 +358,7 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
 ### 5.4 Info bar
 
 - REQ-UI-030: One bar, one row, at `[bar] position = top|bottom`: the session chip and mode on the left, the tab strip in the middle, the modules on the right. Nothing else frames the panes: no separate tab row, no vertical bar.
-  Note (0.10.0): this replaces the 0.4.0 `[infobar]` (`top|bottom|left|right`, `left`/`right` module lists) and `[tabs]` (`position`, `running_indicator`) sections with `[bar]` (`position`, `modules`, `interval_ms`, `running_indicator`); `config check` names the replacement for the old keys. When the row is short, the right side gives first: modules render their short form (the value without its label: `31%`, `9.2G`, `main`; `agents` drops zero counts; `clock` drops the day), then drop from the right end; then tab titles truncate (REQ-UI-020). Prompts, confirmations and messages use the bar row while they are shown. The left column that `[infobar] position = left` provided is now the panel (REQ-UI-042). `femux reload` applies `[bar]`.
+  Note (0.10.0): this replaces the 0.4.0 `[infobar]` (`top|bottom|left|right`, `left`/`right` module lists) and `[tabs]` (`position`, `running_indicator`) sections with `[bar]` (`position`, `modules`, `interval_ms`, `running_indicator`); `config check` names the replacement for the old keys. When the row is short, the right side gives first: modules render their short form (the value without its label: `31%`, `9.2G`, `main`; `agents` drops zero counts and joins glyph and count, `◐1`; `clock` drops the day); then tab titles shrink to 8 columns; then modules drop from the right end; then titles shrink further (REQ-UI-020), as `narrow.png` draws it. Full forms show only while every title fits whole. Modules are two cells apart. Prompts, confirmations and messages use the bar row while they are shown. The left column that `[infobar] position = left` provided is now the panel (REQ-UI-042). `femux reload` applies `[bar]`.
   Note (0.8.1): the chip reads `session <name>` (`session <host>:<name>` over `--host`), so a session named by a number never reads as a tab index. `femux` with no session to attach to creates one named `main`.
   Note (0.10.0): with the tabs on the same row the chip is the bare name again (`api`, `build-box:deploy`), as the mocks draw it; only a name that is all digits keeps the `session ` prefix.
   Note (0.6.1): the horizontal bar keeps one cell of padding at each end. It shows no mode label while typing into panes, only `PREFIX`, `NORMAL`, `COPY` and the navigators' names, and no permanent prefix hint (the which-key panel shows the prefix table).
@@ -347,11 +382,44 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
 - REQ-UI-042: Panel (`b` toggles, `ctrl+b` focuses): a collapsible left column of stacked sections, each from a plugin, listed in `[panel] sections`; open state and width are the client's, the daemon resizes the view to what is left.
   Note (0.10.0): replaces the 0.4.0 side nav. Width is `[panel] width` (default 28 columns) or whatever the mouse drags its right edge to; `[panel] open` says whether a new client starts with it open. Sections stack top to bottom with a header row each (`▾ workspace`, `▸ agents`); a header click or `h`/`l` on it collapses or expands the section, and a collapsed section keeps its header with a one-line summary on the right (`agents` shows its state counts, `◐3 ■1 ✓1`). Focused (`prefix ctrl+b`; `esc` or `q` give focus back to the pane, `prefix b` hides it), `j`/`k` move over every row of every section, `tab` jumps to the next section header, `enter` acts on the row. Mouse clicks act without focusing. Overlays (`s`, `w`, `i`) stay as they are: the panel is the persistent view, they are the quick one.
   Note (0.10.0): built-in sections: `workspace`, sessions → tabs → panes with the attached session expanded and the others collapsed (a remote session reads `host:name`); a tab row carries its `●`/`!`/`Z` markers and, right-aligned, its git branch with the ahead count (`main +3`) when its focused pane is in a repository; a pane row shows the agent glyph, the program and the pane's title (`◐ claude  paginate.rs`, `$ fish` for a shell at its prompt); `enter` or a click attaches, selects or focuses. `agents`, every agent across sessions (name, state glyph, elapsed, last line of its pane), blocked rows answer `y`/`n` in place like the inbox; `enter` jumps to the pane. Sessions and agents refresh every 2 s while the panel is open. Other sections (commands, git, notifications, system) are later milestones or plugins.
+  Note (0.10.0): `workspace` and `agents` are built into the client; a plugin hook for further sections arrives with the first plugin that needs one, and unknown names in `sections` are skipped. `agents` orders blocked, error, working, done, oldest first within a state, with the time since the state changed (`4m12s`); collapsed it reads `◐3 ■1 ✓1`. A tab's branch is `git status` of its focused pane's directory, run off the UI thread at most every 5 s, with `+N` when ahead of upstream. The attached session is listed first. A drag keeps the width between 16 columns and half the terminal; a new client starts at `[panel] width`. The bar shows `PANEL` while the panel has the keys.
 - REQ-UI-043: Command palette (`prefix :`): fuzzy search over all bound actions and CLI subcommands.
   Note (0.8.3): no root key by default. `ctrl+p` was bound at the root until 0.8.1, but it is readline's and fish's history key and the usual fuzzy-finder key inside editors, which ADR-008 set out to avoid; `[keys.root] "ctrl+p" = "palette"` restores it.
   Note: actions are listed by name (`femux keys list`) with their description and key; choosing a CLI subcommand types `femux <subcommand> ` into the focused pane. Matching is subsequence-based.
 - REQ-UI-044: Inbox overlay (agents plugin): list of panes in `blocked|done|error` with one-key jump and one-key respond.
   Note: `prefix i` (bound by the agents plugin to the client action `inbox`). Rows sort blocked, error, done, newest first, across every session; each shows what the pane's last screen line says. `1`-`9` and `enter` jump to the pane, `j/k` move, `y`/`n`/`a` type that letter plus Enter into a blocked pane, `x` dismisses (sets `agent.state=idle`, `source=hook`), `/` filters, `q`/`escape` close.
+  Note (0.11.0): "the pane's last screen line" skips an agent's status footer. Claude Code's bottom row (`auto mode on (shift+tab to cycle) · ? for shortcuts`) was what every Claude Code row showed, never what the agent said. The row takes the last non-blank line above the agent's input prompt (a row that is only `❯`, `>` or `$`, together with the rows under it) and above rows made only of box-drawing characters; when nothing is left, the last non-blank line as before. The `y  n` hint, `y`, `n` and `a` apply only to `blocked` rows, which §9.2 now gives only to an agent waiting on a question.
+- REQ-UI-045: Help (`?`): a scrolling overlay over the panes listing every bound key of every table, grouped like the which-key panel, with what the prefix does; it takes most of the terminal's height, never all of it, and `q`, `esc` or `?` close it.
+  Note (0.11.0): until 0.10.0 help was one flat list in a box the terminal's full height, cut off where it ran out of rows and closed by any key. The box is as wide as its longest row up to 80 columns and four fifths of the terminal's height (at least 8 rows), centered over the panes; the panel and the bar stay. The title row reads `help` and the prefix as typed (`prefix is ctrl+space`), the position (`12–38 of 94`) in the middle and the keys on the right (`j/k scroll · / filter · q close`); a `─` rule below it. The body, one column: a `how the prefix works` section of four rows (`prefix` then a key; `prefix prefix` sends the prefix; `prefix esc` cancels; `prefix space` keeps the table with no prefix until `esc`), then `prefix table` by group in which-key order (`panes`, `splits`, `tabs`, `session`, `ui`, plugin keys inside their group), then `copy mode`, then `root table` only when something is bound there. A row is the key in the key style padded to the widest key of its section, two spaces, the description; keys that differ only by direction or number fold into one row as `docs/prefixes.md` writes them (`h j k l  focus the pane in that direction`, `1-9  select that tab`). Section headers are bold with a blank row before them. `j`/`k`, `down`/`up` scroll a row, `ctrl+d`/`ctrl+u` half a box, `g`/`G` to either end, and the mouse wheel over the box scrolls; `/` filters rows by key, action name or description as the inbox does, `esc` clearing the filter before it closes. A click outside the box closes it. The same text generates `docs/prefixes.md`, so the two never drift.
+
+  ```
+  ╭─ help  prefix is ctrl+space              12–38 of 94      j/k scroll · / filter · q close ─╮
+  │                                                                                           │
+  │  prefix table                                                                             │
+  │                                                                                           │
+  │  panes                                                                                    │
+  │  h j k l              focus the pane in that direction                                    │
+  │  H J K L              grow the pane in that direction                                     │
+  │  ctrl+h/j/k/l         put the next split on that side                                     │
+  │  z                    zoom toggle                                                         │
+  │  …                                                                                        │
+  ╰───────────────────────────────────────────────────────────────────────────────────────────╯
+  ```
+- REQ-UI-046: Context menu: a right click on a pane opens a small menu of actions for that pane at the pointer; on a tab in the bar, for that tab. `enter` or a click runs the highlighted item, `esc` or a click elsewhere closes it.
+  Note (0.11.0): the menu is a box in the overlay background with a one-line border in the accent color, its top-left corner at the pointer, moved only as far as keeping it whole inside the terminal needs; the first item starts highlighted in the selection color, `j`/`k` and the arrows move, the mouse hovering over a row highlights it. A pane's items are `split right`, `split below`, `zoom` (`unzoom` while zoomed), `float` (`tile` while floating), `rename tab`, `mark pane` (asks for the letter), `send right-clicks to this pane` (`open the menu on right-click` while sending), `close pane` (confirming as `x` does); each runs the same action as its key, so the menu is the §5.1 table a mouse user can see. A tab's items are `new tab`, `rename tab`, `close tab` (confirming when a pane of it runs a program). A pane whose program tracks the mouse (frame `mouse`, ADR-023) gets the right click instead of a menu, as does a pane told to with `send right-clicks`; `shift` with the right click opens the menu in either case, the way `shift` forces a drag to select (REQ-UI-053). `send right-clicks` is this client's and lasts until it is turned off or the pane closes. `[input] mouse = false` disables the menu with the rest.
+
+  ```
+  ┌──────────────────────────────────┐
+  │ split right                      │   ← highlighted
+  │ split below                      │
+  │ zoom                             │
+  │ float                            │
+  │ rename tab                       │
+  │ mark pane                        │
+  │ send right-clicks to this pane   │
+  │ close pane                       │
+  └──────────────────────────────────┘
+  ```
 
 ### 5.6 Rendering
 
@@ -428,9 +496,11 @@ Note: `]` pastes the newest server clipboard text the client has seen (its own y
 - REQ-AGT-001 (tier 1, authoritative): `femux pane set agent.state=<s>` from agent hooks, and OSC `9;4` progress (0 → idle, 1–3 → working) plus private `OSC 7777;state=<s>`.
 - REQ-AGT-002 (tier 2): from `pane.fg_changed` and process state. Linux: `/proc/<pid>/stat` state and `wchan`; a fg process sleeping in a tty read with no recent output ≥ `agents.blocked_after_ms` (default 1500) → `blocked`. Shell returning to foreground → `exited` then `idle`. macOS: `proc_pidinfo` thread states, best-effort, marked `source=process` with lower confidence.
   Note: macOS is hook-only: tier 2 is not implemented there (spike §16-3 could not be run; decided 2026-10-11). macOS panes get tier 1 and tier 3 only.
+  Note (0.11.0): an event-loop wait is not a tty read. A Node agent such as Claude Code parks its main thread in `do_epoll_wait` (`poll`, `select` for others) whether it waits for the user's next prompt, for a permission answer or for the network, so reading any such sleep plus `blocked_after_ms` of silence as `blocked` (what tier 2 did until 0.10.0) called every idle agent blocked: on 2026-10-14 the inbox listed two idle Claude Code panes as `blocked` with `waiting 41s`, the tab strip marked them, `[notify] agent_blocked` raised a desktop notification, and `y`/`n` would have typed into their prompts as a new message. From 0.11.0 only a sleep in a tty read (`wchan` containing `tty_read`, or `wait_woken`, where recent kernels report `n_tty_read`'s sleep: aider, a Python `input()`) reads as `blocked` on its own. An agent sleeping in an event-loop wait (`wchan` containing `poll`, `select`, `epoll` or `pipe_read`) with no output for `blocked_after_ms` is waiting for input of some kind, and tier 2 reads the screen once per silence to say which: one of the last eight non-blank rows offering a selected choice (`❯ 1. Yes`, `› 2. No`, `> 1. Allow`) or asking yes/no (`(y/n)`, `[y/N]`, `(yes/no)`, `press enter`) gives `blocked`, anything else `done`, both with `source=process` and evidence quoting the line. Tier 3's other shapes are left out on purpose: a lone `>` or `❯` is the agent's own input prompt, a trailing `?` or `:` is often the end of its answer, and an unselected numbered list is often part of it. Output arriving makes it `working` again and the next silence is read afresh. While tier 2 keeps confirming a state, `agent.evidence` is rewritten at most every 5 s, so `femux agent explain` reports the current silence rather than the first (`no output for 1.5s` after a minute). `femux integration install claude-code` (REQ-AGT-005) is still what makes a Claude Code pane tier 1; without it every state comes from this tier.
 - REQ-AGT-003 (tier 3): output heuristics (silence after burst, prompt-like last line) only when tiers 1–2 give nothing; always `source=heuristic`.
   Note: the agents plugin watches panes whose foreground command is a known agent (`claude`, `codex`, `opencode`, `cursor-agent`, `aider`, `gemini`, `goose`, `amp`, `crush`, `qwen`) or that carry `agent.name`. Tier 3 runs only where tier 2 does not (macOS, or tier 2 off); silence means no output for `agents.blocked_after_ms`, and a last screen line ending in `?` or `:`, a lone `>`, or containing `(y/n)`, `[y/N]`, `(yes/no)` or `press enter` reads as `blocked`, any other as `done`. A bare `agent.state` written by someone else counts as tier 1 with `source=hook`; the plugin adds `agent.source` and `agent.since` and ignores values that are not states. Every state the plugin accepts also writes `agent.evidence`, the one-line reason `femux agent explain` prints. After `exited`, `idle` follows 1 s later.
 - REQ-AGT-004: Higher tiers override lower tiers; a lower tier MUST NOT override a higher-tier state younger than `agents.hold_ms` (default 5000).
+  Note (0.11.0): the hold protects a fresh higher-tier state for `hold_ms`; it does not let a lower tier win by repetition. Tier 2 re-reads the process every tick while a hook speaks only on events, so until 0.10.0 a hook's `done` turned back into tier 2's `blocked` 5 s later for every idle agent, and installing the hook only hid the REQ-AGT-002 misreading for five seconds. From 0.11.0 a lower tier overrides an older higher-tier state only on a new observation: output since that state was taken, or a new foreground process. A change of the process's own wait is not one, since an idle event loop wakes on its timers. The same quiet process re-read on the next tick is not new, so a hook's `done` or `idle` stands until the agent does something.
 - REQ-AGT-005: `femux integration install <claude-code|codex|opencode|cursor>` writes the agent's hook config to call tier-1 commands; `uninstall` reverts it.
   Note: shipped in 0.2.0 with the CLI. Hooks call `femux integration hook <agent> [state]`, which sets `agent.state|source|name|since`. Claude Code (`~/.claude/settings.json`) and Codex (`notify` in `~/.codex/config.toml`) follow their documented formats; the OpenCode plugin file and Cursor `hooks.json` are best effort until 0.5.0 tests them end to end.
   Note (0.5.0): the Claude Code hook is tested end to end against the daemon (`femux agent wait` returns on `Stop`). OpenCode and Cursor stay best effort: their hook formats are written as documented, but no test runs those agents.
@@ -519,6 +589,11 @@ hold_ms = 5000
 [notify]
 agent_done = { sound = "bell", desktop = true, only_when_hidden = true }
 
+[debug]                       # 0.11.1, REQ-LOG-*
+level = "warn"                # warn | debug | trace: what a daemon starts at
+max_mb = 64                   # rotate the log past this size
+metrics_interval_ms = 10000   # debug mode only
+
 [plugins]
 enabled = ["agents", "infobar", "notify", "clipboard", "shell-integration", "which-key", "launcher"]
 
@@ -556,7 +631,7 @@ cwd = "~/writing/notes"
 
 ## 11. CLI
 
-`femux` (attach or start), `femux daemon [--foreground]`, `femux attach [session] [--host h] [--stdio]`, `femux ls`, `femux new <name>`, `femux kill <name>`, `femux launch <name|file>`, `femux tab new|close|rename|select`, `femux pane split|close|focus|resize|info|set|cat|signal|respawn`, `femux layout save|load|list|export`, `femux agent …`, `femux integration install|uninstall`, `femux keys list|explain`, `femux config check|edit`, `femux reload`, `femux reload`, `femux update [--check]`, `femux hosts add|list|rm`, `femux notify test`, `femux graphics list [pane]`, `femux git tab|tabs|rm`, `femux broadcast on|off`, `femux record`.
+`femux` (attach or start), `femux daemon [--foreground]`, `femux attach [session] [--host h] [--stdio]`, `femux ls`, `femux new <name>`, `femux kill <name>`, `femux launch <name|file>`, `femux tab new|close|rename|select`, `femux pane split|close|focus|resize|info|set|cat|signal|respawn`, `femux layout save|load|list|export`, `femux agent …`, `femux integration install|uninstall`, `femux keys list|explain`, `femux config check|edit`, `femux reload`, `femux reload`, `femux update [--check]`, `femux hosts add|list|rm`, `femux notify test`, `femux graphics list [pane]`, `femux git tab|tabs|rm`, `femux broadcast on|off`, `femux record`, `femux debug on|off|status|path|snapshot|tail` (0.11.1).
 
 - REQ-CLI-001: Every subcommand has `--json` output.
 - REQ-CLI-002: Inside a pane, commands default to that pane (`$FEMUX_PANE`).
@@ -565,6 +640,8 @@ cwd = "~/writing/notes"
   Note: `femux completions <shell>`, including the subcommands plugins add.
 
 Note (0.6.0): `hosts` is enabled by default. `femux daemon --ensure` starts a daemon only if none runs and prints its socket (what `--forward` hosts ask the remote for).
+
+Note (0.11.1): `--debug[=trace]` is a global flag accepted before any subcommand (REQ-LOG-003); `femux debug` is core, not a plugin, so it works with every plugin disabled.
 
 Note (§11): `launch`, `config check|edit` and `reload` arrive in 0.3.0; `agent`, `update`, `hosts` and `notify` with their milestones (0.5.0, 1.0, 0.6.0, 0.5.0). `integration install` ships early (0.2.0) because its hook target, `femux pane set`, exists.
 
@@ -584,6 +661,7 @@ femux/
     femux-cli/              the `femux` binary; embeds client and daemon
     femux-plugin/           plugin traits and the daemon-plugin runner (REQ-PLUG-002)
     femux-config/           config.toml and session-file parsing (SPEC §10)
+    femux-log/              the JSON Lines log, levels, rotation and metrics (§3.9, 0.11.1)
     femux-test/             headless harness
     plugins/
       agents/ infobar/ notify/ git/ clipboard/ graphics/ shell-integration/ broadcast/ which-key/ recorder/ hosts/ theme/ launcher/
@@ -599,6 +677,8 @@ femux/
 
 Each minor version is one feature set and one GitButler branch named `v0.N.0`. Patch branches `v0.N.1`, `v0.N.2`, … stack on it and hold only review fixes and hotfixes. A branch is done when every requirement it lists has a passing test in `spec/conformance.md`.
 
+Note (0.11.1): 0.11.1 is a feature patch at the user's request, as 0.8.1–0.8.3 were: it stacks on `v0.11.0` and adds the debug tooling needed to diagnose 0.11.0's agent-state fixes in daily use.
+
 | Version | Requirements | Acceptance |
 | --- | --- | --- |
 | 0.1.0 | ARCH-*, PTY-*, VT-001–005, QRY-*, SESS-*, VIEW-*, EVT-*, LIFE-001–002, PROTO-*, BUILD-*, plus a bare viewer client (attach to one session, show one pane, type into it, `prefix d` to detach) | Harness can create a session, split, run `ls`, assert on the cell grid, detach and reattach with identical screen |
@@ -611,6 +691,8 @@ Each minor version is one feature set and one GitButler branch named `v0.N.0`. P
 | 0.8.0 | SESS-004 marks UI, float UI, plugins `git`, `broadcast`, `recorder` | Worktree tabs, broadcast typing, asciinema recording |
 | 0.9.0 | SEC-002 (`read_allow`), SEC-004 (`passthrough`), UI-053 drag selection, VT-002 cursor shapes (ADR-023) | A pane in `read_allow` reads the clipboard back and one outside it gets nothing; `passthrough = true` lets a DCS reach the host; drag-and-release copies text; neovim's insert cursor is a bar |
 | 0.10.0 | UI-020, UI-030–033 one bar; UI-042 panel with `workspace` and `agents`; `[bar]` and `[panel]` config | One row carries session, mode, tabs and modules at top or bottom and degrades right side first; `prefix b` opens a left panel whose sections collapse, `ctrl+b` focuses it, its width follows config or a drag; mocks in `spec/design/` |
+| 0.11.0 | UI-045 help overlay, UI-046 context menu; AGT-002/004 idle agents are `done`, not `blocked`; UI-044 row text | `?` opens a grouped, scrolling, filterable help at four fifths of the height, closed by `q`, every default binding in it and `docs/prefixes.md` generated from the same text; a right click on a pane or a tab opens a menu whose items run the §5.1 actions; an idle Claude Code pane reads `done` in the inbox and the bar, `blocked` only with a question on screen and a hook's `done` stays put; an inbox row shows the agent's last real line, not its footer |
+| 0.11.1 | LOG-001–008 logging, telemetry and debug mode (ADR-024 `server.debug`); `[debug]` config | `femux --debug` attaches with the daemon, client and CLI all writing one `<state dir>/logs/<server>.jsonl`; `femux debug on` switches a running server and the bar says `DEBUG`; a forced panic in daemon or client leaves a `proc.panic` record and a restored terminal; an agent state change shows as `agent.propose` and `agent.state` with its evidence; `metrics` arrive every 10 s; `femux debug tail --follow --level warn --json` streams problems as they happen; no record holds typed text, pane output or clipboard contents |
 | 1.0.0 | Scoped in a release spec (`spec/RELEASE.md`), written when a release is ready; the protocol is not frozen before then | Set by the release spec |
 
 ---

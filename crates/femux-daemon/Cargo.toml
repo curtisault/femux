@@ -12,7 +12,9 @@ tokio.workspace = true
 nix = { version = "0.31", features = ["term", "process", "signal", "fs", "user", "ioctl"] }
 libc = "0.2"
 femux-config = { path = "../femux-config" }
+femux-log = { path = "../femux-log" }
 ulid = "1"
+rmpv = "1"
 regex = "1"
 rusqlite.workspace = true
 serde_json = "1"

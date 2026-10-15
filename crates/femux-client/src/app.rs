@@ -41,6 +41,8 @@ pub enum Effect {
         title: String,
         body: String,
     },
+    /// `debug snapshot` (REQ-LOG-007): the host runs `femux debug snapshot`.
+    DebugSnapshot,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -111,6 +113,8 @@ pub enum NavTarget {
 pub enum Confirm {
     ClosePane(String),
     KillSession(String),
+    /// A tab of the context menu with a program running in it (REQ-UI-046).
+    CloseTab(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -129,7 +133,8 @@ pub enum Overlay {
     None,
     /// The which-key panel (from the plugin) once the prefix has been held long enough.
     WhichKey,
-    Help,
+    /// Help (REQ-UI-045): scroll position and filter.
+    Help(crate::help::HelpState),
     Palette(Palette),
     Confirm {
         text: String,
@@ -146,6 +151,8 @@ pub enum Overlay {
     Inbox(crate::inbox::InboxState),
     /// The marks overlay (REQ-SESS-004): the selected row.
     Marks(usize),
+    /// The context menu (REQ-UI-046).
+    Menu(crate::menu::MenuState),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -165,6 +172,8 @@ enum Pending {
     Preview(String),
     /// The last screen line of an inbox pane.
     InboxLine(String),
+    /// The last line of an agent's pane, for the panel's `agents` section.
+    PanelLine(String),
     /// A chunk of a pane's image (pane, image id).
     ImageRead(String, u32),
     /// The pane `prefix F` split off, to float.
@@ -267,8 +276,10 @@ struct Drag {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Hit {
     Tab(String),
-    /// A side nav entry (REQ-UI-042).
-    Nav(NavTarget),
+    /// A panel row, by its index in [`crate::panel::rows`] (REQ-UI-042).
+    Panel(usize),
+    /// The panel's right edge, which drags to resize it.
+    PanelEdge,
     Pane {
         id: String,
         x: u16,
@@ -296,6 +307,14 @@ pub struct App {
     pub remote: Option<String>,
     /// Shown while a remote link is down (it outlives key presses, unlike `message`).
     pub link_status: Option<String>,
+    /// The daemon is in debug mode (REQ-LOG-003): the bar says `DEBUG`.
+    pub debug: bool,
+    /// Where the input that runs an action came from, for `ui.action` (REQ-LOG-005).
+    last_input: &'static str,
+    /// The overlay and mode last logged (`ui.overlay`, `ui.mode`).
+    ui_logged: (&'static str, &'static str),
+    /// The first key sent to a pane since its last frame, for input latency (REQ-LOG-006).
+    input_sent: Option<(String, Instant)>,
     /// The daemon host's values from the `hosts` plugin (`plugin.data`), for `remote:` modules.
     pub remote_data: std::collections::BTreeMap<String, String>,
     /// Images on the host (REQ-GFX-001); enabled by the run loop when the host supports them.
@@ -319,11 +338,13 @@ pub struct App {
     /// The mouse selection, while dragging and after (REQ-UI-053).
     pub selection: Option<Selection>,
     mouse_pane: Option<String>,
+    /// Panes this client sends right clicks to instead of opening the menu (REQ-UI-046).
+    pub right_clicks: std::collections::HashSet<String>,
     /// Tab strip hit boxes from the last render: `(x0, x1, tab)`.
     pub tab_hits: Vec<(u16, u16, String)>,
     /// Side nav rows from the last render: `(y, target)` (REQ-UI-042).
-    pub sidenav_hits: Vec<(u16, NavTarget)>,
-    pub sidenav_open: bool,
+    /// The panel (REQ-UI-042).
+    pub panel: crate::panel::PanelState,
     /// Info bar modules by name (REQ-UI-031), with when each last sampled.
     pub modules: Vec<(Box<dyn femux_plugin::InfoModule>, Option<Instant>)>,
     /// `notify.posted` titles, newest first (REQ-UI-033).
@@ -352,6 +373,11 @@ impl App {
         }
         let prefixes = cfg.prefix.iter().filter_map(|p| Chord::parse(p)).collect();
         let (model, fx) = Model::from_attach(attach);
+        let panel = crate::panel::PanelState {
+            open: cfg.panel_open,
+            width: cfg.panel_width.max(crate::panel::MIN_WIDTH),
+            ..Default::default()
+        };
         let mut app = App {
             cfg,
             bindings,
@@ -379,9 +405,9 @@ impl App {
             drag: None,
             selection: None,
             mouse_pane: None,
+            right_clicks: Default::default(),
             tab_hits: Vec::new(),
-            sidenav_hits: Vec::new(),
-            sidenav_open: false,
+            panel,
             modules: Vec::new(),
             notifications: std::collections::VecDeque::new(),
             dir: crate::nav::Directory::default(),
@@ -390,6 +416,10 @@ impl App {
             inbox_fetched: None,
             remote: None,
             link_status: None,
+            debug: false,
+            last_input: "key",
+            ui_logged: ("none", "terminal"),
+            input_sent: None,
             remote_data: std::collections::BTreeMap::new(),
             graphics: crate::graphics::Graphics::new(false),
             frame_images: Vec::new(),
@@ -474,8 +504,105 @@ impl App {
     }
 
     /// Where everything goes on screen (REQ-UI-030, REQ-UI-042).
+    /// `j`/`k` and the arrows move, `enter` runs, `esc` closes; other keys leave it open.
+    fn menu_key(&mut self, mut st: crate::menu::MenuState, chord: &Chord) {
+        match chord.to_string().as_str() {
+            "j" | "down" => st.down(),
+            "k" | "up" => st.up(),
+            "enter" => return self.menu_run(&st, st.selected),
+            "escape" | "q" => return,
+            _ => {}
+        }
+        self.overlay = Overlay::Menu(st);
+    }
+
+    /// Runs item `i` of a menu: each runs what its key does (REQ-UI-046).
+    fn menu_run(&mut self, st: &crate::menu::MenuState, i: usize) {
+        use crate::menu::Act;
+        self.overlay = Overlay::None;
+        let Some(item) = st.items.get(i) else {
+            return;
+        };
+        match item.act.clone() {
+            Act::Run(a) => {
+                self.last_input = "menu";
+                self.run(a)
+            }
+            Act::RightClicks(p) => {
+                if self.right_clicks.remove(&p) {
+                    self.message = Some("right-click opens the menu again".into());
+                } else {
+                    self.right_clicks.insert(p);
+                    self.message = Some(
+                        "right clicks go to the pane · shift+right-click opens the menu".into(),
+                    );
+                }
+            }
+            Act::RenameTab(t) => {
+                let title = self
+                    .model
+                    .tabs
+                    .iter()
+                    .find(|x| x.id == t)
+                    .map(|x| self.model.tab_title(x))
+                    .unwrap_or_default();
+                self.overlay = Overlay::Prompt {
+                    title: "rename tab".into(),
+                    input: title,
+                    what: PromptKind::RenameTab(t),
+                };
+            }
+            Act::CloseTab(t) => {
+                let Some(tab) = self.model.tabs.iter().find(|x| x.id == t) else {
+                    return;
+                };
+                if self.model.tab_running(tab) {
+                    let title = self.model.tab_title(tab);
+                    self.overlay = Overlay::Confirm {
+                        text: format!("close tab {title} with a program running? y/n"),
+                        what: Confirm::CloseTab(t),
+                    };
+                } else {
+                    self.quiet(m::TabClose { tab_id: t });
+                }
+            }
+        }
+    }
+
+    /// Opens the pane menu at `(x, y)` for pane `id`.
+    fn open_pane_menu(&mut self, id: &str, x: u16, y: u16) {
+        let tab = self.model.current_tab();
+        let facts = crate::menu::PaneFacts {
+            id: id.to_owned(),
+            zoomed: tab.is_some_and(|t| t.zoomed),
+            floating: tab.is_some_and(|t| t.floats.iter().any(|f| f.id == id)),
+            sending: self.right_clicks.contains(id),
+        };
+        let items = crate::menu::pane_items(&facts);
+        self.overlay = Overlay::Menu(crate::menu::MenuState::open(
+            items, x, y, self.cols, self.rows,
+        ));
+    }
+
+    /// Every table as help shows it (REQ-UI-045).
+    pub fn help(&self) -> crate::help::Help {
+        crate::help::Help::build(&self.bindings, |_, _| None)
+    }
+
+    /// Help's body lines and how many show at once, for scrolling.
+    fn help_dims(&self, st: &crate::help::HelpState) -> (usize, usize) {
+        let lines = self.help().lines(&st.filter);
+        let (_, _, _, bh) = crate::help::geometry(&self.layout().panes, &lines, self.cols as usize);
+        (lines.len(), crate::help::body_rows(bh))
+    }
+
     pub fn layout(&self) -> crate::layout::Layout {
-        crate::layout::Layout::compute(self.cols, self.rows, &self.cfg, self.sidenav_open)
+        crate::layout::Layout::compute(
+            self.cols,
+            self.rows,
+            &self.cfg,
+            self.panel.open.then_some(self.panel.width),
+        )
     }
 
     /// The remote link dropped (`retry`: the last failed attempt, its error and the wait
@@ -510,7 +637,7 @@ impl App {
                 | Overlay::Inbox(_)
                 | Overlay::Marks(_)
                 | Overlay::Palette(_)
-                | Overlay::Help
+                | Overlay::Help(_)
         );
         let area = self.layout().panes;
         let wanted: Vec<(m::ImagePlacement, m::Rect)> = if hidden {
@@ -671,10 +798,19 @@ impl App {
 
     /// The session chip, `session <name>` (`host:name` when attached through `--host`): it
     /// says what it is so a name like `0` never reads as a tab number.
+    /// The session chip (REQ-UI-030): the session's name (`host:name` over `--host`), with a
+    /// `session ` prefix only when the name is all digits, so it never reads as a tab number.
     pub fn session_chip(&self) -> String {
-        match &self.remote {
-            Some(h) => format!("session {h}:{}", self.model.session),
-            None => format!("session {}", self.model.session),
+        let name = match &self.remote {
+            Some(h) => format!("{h}:{}", self.model.session),
+            None => self.model.session.clone(),
+        };
+        let digits = !self.model.session.is_empty()
+            && self.model.session.chars().all(|c| c.is_ascii_digit());
+        if digits {
+            format!("session {name}")
+        } else {
+            name
         }
     }
 
@@ -719,7 +855,44 @@ impl App {
 
     /// Advances timers: which-key, and info bar modules due for a sample. True if something
     /// changed.
+    /// `ui.overlay` and `ui.mode` when either changed since the last tick (REQ-LOG-005).
+    fn log_ui(&mut self) {
+        let overlay = match &self.overlay {
+            Overlay::None => "none",
+            Overlay::WhichKey => "which-key",
+            Overlay::Help(_) => "help",
+            Overlay::Menu(_) => "menu",
+            Overlay::Palette(_) => "palette",
+            Overlay::Confirm { .. } => "confirm",
+            Overlay::Prompt { .. } => "prompt",
+            Overlay::Navigator(_) => "navigator",
+            Overlay::Inbox(_) => "inbox",
+            Overlay::Marks(_) => "marks",
+        };
+        let mode = match self.mode {
+            Mode::Terminal => "terminal",
+            Mode::Normal => "normal",
+            Mode::Copy => "copy",
+        };
+        if overlay != self.ui_logged.0 {
+            femux_log::debug("client.ui", "ui.overlay")
+                .msg(format!("{} → {overlay}", self.ui_logged.0))
+                .field("from", self.ui_logged.0)
+                .field("to", overlay)
+                .emit();
+        }
+        if mode != self.ui_logged.1 {
+            femux_log::debug("client.ui", "ui.mode")
+                .msg(format!("{} → {mode}", self.ui_logged.1))
+                .field("from", self.ui_logged.1)
+                .field("to", mode)
+                .emit();
+        }
+        self.ui_logged = (overlay, mode);
+    }
+
     pub fn tick(&mut self, now: Instant) -> bool {
+        self.log_ui();
         let mut changed = false;
         if let Some(since) = self.prefix_since
             && !self.which_key_due
@@ -732,12 +905,11 @@ impl App {
         // REQ-UI-031: each shown module samples on its own interval.
         let shown: Vec<String> = self
             .cfg
-            .bar_left
+            .bar_modules
             .iter()
-            .chain(&self.cfg.bar_right)
             .flat_map(|n| [n.clone(), n.strip_prefix("remote:").unwrap_or(n).to_owned()])
             .collect();
-        let ctx = self.bar_ctx(self.cfg.bar.vertical());
+        let ctx = self.bar_ctx(false);
         let floor = self.cfg.bar_interval;
         for (module, last) in &mut self.modules {
             if !shown.iter().any(|n| n == module.name()) {
@@ -765,7 +937,25 @@ impl App {
     }
 
     /// What info modules may read (REQ-UI-031).
-    pub fn bar_ctx(&self, vertical: bool) -> femux_plugin::BarCtx {
+    /// What info modules may read (REQ-UI-031); `short` asks for their short form.
+    /// Follows the daemon's log level (REQ-LOG-003): this client logs at it too.
+    pub fn set_debug(&mut self, level: m::LogLevel) {
+        let l = match level {
+            m::LogLevel::Warn => femux_log::Level::Warn,
+            m::LogLevel::Debug => femux_log::Level::Debug,
+            m::LogLevel::Trace => femux_log::Level::Trace,
+        };
+        if femux_log::level().is_some() {
+            femux_log::set_level(l);
+        }
+        let on = l.is_debug();
+        if on != self.debug {
+            self.debug = on;
+            self.dirty = true;
+        }
+    }
+
+    pub fn bar_ctx(&self, short: bool) -> femux_plugin::BarCtx {
         let tabs = self
             .model
             .tabs
@@ -804,7 +994,7 @@ impl App {
                 .map(|p| p.cwd.clone())
                 .filter(|c| !c.is_empty()),
             notifications,
-            vertical,
+            short,
             remote: self.remote_data.clone(),
         }
     }
@@ -862,6 +1052,13 @@ impl App {
         self.dirty = true;
         match msg {
             ServerMsg::Push(Push::Frame(f)) => {
+                femux_log::count("frames.received", 1);
+                if let Some((p, at)) = &self.input_sent
+                    && f.panes.iter().any(|x| &x.pane_id == p)
+                {
+                    femux_log::time("input.latency", at.elapsed());
+                    self.input_sent = None;
+                }
                 self.model.on_frame(&f);
                 self.frame_images = f.images.clone();
                 if let Some(cm) = &self.copy
@@ -883,6 +1080,9 @@ impl App {
     fn on_event(&mut self, e: &Event) {
         if let Event::ConfigReloaded(_) = e {
             self.effects.push(Effect::Reload);
+        }
+        if let Event::ServerDebugChanged(d) = e {
+            self.set_debug(d.level);
         }
         if let Event::PluginData(d) = e
             && d.plugin == "hosts"
@@ -933,6 +1133,12 @@ impl App {
             Err(e) => {
                 // A failed detach (the view is already gone) still ends the client.
                 if let Pending::ImageRead(pane, image) = &p {
+                    femux_log::warn("client.graphics", "gfx.error")
+                        .pane(pane)
+                        .msg(format!("image {image}: {}", e.message))
+                        .field("image", *image)
+                        .field("code", e.code.as_str())
+                        .emit();
                     self.graphics.read_failed(pane, *image);
                 } else if matches!(p, Pending::Detach) {
                     self.effects.push(Effect::Exit);
@@ -1028,20 +1234,11 @@ impl App {
             }
             (Pending::InboxLine(pane), Response::ScrollbackRead(r)) => {
                 if let Overlay::Inbox(st) = &mut self.overlay {
-                    let last = r
-                        .lines
-                        .iter()
-                        .map(|l| {
-                            l.iter()
-                                .map(|c| if c.ch.is_empty() { " " } else { c.ch.as_str() })
-                                .collect::<String>()
-                                .trim()
-                                .to_owned()
-                        })
-                        .rfind(|l| !l.is_empty())
-                        .unwrap_or_default();
-                    st.lines.insert(pane, last);
+                    st.lines.insert(pane, last_line(&r.lines));
                 }
+            }
+            (Pending::PanelLine(pane), Response::ScrollbackRead(r)) => {
+                self.panel.lines.insert(pane, last_line(&r.lines));
             }
             (Pending::Switch { focus, then_kill }, Response::SessionAttach(a)) => {
                 self.attached(&a, focus, then_kill);
@@ -1053,6 +1250,7 @@ impl App {
     // ------------------------------------------------------------------ keys
 
     pub fn on_key(&mut self, k: m::KeyEvent, now: Instant) {
+        self.last_input = "key";
         self.dirty = true;
         self.message = None;
         self.selection = None;
@@ -1065,6 +1263,7 @@ impl App {
                     match what {
                         Confirm::ClosePane(p) => self.quiet(m::LayoutClose { pane_id: p }),
                         Confirm::KillSession(name) => self.kill_session(name),
+                        Confirm::CloseTab(t) => self.quiet(m::TabClose { tab_id: t }),
                     }
                 } else {
                     let _ = text;
@@ -1129,13 +1328,18 @@ impl App {
                 }
                 return;
             }
-            Overlay::Help => {
-                // Any key closes help; the key is not otherwise interpreted.
+            Overlay::Help(mut st) => {
+                let (total, fit) = self.help_dims(&st);
+                let text = k.text.as_deref();
+                if st.key(&chord.to_string(), text, total, fit) == crate::help::KeyOutcome::Stay {
+                    self.overlay = Overlay::Help(st);
+                }
                 return;
             }
             Overlay::Navigator(nav) => return self.navigator_key(nav, &k, &chord),
             Overlay::Inbox(st) => return self.inbox_key(st, &k, &chord),
             Overlay::Marks(sel) => return self.marks_key(sel, &chord),
+            Overlay::Menu(st) => return self.menu_key(st, &chord),
             Overlay::WhichKey | Overlay::None => {}
         }
 
@@ -1204,6 +1408,10 @@ impl App {
                     self.which_key_due = false;
                     return;
                 }
+                // A focused panel takes the keys; the prefix still works (REQ-UI-042).
+                if self.panel.focused && self.panel.open {
+                    return self.panel_key(&chord);
+                }
                 match self.bindings.lookup(Table::Root, &chord) {
                     Some(a) => self.run(a),
                     None => self.send_to_pane(vec![m::InputEvent::KeyEvent(k)]),
@@ -1231,6 +1439,11 @@ impl App {
 
     fn send_to_pane(&mut self, events: Vec<m::InputEvent>) {
         if let Some(p) = self.model.focused_id() {
+            // REQ-LOG-004/006: counted and timed, never logged as text.
+            femux_log::count("input.events", events.len() as u64);
+            if self.input_sent.is_none() && femux_log::debug_mode() {
+                self.input_sent = Some((p.clone(), Instant::now()));
+            }
             self.quiet(m::PaneInput { pane_id: p, events });
         }
     }
@@ -1261,6 +1474,11 @@ impl App {
     // ------------------------------------------------------------------ actions
 
     pub fn run(&mut self, a: Action) {
+        femux_log::debug("client.ui", "ui.action")
+            .msg(format!("{} (from {})", a.name(), self.last_input))
+            .field("action", a.name())
+            .field("from", self.last_input)
+            .emit();
         let view_id = self.model.view_id.clone();
         let tab_id = self.model.current.clone();
         let focused = self.model.focused_id();
@@ -1445,13 +1663,23 @@ impl App {
                     what: PromptKind::StartSession { root: cwd },
                 };
             }
-            Action::SideNav => {
-                self.sidenav_open = !self.sidenav_open;
+            Action::Panel => {
+                self.panel.open = !self.panel.open;
+                self.panel.focused = false;
                 let (cols, rows) = (self.cols, self.rows);
                 self.on_resize(cols, rows);
-                if self.sidenav_open {
+                if self.panel.open {
                     self.refresh_dir();
                 }
+            }
+            Action::PanelFocus => {
+                if !self.panel.open {
+                    self.panel.open = true;
+                    let (cols, rows) = (self.cols, self.rows);
+                    self.on_resize(cols, rows);
+                    self.refresh_dir();
+                }
+                self.panel.focused = true;
             }
             Action::Palette => self.open_palette(),
             Action::Marks => self.overlay = Overlay::Marks(0),
@@ -1465,6 +1693,7 @@ impl App {
                     floats_hidden: None,
                 });
             }
+            Action::DebugSnapshot => self.effects.push(Effect::DebugSnapshot),
             Action::Record => {
                 if let Some(p) = focused {
                     // The recorder plugin's daemon side records while this is set.
@@ -1488,7 +1717,7 @@ impl App {
             Action::Detach => {
                 self.send(m::SessionDetach { view_id }, Pending::Detach);
             }
-            Action::Help => self.overlay = Overlay::Help,
+            Action::Help => self.overlay = Overlay::Help(Default::default()),
             Action::NormalMode => {
                 self.mode = if self.mode == Mode::Normal {
                     Mode::Terminal
@@ -1620,6 +1849,145 @@ impl App {
         self.quiet(m::ClipboardSet { text });
     }
 
+    /// Answers a blocked agent: the letter, then enter (REQ-UI-044, REQ-UI-042).
+    fn answer_agent(&mut self, pane: &str, key: &str, name: &str, session: &str) {
+        let enter = m::InputEvent::KeyEvent(m::KeyEvent {
+            key: "enter".into(),
+            mods: vec![],
+            text: None,
+            event: m::KeyEventKind::Press,
+        });
+        let letter = m::InputEvent::KeyEvent(m::KeyEvent {
+            key: key.into(),
+            mods: vec![],
+            text: Some(key.into()),
+            event: m::KeyEventKind::Press,
+        });
+        self.quiet(m::PaneInput {
+            pane_id: pane.to_owned(),
+            events: vec![letter, enter],
+        });
+        self.message = Some(format!("answered {key} to {name} in {session}"));
+        self.refresh_dir();
+    }
+
+    // ------------------------------------------------------------------ panel
+
+    /// Keeps the panel's agent lines and branches fresh while it is open (REQ-UI-042).
+    fn tick_panel(&mut self, now: Instant) -> bool {
+        let mut changed = false;
+        if self
+            .panel
+            .lines_fetched
+            .is_none_or(|t| now.duration_since(t) >= std::time::Duration::from_secs(1))
+        {
+            self.panel.lines_fetched = Some(now);
+            if !self.panel.collapsed.contains("agents") {
+                for p in crate::panel::agent_panes(&self.dir) {
+                    self.send(
+                        m::ScrollbackRead {
+                            pane_id: p.clone(),
+                            from_line: 0,
+                            count: 500,
+                        },
+                        Pending::PanelLine(p),
+                    );
+                }
+            }
+            let mut cwds: Vec<String> = self.model.panes.values().map(|p| p.cwd.clone()).collect();
+            for s in &self.dir.sessions {
+                cwds.extend(s.panes.values().map(|p| p.cwd.clone()));
+            }
+            self.panel.git.refresh(cwds, now);
+            changed = true;
+        }
+        changed
+    }
+
+    /// A key while the panel has focus: `j`/`k` move, `tab` jumps to the next section,
+    /// `h`/`l` fold, `enter` acts, `y`/`n` answer a blocked agent, `esc`/`q` give the keys
+    /// back to the pane.
+    fn panel_key(&mut self, chord: &Chord) {
+        let rows = crate::panel::rows(self);
+        let last = rows.len().saturating_sub(1);
+        let sel = self.panel.selected.min(last);
+        let kind = rows.get(sel).map(|r| r.kind.clone());
+        match chord.key.as_str() {
+            "escape" | "q" => self.panel.focused = false,
+            "j" | "down" => self.panel.selected = (sel + 1).min(last),
+            "k" | "up" => self.panel.selected = sel.saturating_sub(1),
+            "tab" => {
+                let header =
+                    |r: &crate::panel::Row| matches!(r.kind, crate::panel::RowKind::Header(_));
+                self.panel.selected = rows
+                    .iter()
+                    .enumerate()
+                    .skip(sel + 1)
+                    .find(|(_, r)| header(r))
+                    .or_else(|| rows.iter().enumerate().find(|(_, r)| header(r)))
+                    .map_or(sel, |(i, _)| i);
+            }
+            "h" | "left" => self.panel_fold(kind, false),
+            "l" | "right" => self.panel_fold(kind, true),
+            "enter" => self.panel_act(sel),
+            key @ ("y" | "n") => {
+                if let Some(crate::panel::RowKind::Agent {
+                    blocked: true,
+                    pane,
+                    name,
+                    session,
+                    ..
+                }) = kind
+                {
+                    self.answer_agent(&pane, key, &name, &session);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Opens or closes a section, or a session of `workspace`.
+    fn panel_fold(&mut self, kind: Option<crate::panel::RowKind>, open: bool) {
+        use crate::panel::RowKind;
+        match kind {
+            Some(RowKind::Header(s)) => {
+                if open {
+                    self.panel.collapsed.remove(&s);
+                } else {
+                    self.panel.collapsed.insert(s);
+                }
+            }
+            Some(RowKind::Session(name)) => {
+                let attached = name == self.model.session;
+                let expanded = attached != self.panel.toggled.contains(&name);
+                if expanded != open && !self.panel.toggled.remove(&name) {
+                    self.panel.toggled.insert(name);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// `enter` on row `i`, or a click: a header folds, anything else goes where it points.
+    pub fn panel_act(&mut self, i: usize) {
+        use crate::panel::RowKind;
+        let rows = crate::panel::rows(self);
+        let Some(row) = rows.get(i) else { return };
+        self.panel.selected = i;
+        match &row.kind {
+            RowKind::Header(s) => {
+                let open = self.panel.collapsed.contains(s);
+                self.panel_fold(Some(row.kind.clone()), open);
+            }
+            kind => {
+                if let Some(t) = kind.target() {
+                    self.panel.focused = false;
+                    self.switch_to(t);
+                }
+            }
+        }
+    }
+
     // ------------------------------------------------------------------ navigators
 
     /// Asks for every session, its tabs and its panes (the answers fill `self.dir`).
@@ -1639,7 +2007,10 @@ impl App {
     fn tick_navigators(&mut self, now: Instant) -> bool {
         let nav_open = matches!(self.overlay, Overlay::Navigator(_) | Overlay::Inbox(_));
         let mut changed = false;
-        if (nav_open || self.sidenav_open)
+        if self.panel.open {
+            changed |= self.tick_panel(now);
+        }
+        if (nav_open || self.panel.open)
             && self
                 .dir_fetched
                 .is_none_or(|t| now.duration_since(t) >= std::time::Duration::from_secs(2))
@@ -1823,24 +2194,7 @@ impl App {
             }
             key @ ("y" | "n" | "a") => {
                 if let Some(e) = selected.filter(|e| e.state == "blocked") {
-                    let enter = m::InputEvent::KeyEvent(m::KeyEvent {
-                        key: "enter".into(),
-                        mods: vec![],
-                        text: None,
-                        event: m::KeyEventKind::Press,
-                    });
-                    let letter = m::InputEvent::KeyEvent(m::KeyEvent {
-                        key: key.into(),
-                        mods: vec![],
-                        text: Some(key.into()),
-                        event: m::KeyEventKind::Press,
-                    });
-                    self.quiet(m::PaneInput {
-                        pane_id: e.pane.clone(),
-                        events: vec![letter, enter],
-                    });
-                    self.message = Some(format!("answered {key} to {} in {}", e.name, e.session));
-                    self.refresh_dir();
+                    self.answer_agent(&e.pane, key, &e.name, &e.session);
                 }
             }
             "x" => {
@@ -2047,7 +2401,10 @@ impl App {
                 let run = p.matches().get(p.selected).map(|i| i.run.clone());
                 if let Some(run) = run {
                     match run {
-                        PaletteRun::Action(a) => self.run(a),
+                        PaletteRun::Action(a) => {
+                            self.last_input = "palette";
+                            self.run(a)
+                        }
                         PaletteRun::Cli(c) => {
                             self.send_to_pane(vec![m::InputEvent::Paste(m::Paste {
                                 text: format!("femux {c} "),
@@ -2094,11 +2451,7 @@ impl App {
     /// What is at screen cell `(x, y)`.
     pub fn hit(&self, x: u16, y: u16) -> Hit {
         let layout = self.layout();
-        if let Some((sx, sy, sw)) = layout.strip
-            && y == sy
-            && x >= sx
-            && x < sx + sw
-        {
+        if layout.bar.contains(x, y) {
             return self
                 .tab_hits
                 .iter()
@@ -2106,14 +2459,18 @@ impl App {
                 .map(|(_, _, t)| Hit::Tab(t.clone()))
                 .unwrap_or(Hit::Nothing);
         }
-        if let Some(nav) = layout.sidenav
-            && nav.contains(x, y)
+        if let Some(p) = layout.panel
+            && p.contains(x, y)
         {
+            if x == p.x + p.w - 1 {
+                return Hit::PanelEdge;
+            }
             return self
-                .sidenav_hits
+                .panel
+                .hits
                 .iter()
                 .find(|(row, _)| *row == y)
-                .map(|(_, target)| Hit::Nav(target.clone()))
+                .map(|(_, i)| Hit::Panel(*i))
                 .unwrap_or(Hit::Nothing);
         }
         let area = layout.panes;
@@ -2163,10 +2520,65 @@ impl App {
     }
 
     pub fn on_mouse(&mut self, x: u16, y: u16, kind: MouseKind, mods: Vec<m::Mod>) {
+        self.last_input = "mouse";
         if !self.cfg.mouse {
             return;
         }
         self.dirty = true;
+        // Help (REQ-UI-045): the wheel over the box scrolls, a click outside closes it.
+        if let Overlay::Help(st) = &self.overlay {
+            let mut st = st.clone();
+            let lines = self.help().lines(&st.filter);
+            let (bx, by, bw, bh) =
+                crate::help::geometry(&self.layout().panes, &lines, self.cols as usize);
+            let (x, y) = (x as usize, y as usize);
+            let inside = x >= bx && x < bx + bw && y >= by && y < by + bh;
+            let fit = crate::help::body_rows(bh);
+            match kind {
+                MouseKind::WheelUp | MouseKind::WheelDown if inside => {
+                    st.wheel(matches!(kind, MouseKind::WheelDown), lines.len(), fit);
+                    self.overlay = Overlay::Help(st);
+                }
+                MouseKind::Press(_) if !inside => self.overlay = Overlay::None,
+                _ => {}
+            }
+            return;
+        }
+        // The context menu (REQ-UI-046): hovering highlights, a click on an item runs it, a
+        // click elsewhere closes it.
+        if let Overlay::Menu(st) = &self.overlay {
+            let mut st = st.clone();
+            match kind {
+                MouseKind::Move => {
+                    if let Some(i) = st.item_at(x, y) {
+                        st.selected = i;
+                    }
+                    self.overlay = Overlay::Menu(st);
+                }
+                MouseKind::Press(m::MouseButton::Left) if st.item_at(x, y).is_some() => {
+                    let i = st.item_at(x, y).unwrap();
+                    self.menu_run(&st, i);
+                }
+                MouseKind::Press(_) if !st.contains(x, y) => self.overlay = Overlay::None,
+                _ => {}
+            }
+            return;
+        }
+        if self.panel.dragging {
+            match kind {
+                MouseKind::Move | MouseKind::Press(_) => {
+                    let w = (x + 1).clamp(crate::panel::MIN_WIDTH, (self.cols / 2).max(1));
+                    if w != self.panel.width {
+                        self.panel.width = w;
+                        let (cols, rows) = (self.cols, self.rows);
+                        self.on_resize(cols, rows);
+                    }
+                }
+                MouseKind::Release => self.panel.dragging = false,
+                _ => {}
+            }
+            return;
+        }
         if let Some(d) = &mut self.drag {
             match kind {
                 MouseKind::Move | MouseKind::Press(_) => {
@@ -2218,7 +2630,19 @@ impl App {
             self.selection = None;
         }
         match (self.hit(x, y), kind) {
-            (Hit::Nav(target), MouseKind::Press(_)) => self.switch_to(target),
+            (Hit::PanelEdge, MouseKind::Press(m::MouseButton::Left)) => self.panel.dragging = true,
+            (Hit::Panel(i), MouseKind::Press(m::MouseButton::Left)) => self.panel_act(i),
+            (Hit::Tab(t), MouseKind::Press(m::MouseButton::Right)) => {
+                let view_id = self.model.view_id.clone();
+                self.quiet(m::TabSelect {
+                    view_id: Some(view_id),
+                    tab_id: t.clone(),
+                });
+                let items = crate::menu::tab_items(&t);
+                self.overlay = Overlay::Menu(crate::menu::MenuState::open(
+                    items, x, y, self.cols, self.rows,
+                ));
+            }
             (Hit::Tab(t), MouseKind::Press(_)) => {
                 let view_id = self.model.view_id.clone();
                 self.quiet(m::TabSelect {
@@ -2262,6 +2686,15 @@ impl App {
                     .get(&id)
                     .and_then(|p| p.screen.as_ref())
                     .is_some_and(|s| s.mouse);
+                // A right click opens the menu, unless the program tracks the mouse or was
+                // given right clicks; shift opens it anyway (REQ-UI-046).
+                if button == m::MouseButton::Right
+                    && (mods.contains(&m::Mod::Shift)
+                        || (!tracks && !self.right_clicks.contains(&id)))
+                {
+                    self.open_pane_menu(&id, x, y);
+                    return;
+                }
                 if button == m::MouseButton::Left && (!tracks || mods.contains(&m::Mod::Shift)) {
                     self.selection = Some(Selection {
                         pane: id,
@@ -2373,6 +2806,19 @@ impl App {
     }
 }
 
+/// What a pane last said (REQ-UI-044): see [`crate::inbox::said_line`].
+fn last_line(lines: &[Vec<m::Cell>]) -> String {
+    let rows: Vec<String> = lines
+        .iter()
+        .map(|l| {
+            l.iter()
+                .map(|c| if c.ch.is_empty() { " " } else { c.ch.as_str() })
+                .collect::<String>()
+        })
+        .collect();
+    crate::inbox::said_line(&rows)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2454,6 +2900,21 @@ mod tests {
         }));
         assert_eq!(a.take_effects(), [Effect::Clipboard("other".into())]);
         assert_eq!(a.clipboard.as_deref(), Some("other"));
+    }
+
+    /// REQ-UI-030 (0.10.0): the chip is the session's bare name, `host:name` over `--host`,
+    /// and says `session` only when the name is all digits.
+    #[test]
+    fn the_session_chip_is_the_bare_name_unless_it_is_a_number() {
+        let mut a = app(ClientConfig::default());
+        a.model.session = "api".into();
+        assert_eq!(a.session_chip(), "api");
+        a.remote = Some("box".into());
+        assert_eq!(a.session_chip(), "box:api");
+        a.model.session = "0".into();
+        assert_eq!(a.session_chip(), "session box:0");
+        a.remote = None;
+        assert_eq!(a.session_chip(), "session 0");
     }
 
     /// REQ-SEC-004: a passed-through sequence reaches the host only from a pane this client
@@ -2564,8 +3025,8 @@ mod tests {
         // The separator between A and B is column 10; A is restored, so it is dashed.
         assert_eq!(rows[1].chars().nth(10), Some('┆'), "{rows:?}");
         assert!(
-            rows[0].contains('↺'),
-            "tab strip marks restored panes: {rows:?}"
+            rows.last().unwrap().contains('↺'),
+            "the bar's tabs mark restored panes: {rows:?}"
         );
         // A command runs in A: the border is ordinary again.
         a.on_msg(ServerMsg::Event(Event::PaneFgChanged(m::PaneFgChanged {
@@ -2608,7 +3069,7 @@ mod tests {
     }
 
     #[test]
-    fn a_reload_that_moves_the_bar_aside_resizes_the_view() {
+    fn a_reload_that_moves_the_bar_keeps_the_view() {
         let mut a = app(ClientConfig::default());
         a.on_resize(100, 30);
         a.take_out();
@@ -2627,13 +3088,6 @@ mod tests {
             ..Default::default()
         });
         assert!(resizes(&mut a).is_empty());
-        // Top to left: the panes lose the bar's columns and gain its row.
-        a.apply_config(ClientConfig {
-            bar: crate::config::BarPosition::Left,
-            ..Default::default()
-        });
-        assert_eq!(resizes(&mut a), [a.view_size()]);
-        assert!(a.view_size().0 < 100, "{:?}", a.view_size());
     }
 
     /// A client plugin that forwards clipboard events like the real `clipboard` plugin.
