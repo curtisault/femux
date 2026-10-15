@@ -119,6 +119,24 @@ machine with your own `[notify]` settings, and `remote:cpu`, `remote:mem`, `remo
 `remote:hostname` in the info bar show the remote machine. `femux hosts add --forward` forwards
 the remote socket with `ssh -L` instead of running the protocol over the SSH channel.
 
+## Debugging
+
+Every femux process writes to one log per server, `~/.local/state/femux/logs/<server>.jsonl`,
+one JSON record per line. Normally only warnings, errors and crashes go in. Debug mode records
+what femux does and why: requests, pane and agent state changes, plugin activity, slow draws,
+and a `metrics` record every 10 seconds. Nothing leaves your machine, and typed text, pane
+output and clipboard contents are never logged.
+
+```sh
+femux --debug                  # attach in debug mode (or FEMUX_DEBUG=1; --debug=trace for more)
+femux debug on                 # switch a running daemon; `femux debug off` to stop
+femux debug snapshot           # write the whole state into the log
+femux debug tail --follow --level warn --json   # stream problems, e.g. for an agent to watch
+```
+
+The bar says `DEBUG` while debug mode is on. `[debug]` in the config sets the starting level,
+the rotation size and the metrics interval.
+
 ## Documentation
 
 - [docs/prefixes.md](docs/prefixes.md) lists every key binding by table, generated from the
