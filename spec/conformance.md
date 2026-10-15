@@ -216,3 +216,10 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 | REQ-UI-020 (the tabs are the middle of the bar) | femux-client `ui_tabs::ui_020_tab_strip_shows_running_urgent_and_zoom`, `ui_tabs::ui_021_title_precedence`, `ui_mouse::ui_053_mouse_focuses_forwards_and_can_be_disabled` | pass |
 | REQ-UI-031/032 (one `modules` list; short forms) | femux-client `ui_bar::ui_031_modules_come_from_plugins_in_config_order_on_their_interval`, `ui_bar::acceptance_0_10_one_bar_with_every_built_in_module`; femux-plugin-infobar `tests::*`; femux-plugin-hosts `tests::*` | pass |
 | REQ-UI-042 (the panel: `workspace` and `agents`, folding, focus, answers, drag; `[panel]`) | femux-client `ui_panel::ui_042_the_panel_shows_folds_focuses_and_resizes`, `ui_panel::ui_042_panel_config_opens_it_at_its_width`, `panel::tests::branches_and_elapsed_times_read_compactly`, `layout::tests::ui_030_one_bar_at_the_top_or_bottom_and_the_panes_the_rest`, `acceptance::all_default_bindings_work`; femux-cli `plugins::tests::prefixes_doc_matches_the_default_bindings` | pass |
+
+## 0.11.0
+
+| Requirement | Tests | Status |
+| --- | --- | --- |
+| REQ-AGT-002 (0.11.0: a tty read is blocked; an event-loop wait is read off the screen, a selected choice or yes/no blocked, else done; evidence kept current) | femux-plugin-agents `detect::agt_002_an_event_loop_wait_is_read_off_the_screen`, `detect::agt_002_a_process_waiting_on_the_tty_is_blocked_then_exited_then_idle`, `detect::tests::agt_002_the_screen_tells_an_idle_agent_from_a_waiting_one`, `procfs::tests::stat_state_after_the_command_name` | pass |
+| REQ-AGT-004 (0.11.0: past the hold, a lower tier needs new output or a new foreground process) | femux-plugin-agents `tier::tests::agt_004_higher_tiers_override_and_lower_ones_wait_out_the_hold`, `detect::agt_004_a_lower_tier_waits_out_the_hold_and_needs_something_new` | pass |

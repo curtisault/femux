@@ -82,6 +82,13 @@ struct Watch {
     written: Option<(String, &'static str)>,
     evidence: String,
     asking: bool,
+    /// Tier 2's reading of the screen for the silence that began at this output time: the
+    /// state and the line it rests on (0.11.0).
+    judged: Option<(u64, &'static str, String)>,
+    /// Which tier a pending screen read is for.
+    screen_for: Option<Source>,
+    /// When `agent.evidence` was last written.
+    evidence_at: u64,
 }
 
 pub fn is_agent(cmd: &str) -> bool {
@@ -98,6 +105,60 @@ pub fn prompt_like(line: &str) -> bool {
         || ["(y/n)", "[y/n]", "(yes/no)", "[yes/no]", "press enter"]
             .iter()
             .any(|p| low.contains(p))
+}
+
+/// Whether a screen line offers a choice with one selected, as agents' permission prompts do:
+/// `❯ 1. Yes`, `› 2. No`, `> 1. Allow`.
+pub fn selected_choice(line: &str) -> bool {
+    let l = line.trim_start();
+    let Some(rest) = ['❯', '›', '>'].iter().find_map(|m| l.strip_prefix(*m)) else {
+        return false;
+    };
+    let rest = rest.trim_start();
+    let digits = rest.chars().take_while(char::is_ascii_digit).count();
+    digits > 0 && rest[digits..].starts_with(". ")
+}
+
+/// Tier 2's reading of an agent's screen while it sleeps in an event loop (REQ-AGT-002,
+/// 0.11.0): `blocked` with the line when one of the last eight non-blank rows offers a
+/// selected choice or asks yes/no; `done` with the last line otherwise. A lone `>` or `❯` is
+/// the agent's own input prompt, and a question in its answer is not a question to the user.
+pub fn judge_screen(rows: &[String]) -> (&'static str, String) {
+    let tail: Vec<&String> = rows
+        .iter()
+        .filter(|r| !r.trim().is_empty())
+        .rev()
+        .take(8)
+        .collect();
+    let asks = |l: &str| {
+        let low = l.to_lowercase();
+        selected_choice(l)
+            || ["(y/n)", "[y/n]", "(yes/no)", "[yes/no]", "press enter"]
+                .iter()
+                .any(|p| low.contains(p))
+    };
+    match tail.iter().find(|l| asks(l)) {
+        Some(l) => ("blocked", l.trim().to_owned()),
+        None => (
+            "done",
+            tail.first()
+                .map(|l| l.trim().to_owned())
+                .unwrap_or_default(),
+        ),
+    }
+}
+
+fn screen_rows(lines: &[Vec<m::Cell>]) -> Vec<String> {
+    lines
+        .iter()
+        .map(|l| {
+            l.iter()
+                .map(|c| if c.ch.is_empty() { " " } else { c.ch.as_str() })
+                .collect::<String>()
+                .trim_end()
+                .to_owned()
+        })
+        .collect()
 }
 
 pub struct Agents {
@@ -176,6 +237,8 @@ impl Agents {
     }
 
     /// Tier 2 (REQ-AGT-002): the foreground process's state and how long the pane was quiet.
+    /// A terminal read after the silence is `blocked`; an event loop's wait is read off the
+    /// screen once per silence (0.11.0).
     fn process_tier(&mut self, pane: &str) -> Vec<Request> {
         let now = self.now();
         let after = self.settings.blocked_after_ms;
@@ -188,20 +251,86 @@ impl Agents {
         };
         let quiet = now.saturating_sub(w.last_output);
         let name = w.name.clone().unwrap_or_default();
-        let (state, why) = if procfs::waiting_for_input(&p) && quiet >= after {
-            ("blocked", "waits for input")
-        } else if p.state == 'R' || quiet < after {
-            ("working", "is running")
-        } else {
-            ("working", "is busy")
-        };
-        let evidence = format!(
-            "process: {name} (pid {fg}) {why}: state {} in {}, no output for {:.1}s",
+        let wchan = if p.wchan.is_empty() { "?" } else { &p.wchan };
+        let base = format!(
+            "process: {name} (pid {fg}) {{}}: state {} in {wchan}, no output for {:.1}s",
             p.state,
-            if p.wchan.is_empty() { "?" } else { &p.wchan },
             quiet as f64 / 1000.0
         );
-        self.propose(pane, state, Source::Process, evidence)
+        let say = |why: &str| base.replace("{}", why);
+        let (state, evidence) = if p.state == 'R' || quiet < after {
+            ("working", say("is running"))
+        } else if procfs::tty_read(&p) {
+            ("blocked", say("waits for input"))
+        } else if procfs::event_wait(&p) {
+            match &w.judged {
+                Some((at, state, line)) if *at == w.last_output => {
+                    let why = if *state == "blocked" {
+                        "waits on a question"
+                    } else {
+                        "waits for a prompt"
+                    };
+                    (*state, format!("{}; screen: {line:?}", say(why)))
+                }
+                _ => {
+                    let w = self.panes.get_mut(pane).unwrap();
+                    if w.screen_for.is_some() {
+                        return Vec::new();
+                    }
+                    w.screen_for = Some(Source::Process);
+                    return vec![
+                        m::ScrollbackRead {
+                            pane_id: pane.to_owned(),
+                            from_line: 0,
+                            count: 500,
+                        }
+                        .into(),
+                    ];
+                }
+            }
+        } else {
+            ("working", say("is busy"))
+        };
+        self.confirm(pane, state, Source::Process, evidence)
+    }
+
+    /// Offers a state; when it is already shown, rewrites `agent.evidence` every 5 s so
+    /// `femux agent explain` tells the current story (REQ-AGT-002, 0.11.0).
+    fn confirm(
+        &mut self,
+        pane: &str,
+        state: &str,
+        source: Source,
+        evidence: String,
+    ) -> Vec<Request> {
+        let now = self.now();
+        let Some(w) = self.panes.get_mut(pane) else {
+            return Vec::new();
+        };
+        let shown = w
+            .tracker
+            .current
+            .as_ref()
+            .is_some_and(|c| c.state == state && c.source == source);
+        if !shown {
+            w.evidence_at = now;
+            return self.propose(pane, state, source, evidence);
+        }
+        let out = self.propose(pane, state, source, evidence.clone());
+        let w = self.panes.get_mut(pane).unwrap();
+        if now.saturating_sub(w.evidence_at) < 5000 || w.evidence == evidence {
+            return out;
+        }
+        w.evidence_at = now;
+        w.evidence = evidence.clone();
+        vec![
+            m::PaneSetMeta {
+                pane_id: pane.to_owned(),
+                set: Some([("agent.evidence".to_owned(), evidence)].into()),
+                unset: None,
+            }
+            .into(),
+        ]
     }
 
     /// Tier 3 (REQ-AGT-003): output moving means working; a silence after a burst reads the
@@ -225,6 +354,7 @@ impl Agents {
             return Vec::new();
         }
         w.burst = false;
+        w.screen_for = Some(Source::Heuristic);
         vec![
             m::ScrollbackRead {
                 pane_id: pane.to_owned(),
@@ -236,6 +366,15 @@ impl Agents {
     }
 
     fn on_screen(&mut self, pane: &str, lines: &[Vec<m::Cell>]) -> Vec<Request> {
+        let asked = self.panes.get_mut(pane).and_then(|w| w.screen_for.take());
+        if asked == Some(Source::Process) {
+            // Tier 2's reading, kept for the rest of this silence.
+            let (state, line) = judge_screen(&screen_rows(lines));
+            if let Some(w) = self.panes.get_mut(pane) {
+                w.judged = Some((w.last_output, state, line));
+            }
+            return self.process_tier(pane);
+        }
         let quiet = self
             .panes
             .get(pane)
@@ -267,7 +406,12 @@ impl Agents {
         w.asking = false;
         w.shell_pid = i.pid;
         w.fg_pid = i.fg_pid;
+        if w.last_output != i.last_output && w.screen_for == Some(Source::Process) {
+            // New output: a screen read still outstanding is about an old silence.
+            w.screen_for = None;
+        }
         w.last_output = i.last_output;
+        w.tracker.observe(i.last_output, i.fg_pid);
         if let Some(n) = i.meta.get("agent.name") {
             w.name = Some(n.clone());
         } else if is_agent(&i.fg_cmd) {
@@ -289,6 +433,7 @@ impl Agents {
         let process = self.settings.process_tier;
         let w = self.panes.entry(f.pane_id.clone()).or_default();
         w.fg_pid = f.pid;
+        w.tracker.observe(w.last_output, f.pid);
         if w.shell_pid != 0 && f.pid == w.shell_pid {
             if w.name.is_some() && w.exited_at.is_none() && process {
                 w.exited_at = Some(now);
@@ -496,5 +641,38 @@ mod tests {
             assert!(!prompt_like(l), "{l}");
         }
         assert!(is_agent("claude") && !is_agent("vim"));
+    }
+
+    fn rows(s: &str) -> Vec<String> {
+        s.lines().map(str::to_owned).collect()
+    }
+
+    /// REQ-AGT-002 (0.11.0): an agent idle at its prompt is done; one showing a permission
+    /// prompt is blocked.
+    #[test]
+    fn agt_002_the_screen_tells_an_idle_agent_from_a_waiting_one() {
+        // Claude Code idle after answering (the screenshot of 2026-10-14).
+        let idle = rows(
+            "● Why did the terminal multiplexer break up with the shell?\n\n  It needed some space.\n\n* Baked for 2s · done 3:16 PM\n\n────────────\n❯\n────────────\n  femux   gitbutler/workspace*   Fable 5.1\n  ▸▸ auto mode on (shift+tab to cycle) · ← for agents\n",
+        );
+        let (state, line) = judge_screen(&idle);
+        assert_eq!(state, "done");
+        assert!(line.contains("auto mode"), "{line}");
+        // A numbered list in an answer, and a question to the user, are not prompts.
+        let answer =
+            rows("Here is the plan:\n1. Fix the parser\n2. Add tests\nWant me to start?\n❯ \n");
+        assert_eq!(judge_screen(&answer).0, "done");
+        // A permission prompt: a choice with one selected.
+        let ask = rows(
+            "Bash command\n  rm -rf target\nDo you want to proceed?\n❯ 1. Yes\n  2. Yes, and don't ask again\n  3. No, and tell Claude what to do differently (esc)\n",
+        );
+        assert_eq!(judge_screen(&ask), ("blocked", "❯ 1. Yes".to_owned()));
+        assert_eq!(
+            judge_screen(&rows("Overwrite? [y/N]\nContinue? (y/n)")).0,
+            "blocked"
+        );
+        assert!(selected_choice("› 2. No") && selected_choice("  > 10. Other"));
+        assert!(!selected_choice("1. Yes") && !selected_choice("❯") && !selected_choice("> 1.5"));
+        assert_eq!(judge_screen(&[]).0, "done");
     }
 }

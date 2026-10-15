@@ -26,21 +26,29 @@ pub fn read(pid: u32) -> Option<ProcState> {
     })
 }
 
-/// Whether the process sleeps waiting for input: a terminal read, or the poll/select/epoll
-/// wait an event loop parks in while nothing happens.
-pub fn waiting_for_input(p: &ProcState) -> bool {
+/// Whether the process sleeps in a terminal read: it waits for a line from the user, and
+/// that alone means `blocked` (REQ-AGT-002). Recent kernels report `n_tty_read`'s sleep as
+/// `wait_woken`.
+pub fn tty_read(p: &ProcState) -> bool {
     p.state == 'S'
-        && [
-            "tty_read",
-            "wait_woken",
-            "poll",
-            "select",
-            "epoll",
-            "pipe_read",
-            "do_sys_poll",
-        ]
-        .iter()
-        .any(|w| p.wchan.contains(w))
+        && ["tty_read", "wait_woken"]
+            .iter()
+            .any(|w| p.wchan.contains(w))
+}
+
+/// Whether the process sleeps where an event loop parks (poll, select, epoll, a pipe): it
+/// waits for something, a prompt, an answer or the network alike, so the screen decides
+/// (REQ-AGT-002, 0.11.0).
+pub fn event_wait(p: &ProcState) -> bool {
+    p.state == 'S'
+        && ["poll", "select", "epoll", "pipe_read"]
+            .iter()
+            .any(|w| p.wchan.contains(w))
+}
+
+/// Whether the process sleeps waiting for input of any kind.
+pub fn waiting_for_input(p: &ProcState) -> bool {
+    tty_read(p) || event_wait(p)
 }
 
 #[cfg(test)]
@@ -58,6 +66,11 @@ mod tests {
         };
         assert!(waiting_for_input(&s('S', "n_tty_read")));
         assert!(waiting_for_input(&s('S', "do_epoll_wait")));
+        // 0.11.0: only a terminal read is blocked by itself; an event loop's wait is not.
+        assert!(tty_read(&s('S', "n_tty_read")) && tty_read(&s('S', "wait_woken")));
+        assert!(!tty_read(&s('S', "do_epoll_wait")) && event_wait(&s('S', "do_epoll_wait")));
+        assert!(event_wait(&s('S', "do_select")) && event_wait(&s('S', "anon_pipe_read.cold")));
+        assert!(!event_wait(&s('S', "n_tty_read")) && !event_wait(&s('R', "do_epoll_wait")));
         assert!(!waiting_for_input(&s('S', "hrtimer_nanosleep")));
         assert!(!waiting_for_input(&s('R', "n_tty_read")));
     }
