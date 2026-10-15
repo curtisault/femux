@@ -245,3 +245,166 @@ fn log_008_tail_filters_and_passes_json_through() {
             .any(|l| l.contains("\"kind\":\"session.closed\""))
     });
 }
+
+/// The first pane of session `s`, from `tab new`'s answer.
+fn new_tab(env: &Env, args: &[&str]) -> String {
+    let mut all = vec!["tab", "new", "--session", "s"];
+    all.extend_from_slice(args);
+    env.json(&all)["pane_id"].as_str().unwrap().to_owned()
+}
+
+#[test]
+fn log_004_no_record_holds_typed_text_output_clipboard_or_arguments() {
+    let env = Env::new();
+    env.run(&["--debug=trace", "daemon"]);
+    env.run(&["--debug=trace", "new", "s"]);
+    let pane = new_tab(&env, &["--", "env", "TOKEN=SECRET_ENV_VALUE", "sh"]);
+    env.run(&[
+        "--debug=trace",
+        "agent",
+        "prompt",
+        &pane,
+        "echo SECRET_TYPED_TEXT",
+    ]);
+    env.run(&["--debug=trace", "clipboard", "set", "SECRET_CLIPBOARD"]);
+    // The text reached the pane, and its output came back.
+    wait_until("the typed text echoed", Duration::from_secs(10), || {
+        env.run(&["pane", "cat", "--pane", &pane])
+            .contains("SECRET_TYPED_TEXT")
+    });
+    env.run(&["--debug=trace", "debug", "snapshot"]);
+    wait_until("the input's trace record", Duration::from_secs(5), || {
+        has(&env, |r| {
+            r["event"] == "proto.response" && r["fields"]["kind"] == "pane.input"
+        })
+    });
+    let text = std::fs::read_to_string(log_path(&env)).unwrap();
+    for secret in ["SECRET_ENV_VALUE", "SECRET_TYPED_TEXT", "SECRET_CLIPBOARD"] {
+        assert!(!text.contains(secret), "{secret} is in the log");
+    }
+    // What is there instead: sizes and program names.
+    let input = records(&env)
+        .into_iter()
+        .find(|r| r["fields"]["kind"] == "pane.input" && r["fields"]["body"].is_object())
+        .expect("a pane.input body at trace");
+    assert!(
+        input["fields"]["body"]["events"]["redacted"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
+    assert!(has(&env, |r| {
+        r["event"] == "pane.spawn" && r["pane"] == pane.as_str() && r["fields"]["program"] == "env"
+    }));
+}
+
+#[test]
+fn log_005_the_catalog_reaches_the_log() {
+    let env = Env::new();
+    env.run(&["--debug", "daemon"]);
+    env.run(&["--debug", "new", "s"]);
+    let pane = new_tab(&env, &[]);
+    // A hook's agent state goes through the agents plugin (REQ-AGT-001).
+    env.run(&[
+        "pane",
+        "set",
+        "--pane",
+        &pane,
+        "agent.state=done",
+        "agent.name=claude",
+    ]);
+    env.run(&["--debug", "pane", "close", "--pane", &pane]);
+    let want = [
+        ("daemon", "proc.start"),
+        ("daemon", "client.connect"),
+        ("daemon", "proto.response"),
+        ("daemon", "pane.spawn"),
+        ("daemon", "pane.exit"),
+        ("daemon", "bus.event"),
+        ("daemon", "plugin.start"),
+        ("daemon", "agent.propose"),
+        ("daemon", "agent.state"),
+        ("cli", "proc.start"),
+        ("cli", "proc.stop"),
+        ("cli", "proto.response"),
+    ];
+    let missing = || -> Vec<(&str, &str)> {
+        let rs = records(&env);
+        want.iter()
+            .copied()
+            .filter(|(p, e)| !rs.iter().any(|r| r["proc"] == *p && r["event"] == *e))
+            .collect()
+    };
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while !missing().is_empty() && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(missing().is_empty(), "missing: {:?}", missing());
+    let state = records(&env)
+        .into_iter()
+        .find(|r| r["event"] == "agent.state")
+        .unwrap();
+    assert_eq!(state["pane"], pane.as_str());
+    assert_eq!(state["fields"]["to"], "done");
+    assert_eq!(state["fields"]["source"], "hook");
+    assert!(
+        state["fields"]["evidence"]
+            .as_str()
+            .unwrap()
+            .contains("hook")
+    );
+    // A panic is recorded with where it happened, in every mode.
+    let crash = env.cmd(&["debug", "crash"]).output().unwrap();
+    assert!(!crash.status.success());
+    let panic = records(&env)
+        .into_iter()
+        .find(|r| r["event"] == "proc.panic")
+        .expect("a proc.panic record");
+    assert_eq!(panic["level"], "error");
+    assert_eq!(panic["fields"]["message"], "femux debug crash");
+    assert!(panic["fields"]["backtrace"].is_string());
+}
+
+#[test]
+fn log_006_debug_mode_writes_metrics() {
+    let env = Env::new();
+    let cfg = env.dir.path().join("config/femux/config.toml");
+    std::fs::create_dir_all(cfg.parent().unwrap()).unwrap();
+    std::fs::write(&cfg, "[debug]\nmetrics_interval_ms = 200\n").unwrap();
+    env.run(&["daemon"]);
+    env.run(&["new", "s"]);
+    std::thread::sleep(Duration::from_millis(600));
+    assert!(
+        !has(&env, |r| r["event"] == "metrics"),
+        "no telemetry outside debug mode"
+    );
+    env.run(&["debug", "on"]);
+    env.run(&["ls"]);
+    wait_until(
+        "a metrics record with requests",
+        Duration::from_secs(5),
+        || {
+            has(&env, |r| {
+                r["event"] == "metrics"
+                    && r["proc"] == "daemon"
+                    && r["fields"]["panes"] == 1
+                    && r["fields"]["counters"]["requests.session.list"].as_u64() >= Some(1)
+            })
+        },
+    );
+    let m = records(&env)
+        .into_iter()
+        .rfind(|r| r["event"] == "metrics" && r["proc"] == "daemon")
+        .unwrap();
+    for k in [
+        "rss_bytes",
+        "open_fds",
+        "threads",
+        "sessions",
+        "views",
+        "busiest_panes",
+        "timings",
+    ] {
+        assert!(m["fields"].get(k).is_some(), "{k} missing: {m}");
+    }
+}

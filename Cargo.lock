@@ -645,6 +645,7 @@ dependencies = [
  "femux-proto",
  "femux-test",
  "libc",
+ "serde_json",
  "tempfile",
  "termwiz",
  "tokio",

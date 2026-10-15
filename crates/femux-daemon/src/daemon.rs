@@ -563,6 +563,13 @@ impl Daemon {
         let Some(mut pane) = st.panes.remove(id) else {
             return;
         };
+        // REQ-LOG-005: a closed pane ends without pane.exited; say so here.
+        femux_log::info("daemon.pty", "pane.exit")
+            .pane(id)
+            .tab(&pane.tab)
+            .msg("pane closed")
+            .field("closed", true)
+            .emit();
         Self::kill_pane(&mut pane);
         let tab_id = pane.tab.clone();
         let Some(tab) = st.tabs.get_mut(&tab_id) else {
@@ -790,6 +797,15 @@ impl Daemon {
             if pane.size == size {
                 continue;
             }
+            femux_log::debug("daemon.pty", "pane.resize")
+                .pane(&p)
+                .msg(format!(
+                    "{}×{} → {}×{}",
+                    pane.size.0, pane.size.1, size.0, size.1
+                ))
+                .field("cols", size.0)
+                .field("rows", size.1)
+                .emit();
             pane.size = size;
             pane.resizes += 1;
             let mut vt = pane.vt.lock().unwrap();

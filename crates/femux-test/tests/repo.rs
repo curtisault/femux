@@ -311,6 +311,8 @@ fn test_002_every_milestone_requirement_is_mapped() {
         // §13, 0.9.0: SEC-002 and SEC-004 (VT-002 and UI-053 are mapped above).
         ("SEC", 2..=2),
         ("SEC", 4..=4),
+        // §13, 0.11.1: LOG-001–008.
+        ("LOG", 1..=8),
     ];
     let mut want = std::collections::BTreeSet::new();
     for line in spec.lines() {

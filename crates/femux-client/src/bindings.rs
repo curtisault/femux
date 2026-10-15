@@ -51,6 +51,8 @@ pub enum Action {
     Broadcast,
     /// Record the focused pane (recorder plugin).
     Record,
+    /// Write the server's state into the log (REQ-LOG-007); palette only.
+    DebugSnapshot,
     Detach,
     Help,
     NormalMode,
@@ -159,6 +161,7 @@ pub const ALL: &[Action] = &[
     Action::FloatPrev,
     Action::Broadcast,
     Action::Record,
+    Action::DebugSnapshot,
     Action::Detach,
     Action::Help,
     Action::NormalMode,
@@ -243,6 +246,7 @@ impl Action {
             FloatPrev => "float prev",
             Broadcast => "broadcast",
             Record => "record",
+            DebugSnapshot => "debug snapshot",
             Detach => "detach",
             Help => "help",
             NormalMode => "normal",
@@ -331,6 +335,7 @@ impl Action {
             FloatPrev => "previous float".into(),
             Broadcast => "type into every pane of the tab".into(),
             Record => "record the pane".into(),
+            DebugSnapshot => "write the server's state into the log".into(),
             Detach => "detach".into(),
             Help => "help".into(),
             NormalMode => "sticky normal mode".into(),
@@ -373,7 +378,7 @@ impl Action {
             NewTab | RenameTab | NextTab | PrevTab | Tab(_) => "tabs",
             SetMark | JumpMark | Marks | CopyMode | Paste | NewSession | Detach => "session",
             SessionNav | PaneNav | Palette | Panel | PanelFocus | Inbox | Help | NormalMode
-            | SendPrefix => "ui",
+            | SendPrefix | DebugSnapshot => "ui",
             _ => "copy",
         }
     }

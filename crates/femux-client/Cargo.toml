@@ -9,6 +9,7 @@ license.workspace = true
 femux-proto = { path = "../femux-proto" }
 femux-plugin = { path = "../femux-plugin" }
 femux-log = { path = "../femux-log" }
+serde_json = "1"
 termwiz.workspace = true
 tokio.workspace = true
 libc = "0.2"

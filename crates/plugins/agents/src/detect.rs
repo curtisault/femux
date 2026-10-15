@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::time::Duration;
 
 use femux_plugin::DaemonPlugin;
+use femux_plugin::log;
 use femux_proto::msg as m;
 use femux_proto::{Event, Request, Response};
 
@@ -208,9 +209,55 @@ impl Agents {
         if source.tier() < 3 {
             w.tier12 = true;
         }
+        let before = w.tracker.current.clone();
         if !w.tracker.propose(state, source, now, hold) {
+            // REQ-LOG-005: why an offer was not taken. A tier repeating itself every tick is
+            // only trace; one held off by a higher tier is debug, with that tier's age.
+            let (level, why) = match &before {
+                Some(c) if source.tier() > c.source.tier() => (
+                    log::Level::Debug,
+                    format!(
+                        "held by {} ({}), {:.1} s old",
+                        c.source.as_str(),
+                        c.state,
+                        now.saturating_sub(c.at) as f64 / 1000.0
+                    ),
+                ),
+                _ => (log::Level::Trace, "unchanged".to_owned()),
+            };
+            log::rec(level, "plugin.agents", "agent.propose")
+                .pane(pane)
+                .msg(format!("{} offered {state}: {why}", source.as_str()))
+                .field("state", state)
+                .field("source", source.as_str())
+                .field("taken", false)
+                .field("why", why)
+                .field("evidence", evidence)
+                .emit();
             return Vec::new();
         }
+        log::debug("plugin.agents", "agent.propose")
+            .pane(pane)
+            .msg(format!("{} offered {state}: taken", source.as_str()))
+            .field("state", state)
+            .field("source", source.as_str())
+            .field("taken", true)
+            .field("evidence", evidence.clone())
+            .emit();
+        let from = before.as_ref().map(|c| c.state.clone());
+        log::info("plugin.agents", "agent.state")
+            .pane(pane)
+            .msg(format!(
+                "{} → {state} ({}): {evidence}",
+                from.as_deref().unwrap_or("none"),
+                source.as_str()
+            ))
+            .field("from", from)
+            .field("to", state)
+            .field("source", source.as_str())
+            .field("evidence", evidence.clone())
+            .field("agent", w.name.clone())
+            .emit();
         w.evidence = evidence;
         let j = w.tracker.current.clone().unwrap();
         w.written = Some((j.state.clone(), source.as_str()));

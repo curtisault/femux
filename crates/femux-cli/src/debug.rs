@@ -32,6 +32,9 @@ pub enum DebugCmd {
     Path,
     /// Write the server's whole state into the log as one record.
     Snapshot,
+    /// Panic on purpose, to check that panics reach the log (tests).
+    #[command(hide = true)]
+    Crash,
     /// Print the log, filtered; --follow keeps printing new records.
     Tail {
         /// This level and above: error, warn, info, debug or trace.

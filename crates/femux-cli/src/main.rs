@@ -424,7 +424,14 @@ fn run_daemon(server: &str, socket: PathBuf, cfg: &Config, plugins: Vec<Plugin>)
             while !running(&socket) && Instant::now() < deadline {
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }
-            let _ = femux_plugin::run_daemon_plugin(&socket, p).await;
+            let name = p.name();
+            if let Err(e) = femux_plugin::run_daemon_plugin(&socket, p).await {
+                femux_log::error(&format!("plugin.{name}"), "plugin.error")
+                    .msg(format!("plugin {name} stopped: {e}"))
+                    .field("plugin", name)
+                    .field("error", e.to_string())
+                    .emit();
+            }
         });
     }
     rt.block_on(femux_daemon::run_with_signals(dcfg))
@@ -1008,6 +1015,7 @@ fn run_debug(d: &debug::DebugCmd, json: bool, socket: &Path, server: &str) -> R 
     };
     match d {
         D::On { trace } => set(if *trace { Level::Trace } else { Level::Debug }),
+        D::Crash => panic!("femux debug crash"),
         D::Off => set(Level::Warn),
         D::Status => {
             if !running(socket) {
@@ -1130,6 +1138,7 @@ fn host(cfg: &Config, plugins: Vec<Plugin>, cmd: &Command) -> femux_client::Host
             Config::load(&femux_config::config_path()).map(|c| config::client(&c))
         })),
         debug: debug::requested_level().map(debug::to_proto),
+        metrics_interval: Duration::from_millis(cfg.debug.metrics_interval_ms),
     }
 }
 

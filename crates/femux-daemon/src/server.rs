@@ -66,7 +66,16 @@ pub async fn serve(d: Arc<Daemon>, listener: UnixListener) {
     let next_conn = AtomicU64::new(1);
     let mut shutdown = d.shutdown.subscribe();
     // Saved sessions come back before the first client is accepted (REQ-STORE-004).
-    d.open_store();
+    if let Some(backup) = d.open_store() {
+        // REQ-LOG-005 (REQ-STORE-007): the saved state could not be loaded.
+        femux_log::warn("daemon.store", "store.backup")
+            .msg(format!(
+                "the store could not be loaded; moved to {}",
+                backup.display()
+            ))
+            .field("backup", backup.display().to_string())
+            .emit();
+    }
     tokio::spawn(resizer(d.clone()));
     tokio::spawn(crate::persist::store_task(d.clone()));
     #[cfg(target_os = "linux")]

@@ -41,6 +41,8 @@ pub enum Effect {
         title: String,
         body: String,
     },
+    /// `debug snapshot` (REQ-LOG-007): the host runs `femux debug snapshot`.
+    DebugSnapshot,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -307,6 +309,12 @@ pub struct App {
     pub link_status: Option<String>,
     /// The daemon is in debug mode (REQ-LOG-003): the bar says `DEBUG`.
     pub debug: bool,
+    /// Where the input that runs an action came from, for `ui.action` (REQ-LOG-005).
+    last_input: &'static str,
+    /// The overlay and mode last logged (`ui.overlay`, `ui.mode`).
+    ui_logged: (&'static str, &'static str),
+    /// The first key sent to a pane since its last frame, for input latency (REQ-LOG-006).
+    input_sent: Option<(String, Instant)>,
     /// The daemon host's values from the `hosts` plugin (`plugin.data`), for `remote:` modules.
     pub remote_data: std::collections::BTreeMap<String, String>,
     /// Images on the host (REQ-GFX-001); enabled by the run loop when the host supports them.
@@ -409,6 +417,9 @@ impl App {
             remote: None,
             link_status: None,
             debug: false,
+            last_input: "key",
+            ui_logged: ("none", "terminal"),
+            input_sent: None,
             remote_data: std::collections::BTreeMap::new(),
             graphics: crate::graphics::Graphics::new(false),
             frame_images: Vec::new(),
@@ -513,7 +524,10 @@ impl App {
             return;
         };
         match item.act.clone() {
-            Act::Run(a) => self.run(a),
+            Act::Run(a) => {
+                self.last_input = "menu";
+                self.run(a)
+            }
             Act::RightClicks(p) => {
                 if self.right_clicks.remove(&p) {
                     self.message = Some("right-click opens the menu again".into());
@@ -841,7 +855,44 @@ impl App {
 
     /// Advances timers: which-key, and info bar modules due for a sample. True if something
     /// changed.
+    /// `ui.overlay` and `ui.mode` when either changed since the last tick (REQ-LOG-005).
+    fn log_ui(&mut self) {
+        let overlay = match &self.overlay {
+            Overlay::None => "none",
+            Overlay::WhichKey => "which-key",
+            Overlay::Help(_) => "help",
+            Overlay::Menu(_) => "menu",
+            Overlay::Palette(_) => "palette",
+            Overlay::Confirm { .. } => "confirm",
+            Overlay::Prompt { .. } => "prompt",
+            Overlay::Navigator(_) => "navigator",
+            Overlay::Inbox(_) => "inbox",
+            Overlay::Marks(_) => "marks",
+        };
+        let mode = match self.mode {
+            Mode::Terminal => "terminal",
+            Mode::Normal => "normal",
+            Mode::Copy => "copy",
+        };
+        if overlay != self.ui_logged.0 {
+            femux_log::debug("client.ui", "ui.overlay")
+                .msg(format!("{} → {overlay}", self.ui_logged.0))
+                .field("from", self.ui_logged.0)
+                .field("to", overlay)
+                .emit();
+        }
+        if mode != self.ui_logged.1 {
+            femux_log::debug("client.ui", "ui.mode")
+                .msg(format!("{} → {mode}", self.ui_logged.1))
+                .field("from", self.ui_logged.1)
+                .field("to", mode)
+                .emit();
+        }
+        self.ui_logged = (overlay, mode);
+    }
+
     pub fn tick(&mut self, now: Instant) -> bool {
+        self.log_ui();
         let mut changed = false;
         if let Some(since) = self.prefix_since
             && !self.which_key_due
@@ -1001,6 +1052,13 @@ impl App {
         self.dirty = true;
         match msg {
             ServerMsg::Push(Push::Frame(f)) => {
+                femux_log::count("frames.received", 1);
+                if let Some((p, at)) = &self.input_sent
+                    && f.panes.iter().any(|x| &x.pane_id == p)
+                {
+                    femux_log::time("input.latency", at.elapsed());
+                    self.input_sent = None;
+                }
                 self.model.on_frame(&f);
                 self.frame_images = f.images.clone();
                 if let Some(cm) = &self.copy
@@ -1075,6 +1133,12 @@ impl App {
             Err(e) => {
                 // A failed detach (the view is already gone) still ends the client.
                 if let Pending::ImageRead(pane, image) = &p {
+                    femux_log::warn("client.graphics", "gfx.error")
+                        .pane(pane)
+                        .msg(format!("image {image}: {}", e.message))
+                        .field("image", *image)
+                        .field("code", e.code.as_str())
+                        .emit();
                     self.graphics.read_failed(pane, *image);
                 } else if matches!(p, Pending::Detach) {
                     self.effects.push(Effect::Exit);
@@ -1186,6 +1250,7 @@ impl App {
     // ------------------------------------------------------------------ keys
 
     pub fn on_key(&mut self, k: m::KeyEvent, now: Instant) {
+        self.last_input = "key";
         self.dirty = true;
         self.message = None;
         self.selection = None;
@@ -1374,6 +1439,11 @@ impl App {
 
     fn send_to_pane(&mut self, events: Vec<m::InputEvent>) {
         if let Some(p) = self.model.focused_id() {
+            // REQ-LOG-004/006: counted and timed, never logged as text.
+            femux_log::count("input.events", events.len() as u64);
+            if self.input_sent.is_none() && femux_log::debug_mode() {
+                self.input_sent = Some((p.clone(), Instant::now()));
+            }
             self.quiet(m::PaneInput { pane_id: p, events });
         }
     }
@@ -1404,6 +1474,11 @@ impl App {
     // ------------------------------------------------------------------ actions
 
     pub fn run(&mut self, a: Action) {
+        femux_log::debug("client.ui", "ui.action")
+            .msg(format!("{} (from {})", a.name(), self.last_input))
+            .field("action", a.name())
+            .field("from", self.last_input)
+            .emit();
         let view_id = self.model.view_id.clone();
         let tab_id = self.model.current.clone();
         let focused = self.model.focused_id();
@@ -1618,6 +1693,7 @@ impl App {
                     floats_hidden: None,
                 });
             }
+            Action::DebugSnapshot => self.effects.push(Effect::DebugSnapshot),
             Action::Record => {
                 if let Some(p) = focused {
                     // The recorder plugin's daemon side records while this is set.
@@ -2325,7 +2401,10 @@ impl App {
                 let run = p.matches().get(p.selected).map(|i| i.run.clone());
                 if let Some(run) = run {
                     match run {
-                        PaletteRun::Action(a) => self.run(a),
+                        PaletteRun::Action(a) => {
+                            self.last_input = "palette";
+                            self.run(a)
+                        }
                         PaletteRun::Cli(c) => {
                             self.send_to_pane(vec![m::InputEvent::Paste(m::Paste {
                                 text: format!("femux {c} "),
@@ -2441,6 +2520,7 @@ impl App {
     }
 
     pub fn on_mouse(&mut self, x: u16, y: u16, kind: MouseKind, mods: Vec<m::Mod>) {
+        self.last_input = "mouse";
         if !self.cfg.mouse {
             return;
         }

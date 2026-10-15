@@ -371,6 +371,29 @@ impl Graphics {
             ),
         };
         self.out.extend_from_slice(cmd.as_bytes());
+        // REQ-LOG-005: what was sent to the host, not the pixels (REQ-LOG-004).
+        femux_log::count("gfx.bytes", cmd.len() as u64);
+        femux_log::debug("client.graphics", "gfx.transmit")
+            .pane(pane)
+            .msg(format!(
+                "image {} ({}×{}) as host id {id}",
+                r.image_id, r.width, r.height
+            ))
+            .field("image", r.image_id)
+            .field("host_id", id)
+            .field("generation", r.generation)
+            .field("bytes", cmd.len())
+            .field(
+                "medium",
+                if r.shm.is_some() {
+                    "shm"
+                } else if r.zlib == Some(true) {
+                    "zlib"
+                } else {
+                    "base64"
+                },
+            )
+            .emit();
         self.hosts.insert(
             key.clone(),
             HostImage {
