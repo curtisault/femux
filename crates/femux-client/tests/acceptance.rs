@@ -208,7 +208,7 @@ async fn all_default_bindings_work() {
     assert!(matches!(d.app.overlay, Overlay::Palette(_)));
     d.press("escape").await;
     d.press_all(&["ctrl+space", "?"]).await;
-    assert!(matches!(d.app.overlay, Overlay::Help));
+    assert!(matches!(d.app.overlay, Overlay::Help(_)));
     assert!(d.screen().contains("prefix table"));
     d.press("escape").await;
     // s / w: the navigators (0.4.0), q closes them; b toggles the panel (0.10.0).

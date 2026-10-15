@@ -7,6 +7,7 @@ pub mod bindings;
 pub mod config;
 pub mod copy;
 pub mod graphics;
+pub mod help;
 pub mod host;
 pub mod inbox;
 pub mod keys;

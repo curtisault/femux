@@ -129,7 +129,8 @@ pub enum Overlay {
     None,
     /// The which-key panel (from the plugin) once the prefix has been held long enough.
     WhichKey,
-    Help,
+    /// Help (REQ-UI-045): scroll position and filter.
+    Help(crate::help::HelpState),
     Palette(Palette),
     Confirm {
         text: String,
@@ -482,6 +483,18 @@ impl App {
     }
 
     /// Where everything goes on screen (REQ-UI-030, REQ-UI-042).
+    /// Every table as help shows it (REQ-UI-045).
+    pub fn help(&self) -> crate::help::Help {
+        crate::help::Help::build(&self.bindings, |_, _| None)
+    }
+
+    /// Help's body lines and how many show at once, for scrolling.
+    fn help_dims(&self, st: &crate::help::HelpState) -> (usize, usize) {
+        let lines = self.help().lines(&st.filter);
+        let (_, _, _, bh) = crate::help::geometry(&self.layout().panes, &lines, self.cols as usize);
+        (lines.len(), crate::help::body_rows(bh))
+    }
+
     pub fn layout(&self) -> crate::layout::Layout {
         crate::layout::Layout::compute(
             self.cols,
@@ -523,7 +536,7 @@ impl App {
                 | Overlay::Inbox(_)
                 | Overlay::Marks(_)
                 | Overlay::Palette(_)
-                | Overlay::Help
+                | Overlay::Help(_)
         );
         let area = self.layout().panes;
         let wanted: Vec<(m::ImagePlacement, m::Rect)> = if hidden {
@@ -1142,8 +1155,12 @@ impl App {
                 }
                 return;
             }
-            Overlay::Help => {
-                // Any key closes help; the key is not otherwise interpreted.
+            Overlay::Help(mut st) => {
+                let (total, fit) = self.help_dims(&st);
+                let text = k.text.as_deref();
+                if st.key(&chord.to_string(), text, total, fit) == crate::help::KeyOutcome::Stay {
+                    self.overlay = Overlay::Help(st);
+                }
                 return;
             }
             Overlay::Navigator(nav) => return self.navigator_key(nav, &k, &chord),
@@ -1515,7 +1532,7 @@ impl App {
             Action::Detach => {
                 self.send(m::SessionDetach { view_id }, Pending::Detach);
             }
-            Action::Help => self.overlay = Overlay::Help,
+            Action::Help => self.overlay = Overlay::Help(Default::default()),
             Action::NormalMode => {
                 self.mode = if self.mode == Mode::Normal {
                     Mode::Terminal
@@ -2319,6 +2336,25 @@ impl App {
             return;
         }
         self.dirty = true;
+        // Help (REQ-UI-045): the wheel over the box scrolls, a click outside closes it.
+        if let Overlay::Help(st) = &self.overlay {
+            let mut st = st.clone();
+            let lines = self.help().lines(&st.filter);
+            let (bx, by, bw, bh) =
+                crate::help::geometry(&self.layout().panes, &lines, self.cols as usize);
+            let (x, y) = (x as usize, y as usize);
+            let inside = x >= bx && x < bx + bw && y >= by && y < by + bh;
+            let fit = crate::help::body_rows(bh);
+            match kind {
+                MouseKind::WheelUp | MouseKind::WheelDown if inside => {
+                    st.wheel(matches!(kind, MouseKind::WheelDown), lines.len(), fit);
+                    self.overlay = Overlay::Help(st);
+                }
+                MouseKind::Press(_) if !inside => self.overlay = Overlay::None,
+                _ => {}
+            }
+            return;
+        }
         if self.panel.dragging {
             match kind {
                 MouseKind::Move | MouseKind::Press(_) => {

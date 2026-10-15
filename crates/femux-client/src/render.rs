@@ -9,7 +9,6 @@ use termwiz::color::{ColorAttribute, SrgbaTuple};
 use termwiz::surface::{Change, CursorShape, CursorVisibility, Position, Surface};
 
 use crate::app::{App, Mode, Overlay};
-use crate::bindings::Table;
 use crate::config::Borders;
 use crate::layout::Layout;
 use crate::model::PaneScreen;
@@ -772,9 +771,10 @@ pub fn render(app: &mut App, theme: &Theme, s: &mut Surface) {
                 );
             }
         }
-        Overlay::Help => {
-            let ov = help_overlay(app);
-            draw_box(&mut c, theme, &ov, &mut cursor, None);
+        Overlay::Help(st) => {
+            let prefix = app.cfg.prefix.join(" or ");
+            let area = l.panes;
+            crate::help::draw(&app.help(), &st, &prefix, &area, &mut c, theme, &mut cursor);
         }
         Overlay::Marks(sel) => {
             let rows = app.mark_rows();
@@ -1076,36 +1076,6 @@ fn draw_box(
         c.spans(x0 + 1, y0 + 2 + i, line, theme, bg);
     }
     *cursor = input_cursor.map(|ix| (x0 + 1 + ix, y0 + 1));
-}
-
-/// `?`: every table's bindings.
-fn help_overlay(app: &App) -> PluginOverlay {
-    let mut lines = Vec::new();
-    for (name, t) in [
-        ("root", Table::Root),
-        ("prefix", Table::Prefix),
-        ("copy", Table::Copy),
-    ] {
-        lines.push(vec![Span::new(format!("{name} table"), Style::Title)]);
-        for (table, key, _, desc) in app.bindings.list() {
-            if table != name {
-                continue;
-            }
-            let _ = t;
-            lines.push(vec![
-                Span::new(format!("{key:<12}"), Style::Key),
-                Span::text(desc),
-            ]);
-        }
-    }
-    PluginOverlay {
-        title: vec![
-            Span::new("help", Style::Title),
-            Span::new("  any key closes", Style::Muted),
-        ],
-        lines,
-        place: femux_plugin::Place::Center,
-    }
 }
 
 #[cfg(test)]
