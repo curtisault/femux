@@ -2541,19 +2541,17 @@ impl App {
     }
 }
 
-/// The last non-blank line of `lines`, trimmed: what a pane last said.
+/// What a pane last said (REQ-UI-044): see [`crate::inbox::said_line`].
 fn last_line(lines: &[Vec<m::Cell>]) -> String {
-    lines
+    let rows: Vec<String> = lines
         .iter()
         .map(|l| {
             l.iter()
                 .map(|c| if c.ch.is_empty() { " " } else { c.ch.as_str() })
                 .collect::<String>()
-                .trim()
-                .to_owned()
         })
-        .rfind(|l| !l.is_empty())
-        .unwrap_or_default()
+        .collect();
+    crate::inbox::said_line(&rows)
 }
 
 #[cfg(test)]

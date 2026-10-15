@@ -145,6 +145,35 @@ pub fn row_lines(e: &Entry, said: Option<&str>, now: u64) -> (Spans, Spans) {
     (first, second)
 }
 
+/// Whether a row is only box-drawing characters (and blanks): an agent's frame or rule.
+fn is_rule(row: &str) -> bool {
+    let t = row.trim();
+    !t.is_empty()
+        && t.chars()
+            .all(|c| ('\u{2500}'..='\u{257f}').contains(&c) || c == ' ')
+}
+
+/// An agent's input prompt: a row that is only `❯`, `>` or `$`.
+fn is_prompt(row: &str) -> bool {
+    matches!(row.trim(), "❯" | ">" | "$")
+}
+
+/// What an agent last said, from its screen rows (REQ-UI-044, 0.11.0): the last non-blank row
+/// above its input prompt and the rows under it (its status footer), skipping rules; the last
+/// non-blank row when that leaves nothing. Trimmed.
+pub fn said_line(rows: &[String]) -> String {
+    let above = rows
+        .iter()
+        .rposition(|r| is_prompt(r))
+        .map_or(rows, |i| &rows[..i]);
+    above
+        .iter()
+        .rfind(|r| !r.trim().is_empty() && !is_rule(r))
+        .or_else(|| rows.iter().rfind(|r| !r.trim().is_empty()))
+        .map(|r| r.trim().to_owned())
+        .unwrap_or_default()
+}
+
 /// What the right edge of a row offers.
 pub fn row_hint(e: &Entry) -> &'static str {
     match e.state.as_str() {
@@ -375,6 +404,28 @@ mod tests {
         Directory {
             sessions: vec![api, infra],
         }
+    }
+
+    /// REQ-UI-044 (0.11.0): a row says what the agent said, not its status footer.
+    #[test]
+    fn ui_044_said_line_skips_the_prompt_footer_and_rules() {
+        let rows = |s: &str| s.lines().map(str::to_owned).collect::<Vec<_>>();
+        let claude = rows(
+            "● It needed some space.\n\n* Baked for 2s · done 3:16 PM\n\n──────────\n❯\n──────────\n  femux   gitbutler/workspace*\n  ▸▸ auto mode on (shift+tab to cycle) · ← for agents\n",
+        );
+        assert_eq!(said_line(&claude), "* Baked for 2s · done 3:16 PM");
+        // A permission prompt has no bare prompt row: its last line stands.
+        let ask = rows("Do you want to proceed?\n❯ 1. Yes\n  2. No\n");
+        assert_eq!(said_line(&ask), "2. No");
+        // A shell: the line above `$`.
+        assert_eq!(
+            said_line(&rows("131 passed, 0 failed\n$\n")),
+            "131 passed, 0 failed"
+        );
+        // Nothing above the prompt but rules: the last line as before.
+        assert_eq!(said_line(&rows("╭────╮\n>\n╰────╯\n")), "╰────╯");
+        assert_eq!(said_line(&rows("  plain  \n\n")), "plain");
+        assert_eq!(said_line(&[]), "");
     }
 
     #[test]

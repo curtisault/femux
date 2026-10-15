@@ -221,5 +221,6 @@ when its tests are listed here and pass. Test names are `crate` `module::test`.
 
 | Requirement | Tests | Status |
 | --- | --- | --- |
+| REQ-UI-044 (0.11.0: a row says the agent's last line above its prompt and footer, not the footer) | femux-client `inbox::tests::ui_044_said_line_skips_the_prompt_footer_and_rules`, `ui_inbox::*`, `ui_panel::*` | pass |
 | REQ-AGT-002 (0.11.0: a tty read is blocked; an event-loop wait is read off the screen, a selected choice or yes/no blocked, else done; evidence kept current) | femux-plugin-agents `detect::agt_002_an_event_loop_wait_is_read_off_the_screen`, `detect::agt_002_a_process_waiting_on_the_tty_is_blocked_then_exited_then_idle`, `detect::tests::agt_002_the_screen_tells_an_idle_agent_from_a_waiting_one`, `procfs::tests::stat_state_after_the_command_name` | pass |
 | REQ-AGT-004 (0.11.0: past the hold, a lower tier needs new output or a new foreground process) | femux-plugin-agents `tier::tests::agt_004_higher_tiers_override_and_lower_ones_wait_out_the_hold`, `detect::agt_004_a_lower_tier_waits_out_the_hold_and_needs_something_new` | pass |
